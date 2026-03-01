@@ -20,10 +20,11 @@ from src.config.protocol import (
     CFSC_COMMAND, CFSC_RESP_START, CFSC_RESP_END
 )
 from src.ui.connection_bar import ConnectionBar
-from src.ui.console_panel import ConsolePanel
 from src.ui.uart_log_panel import UartLogPanel
+from src.ui.console_panel import ConsolePanel
 from src.ui.basic.basic_panel import BasicPanel
 from src.ui.advanced.advanced_panel import AdvancedPanel
+from src.config.paths import STACK_DEFAULT_JSON, _resource_path
 
 
 class GatewayConfigApp:
@@ -49,6 +50,12 @@ class GatewayConfigApp:
         # Current config
         self.current_config: GatewayConfig = GatewayConfig()
         self.raw_response: str = ""
+        # Serial receive line buffer — accumulates bytes until \n arrives
+        self._rx_line_buffer: str = ""
+        self._flush_timer_id = None
+        # Tracks stacks for which the "no JSON" dialog has already been shown
+        # (reset whenever a fresh config with json_len > 0 is received).
+        self._prompted_stacks: set = set()  # elements: (stack_idx, stack_id)
         
         # Current mode (False = basic, True = advanced)
         self.advanced_mode = tk.BooleanVar(value=False)
@@ -94,7 +101,9 @@ class GatewayConfigApp:
             main_frame,
             on_connect=self._on_connect,
             on_disconnect=self._on_disconnect,
-            on_refresh=self._get_ports
+            on_refresh=self._get_ports,
+            serial_manager=self.serial_manager,
+            on_scan_complete=self._on_scan_complete,
         )
         self.connection_bar.pack(fill=tk.X, padx=10, pady=5)
         
@@ -116,6 +125,24 @@ class GatewayConfigApp:
             command=self._on_mode_change
         )
         self.advanced_check.pack(side=tk.LEFT, padx=5)
+
+        # Log panel visibility checkboxes (inline, right of Advanced Mode)
+        ttk.Separator(mode_frame, orient='vertical').pack(
+            side=tk.LEFT, fill=tk.Y, padx=8, pady=2)
+
+        self.show_uart_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            mode_frame, text="UART Log",
+            variable=self.show_uart_var,
+            command=self._on_log_toggle
+        ).pack(side=tk.LEFT, padx=4)
+
+        self.show_console_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            mode_frame, text="Console Log",
+            variable=self.show_console_var,
+            command=self._on_log_toggle
+        ).pack(side=tk.LEFT, padx=4)
         
         # Action buttons (right side)
         action_frame = ttk.Frame(controls_frame)
@@ -137,33 +164,30 @@ class GatewayConfigApp:
         ttk.Separator(main_frame, orient='horizontal').pack(fill=tk.X, padx=10)
         
         # ═══════════════════════════════════════════════════════════════════
-        # 3-Panel Layout using PanedWindows
+        # 2-Panel Layout: Config (left) | UART Log (right)
         # ═══════════════════════════════════════════════════════════════════
-        
-        # Vertical paned: (Config + UART Log) on top, Debug Log on bottom
-        self.vertical_paned = ttk.PanedWindow(main_frame, orient=tk.VERTICAL)
-        self.vertical_paned.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-        
-        # Top section: Horizontal paned (Config | UART Log)
-        self.horizontal_paned = ttk.PanedWindow(self.vertical_paned, orient=tk.HORIZONTAL)
+        self.horizontal_paned = ttk.PanedWindow(main_frame, orient=tk.HORIZONTAL)
+        self.horizontal_paned.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
         # Left side - Configuration panel container (fixed width)
         self.config_container = ttk.Frame(self.horizontal_paned, width=550)
         self.config_container.pack_propagate(False)
         
-        # Right side - UART Log panel (expandable)
-        self.uart_log = UartLogPanel(self.horizontal_paned)
+        # Right side: stacked UART Log (expands) + Console Log (fixed)
+        self.right_frame = ttk.Frame(self.horizontal_paned)
+
+        self.uart_log = UartLogPanel(self.right_frame)
+        self.uart_log.pack(fill=tk.BOTH, expand=True)
+
+        self._log_separator = ttk.Separator(self.right_frame, orient='horizontal')
+        self._log_separator.pack(fill=tk.X)
+
+        self.console_log = ConsolePanel(self.right_frame)
+        self.console_log.pack(fill=tk.X)
         
         # Add to horizontal paned
         self.horizontal_paned.add(self.config_container, weight=0)
-        self.horizontal_paned.add(self.uart_log, weight=1)
-        
-        # Bottom section: Debug Log (full width, fixed height)
-        self.debug_log = ConsolePanel(self.vertical_paned, height=120)
-        
-        # Add to vertical paned
-        self.vertical_paned.add(self.horizontal_paned, weight=1)
-        self.vertical_paned.add(self.debug_log, weight=0)
+        self.horizontal_paned.add(self.right_frame, weight=1)
         
         # Create config panels
         self.basic_panel = BasicPanel(
@@ -177,8 +201,8 @@ class GatewayConfigApp:
             log_callback=self._log
         )
         
-        # Show basic panel by default (anchor nw to avoid whitespace)
-        self.basic_panel.pack(fill=tk.X, anchor="nw")
+        # Show basic panel by default
+        self.basic_panel.pack(fill=tk.BOTH, expand=True)
         
         # Status bar
         status_frame = ttk.Frame(main_frame)
@@ -204,11 +228,51 @@ class GatewayConfigApp:
         
         # Show selected panel (anchor nw to avoid whitespace)
         if self.advanced_mode.get():
-            self.advanced_panel.pack(fill=tk.X, anchor="nw")
+            self.advanced_panel.pack(fill=tk.BOTH, expand=True)
             self._log("Switched to ADVANCED mode", "INFO")
         else:
-            self.basic_panel.pack(fill=tk.X, anchor="nw")
+            self.basic_panel.pack(fill=tk.BOTH, expand=True)
             self._log("Switched to BASIC mode", "INFO")
+
+    def _on_log_toggle(self):
+        """Show or hide uart_log / console_log panels based on checkboxes.
+
+        When both are hidden, remove the right_frame from horizontal_paned so
+        the config panel fills the full window width.
+        When at least one is visible, ensure right_frame is in horizontal_paned.
+        """
+        show_uart    = self.show_uart_var.get()
+        show_console = self.show_console_var.get()
+
+        # UART log
+        if show_uart:
+            self.uart_log.pack(fill=tk.BOTH, expand=True)
+        else:
+            self.uart_log.pack_forget()
+
+        # Separator between logs (only when both visible)
+        if show_uart and show_console:
+            self._log_separator.pack(fill=tk.X)
+        else:
+            self._log_separator.pack_forget()
+
+        # Console log
+        if show_console:
+            self.console_log.pack(fill=tk.BOTH, expand=show_uart is False)
+        else:
+            self.console_log.pack_forget()
+
+        # Add/remove entire right frame from the horizontal PanedWindow
+        panes = list(self.horizontal_paned.panes())
+        right_name = str(self.right_frame)
+        right_present = right_name in panes
+
+        if not show_uart and not show_console:
+            if right_present:
+                self.horizontal_paned.forget(self.right_frame)
+        else:
+            if not right_present:
+                self.horizontal_paned.add(self.right_frame, weight=1)
     
     def _get_ports(self):
         """Get available serial ports"""
@@ -221,11 +285,20 @@ class GatewayConfigApp:
         self.advanced_panel.refresh_ports(ports)
     
     def _on_connect(self, port: str, baudrate: int):
-        """Handle connect request"""
+        """Handle connect request.
+
+        After a successful connection the CFSC command is sent automatically
+        (500 ms delay lets the serial link settle) so the UI is populated
+        without requiring a manual "Read Config" click.
+        """
         if self.serial_manager.connect(port, baudrate):
             self.connection_bar.set_connected(True, port)
             self.uart_log.set_port(port)  # Update UART log header
             self._set_status(f"Connected to {port}")
+            self._log("Auto-reading config from gateway…", "INFO")
+            # Small delay: gives the UART link time to stabilise before the
+            # first command is sent, especially important with native USB CDC.
+            self.root.after(500, self._read_config)
     
     def _on_disconnect(self):
         """Handle disconnect request"""
@@ -233,12 +306,85 @@ class GatewayConfigApp:
         self.connection_bar.set_connected(False)
         self.uart_log.set_disconnected()  # Update UART log header
         self._set_status("Disconnected")
+
+    def _on_scan_complete(self, gateways):
+        """Called after a manual scan finishes.  The user selects the port and
+        connects manually — no auto-connect logic here.
+        """
+        if len(gateways) == 1:
+            port, _desc = gateways[0]
+            self._log(f"Gateway found: {port} — select it in the dropdown and click Connect", "INFO")
+        elif len(gateways) > 1:
+            names = ', '.join(g[0] for g in gateways)
+            self._log(f"Found {len(gateways)} gateways: {names} — select one and click Connect", "INFO")
     
     def _on_serial_data(self, data: str):
-        """Handle incoming serial data - display in UART Log"""
-        # Log to UART panel (raw data)
+        """Handle incoming serial data — display in UART Log and route to BLE handlers.
+
+        Serial data can arrive in arbitrary-sized chunks (hardware buffering).
+        The firmware terminates each response packet with ``\\n``, so we
+        accumulate bytes in ``_rx_line_buffer`` and only process complete
+        lines.  A 300 ms safety-flush timer handles the edge case where a
+        response has no trailing ``\\n`` (legacy / raw data).
+        """
+        # Always log raw data to UART panel immediately (for debugging)
         if hasattr(self, 'uart_log'):
             self.uart_log.log_rx(data)
+
+        # Accumulate into line buffer
+        self._rx_line_buffer += data
+
+        # Process every complete line (terminated by \n)
+        while '\n' in self._rx_line_buffer:
+            line, self._rx_line_buffer = self._rx_line_buffer.split('\n', 1)
+            self._route_ble_line(line.strip())
+
+        # Safety flush: if residual data sits > 300 ms without \n, flush it
+        if self._rx_line_buffer:
+            if self._flush_timer_id is not None:
+                self.root.after_cancel(self._flush_timer_id)
+            self._flush_timer_id = self.root.after(300, self._flush_rx_buffer)
+        else:
+            # Buffer empty — cancel any pending flush
+            if self._flush_timer_id is not None:
+                self.root.after_cancel(self._flush_timer_id)
+                self._flush_timer_id = None
+
+    def _flush_rx_buffer(self):
+        """Flush incomplete line buffer after timeout (safety net)."""
+        self._flush_timer_id = None
+        if self._rx_line_buffer:
+            line = self._rx_line_buffer.strip()
+            self._rx_line_buffer = ""
+            if line:
+                self._route_ble_line(line)
+
+    def _route_ble_line(self, line: str):
+        """Route a complete line to the appropriate BLE handler widget.
+
+        Uses split('\\n') is no longer needed — each *line* is already a
+        single, complete message thanks to the line-buffering layer above.
+        Firmware encodes multi-line AT responses with ``\\x1E`` (Record
+        Separator) so the entire CFBL packet stays on one line.
+        """
+        if not line:
+            return
+        is_ble_line = (
+            line.startswith("CFBL:")
+            or line.startswith("+SCAN:")
+            or line.startswith("+CONNECTED:")
+            or line.startswith("+DISCONNECTED:")
+            or line in ("BR:SCAN:DONE", "PARSE_OK", "BR:JSON:OK")
+            or line.startswith("PARSE_FAIL")
+            or line.startswith("BR:JSON:FAIL")
+        )
+        if is_ble_line:
+            # Advanced panel stack tabs (BLE, Zigbee, …)
+            for widget in getattr(self.advanced_panel, '_stack_tabs', {}).values():
+                self.root.after(0, lambda w=widget, l=line: w.handle_response(l))
+            # Basic panel module stack tabs (BLE, Zigbee, …)
+            for widget in getattr(self.basic_panel, '_stack_tabs', {}).values():
+                self.root.after(0, lambda w=widget, l=line: w.handle_response(l))
     
     def _on_serial_tx(self, data: str):
         """Handle outgoing serial data - display in UART Log"""
@@ -246,8 +392,11 @@ class GatewayConfigApp:
             self.uart_log.log_tx(data)
     
     def _log(self, message: str, level: str = "INFO"):
-        """Log to debug console"""
-        self.debug_log.log(message, level)
+        """Log to console panel (and stdout as fallback)."""
+        from datetime import datetime
+        print(f"[{datetime.now().strftime('%H:%M:%S')}][{level}] {message}")
+        if hasattr(self, 'console_log'):
+            self.root.after(0, lambda m=message, l=level: self.console_log.log(m, l))
     
     def _set_status(self, message: str):
         """Set status bar message"""
@@ -290,6 +439,102 @@ class GatewayConfigApp:
         """Update UI panels from current config"""
         self.basic_panel.set_config(self.current_config)
         self.advanced_panel.set_config(self.current_config)
+
+        # Auto-prompt JSON upload for stacks that have no JSON config yet.
+        # Clear the guard for stacks whose JSON has since been uploaded
+        # (json_len > 0 means the gateway already has the config).
+        stack_info = self.current_config.lan.stack_info
+        for idx, sid, json_len in [
+            (0, stack_info.stack1_id, stack_info.stack1_json_len),
+            (1, stack_info.stack2_id, stack_info.stack2_json_len),
+        ]:
+            key = (idx, sid)
+            if json_len > 0:
+                # JSON is now present — clear guard so a future removal is noticed
+                self._prompted_stacks.discard(key)
+            elif sid not in ("", "000") and key not in self._prompted_stacks:
+                self._prompted_stacks.add(key)
+                if not self.advanced_mode.get():
+                    # Basic mode: auto-send the default JSON silently
+                    self.root.after(
+                        400,
+                        lambda i=idx, s=sid: self._auto_send_stack_json(i, s)
+                    )
+                else:
+                    # Advanced mode: prompt user to open the tab manually
+                    self.root.after(
+                        400,
+                        lambda i=idx, s=sid: self._prompt_json_upload(i, s)
+                    )
+
+    def _auto_send_stack_json(self, stack_idx: int, stack_id: str):
+        """Silently load the default JSON for *stack_id* and send it to the
+        gateway without any user interaction.  Called in Basic mode only.
+
+        Lookup table (STACK_DEFAULT_JSON) maps stack_id → relative path of
+        the JSON file (relative to the project / frozen-app root).
+        """
+        from src.config.paths import load_stack_id_map
+
+        rel_path = STACK_DEFAULT_JSON.get(stack_id)
+        if not rel_path:
+            self._log(
+                f"[auto-JSON] No default JSON for stack_id={stack_id}", "WARN")
+            return
+
+        json_path = _resource_path(rel_path)
+        if not os.path.exists(json_path):
+            self._log(
+                f"[auto-JSON] Default JSON not found: {json_path}", "ERROR")
+            return
+
+        try:
+            with open(json_path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            json_content = json.dumps(data, separators=(",", ":"))
+        except Exception as exc:
+            self._log(f"[auto-JSON] Failed to read {json_path}: {exc}", "ERROR")
+            return
+
+        # Look up cmd_prefix from stack_id_map (e.g. "CFBL", "CFZG")
+        stack_map = load_stack_id_map()
+        entry = stack_map.get("lan_stack_map", {}).get(stack_id, {})
+        cmd_prefix = entry.get("cmd_prefix", "CFBL")
+
+        # Command format: CFML:<cmd_prefix>:JSON:<stack_idx>:<json_payload>
+        cmd = f"CFML:{cmd_prefix}:JSON:{stack_idx}:{json_content}"
+        self._log(
+            f"[auto-JSON] Sending default JSON for stack {stack_idx} "
+            f"(id={stack_id}, {len(json_content)} bytes)", "INFO")
+        self.serial_manager.send(cmd)
+
+    def _prompt_json_upload(self, stack_idx: int, stack_id: str):
+        """Notify user that JSON config is missing for the given stack."""
+        stack_type = {"002": "BLE"}.get(stack_id, f"stack_id={stack_id}")
+        answer = messagebox.askyesno(
+            "JSON Config Missing",
+            f"Stack {stack_idx + 1} ({stack_type}) has no JSON config loaded on the gateway.\n"
+            f"Would you like to open the Advanced tab to send a JSON config now?",
+        )
+        if answer:
+            # Switch to advanced mode — pack() is queued by tkinter's geometry
+            # manager and may not be flushed yet, so defer notebook.select()
+            # with a short after() so the panel is fully rendered first.
+            self.advanced_mode.set(True)
+            self._on_mode_change()
+            stack_tabs = getattr(self.advanced_panel, '_stack_tabs', {})
+            target_tab = stack_tabs.get(stack_idx) or (next(iter(stack_tabs.values()), None))
+            if target_tab is not None:
+                def _select(tab=target_tab):
+                    try:
+                        self.advanced_panel.notebook.select(tab)
+                    except Exception as e:
+                        self._log(f"[prompt_json] notebook.select failed: {e}", "ERROR")
+                self.root.after(100, _select)
+        else:
+            # User dismissed — remove the guard so a manual "Read Config"
+            # can re-trigger the prompt if the stack still has no JSON.
+            self._prompted_stacks.discard((stack_idx, stack_id))
     
     def _save_to_file(self):
         """Save config to file"""

@@ -1,0 +1,245 @@
+{
+    "module_id": "004",
+    "module_type": "BLE",
+    "module_name": "ESP_AT_BLE_Gateway",
+    "module_communication": {
+        "port_type": "uart",
+        "parameters": {
+            "baudrate": 115200,
+            "parity": "none",
+            "stopbit": 1
+        }
+    },
+    "functions": [
+        {
+            "function_name": "MODULE_HW_RESET",
+            "command": "",
+            "is_prefix": false,
+            "gpio_start_control": [
+                {
+                    "pin": "01",
+                    "state": "LOW"
+                }
+            ],
+            "delay_start": 100,
+            "expect_response": "",
+            "timeout": 0,
+            "gpio_end_control": [
+                {
+                    "pin": "01",
+                    "state": "HIGH"
+                }
+            ],
+            "delay_end": 1000
+        },
+        {
+            "function_name": "MODULE_SW_RESET",
+            "command": "AT+RST\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "ready",
+            "timeout": 3000,
+            "gpio_end_control": [],
+            "delay_end": 2000
+        },
+        {
+            "function_name": "MODULE_FACTORY_RESET",
+            "command": "AT+RESTORE\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "ready",
+            "timeout": 5000,
+            "gpio_end_control": [],
+            "delay_end": 3000
+        },
+        {
+            "function_name": "MODULE_GET_INFO",
+            "command": "AT+GMR\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 1000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "MODULE_SET_NAME",
+            "command": "AT+BLENAME=",
+            "is_prefix": true,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 500,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "MODULE_SET_COMM_CONFIG",
+            "command": "",
+            "is_prefix": true,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "",
+            "timeout": 0,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "MODULE_SET_RF_PARAMS",
+            "command": "",
+            "is_prefix": true,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "",
+            "timeout": 0,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "MODULE_ENTER_CMD_MODE",
+            "command": "",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "",
+            "timeout": 0,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "MODULE_ENTER_DATA_MODE",
+            "command": "AT+BLESPPCFG=",
+            "is_prefix": true,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 500,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "MODULE_START_BROADCAST",
+            "command": "AT+BLEADVSTART\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 500,
+            "gpio_end_control": [],
+            "delay_end": 100
+        },
+        {
+            "function_name": "MODULE_CONNECT",
+            "command": "AT+BLECONN=",
+            "is_prefix": true,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "+BLECONN:",
+            "timeout": 10000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "MODULE_DISCONNECT",
+            "command": "AT+BLEDISCONN=",
+            "is_prefix": true,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "+BLEDISCONN:",
+            "timeout": 2000,
+            "gpio_end_control": [],
+            "delay_end": 200
+        },
+        {
+            "function_name": "MODULE_GET_CONNECTION_STATUS",
+            "command": "AT+BLECONN?\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 500,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "MODULE_ENTER_SLEEP",
+            "command": "",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "",
+            "timeout": 0,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "MODULE_WAKEUP",
+            "command": "",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "",
+            "timeout": 0,
+            "gpio_end_control": [],
+            "delay_end": 300
+        },
+        {
+            "function_name": "MODULE_START_DISCOVERY",
+            "command": "AT+BLESCAN=",
+            "is_prefix": true,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "+BLESCANDONE",
+            "timeout": 15000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "MODULE_SEND_DATA",
+            "command": "AT+BLEGATTCWR=",
+            "is_prefix": true,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": ">",
+            "timeout": 2000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "MODULE_GET_DIAGNOSTICS",
+            "command": "AT+BLEGATTCRD=",
+            "is_prefix": true,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "+BLEGATTCRD:",
+            "timeout": 2000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "MODULE_DISCOVER_SERVICES",
+            "command": "AT+BLEGATTCPRIMSRV=",
+            "is_prefix": true,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 5000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "MODULE_DISCOVER_CHARACTERISTICS",
+            "command": "AT+BLEGATTCCHAR=",
+            "is_prefix": true,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 5000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        }
+    ]
+}

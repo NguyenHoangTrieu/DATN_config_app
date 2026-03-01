@@ -83,8 +83,8 @@ if %FLASH_LAN%==1 (
     echo.
     
     if %FLASH_WAN%==1 (
-        echo Waiting 2 seconds...
-        timeout /t 2 /nobreak >nul 2>&1
+        echo Waiting 5 seconds for USB re-enumeration...
+        timeout /t 5 /nobreak >nul 2>&1
     )
     
     echo [LAN 1/4] Erasing NVS...

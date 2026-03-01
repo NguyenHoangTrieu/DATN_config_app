@@ -8,7 +8,38 @@ import serial.tools.list_ports
 import threading
 import queue
 import time
-from typing import Optional, Callable, List, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Optional, Callable, List, Tuple, Dict, Any
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Known USB-to-serial adapter VID/PID table.
+#
+# To add support for a new device family, simply append an entry:
+#   {'vid': 0xXXXX, 'pid': 0xYYYY, 'description': 'Short name'}
+#
+# Set pid=None to match ALL PIDs under that VID (wildcard for a whole family).
+# ──────────────────────────────────────────────────────────────────────────────
+KNOWN_GATEWAY_ADAPTERS: List[Dict[str, Any]] = [
+    # WCH CH340 family — CH340, CH340K, CH340C, CH340T, CH341, etc.
+    {'vid': 0x1A86, 'pid': None,   'description': 'CH340/CH340K/CH341 (WCH)'},
+
+    # Silicon Labs CP210x family
+    {'vid': 0x10C4, 'pid': 0xEA60, 'description': 'CP2102 (Silicon Labs)'},
+    {'vid': 0x10C4, 'pid': 0xEA70, 'description': 'CP2104 (Silicon Labs)'},
+    {'vid': 0x10C4, 'pid': 0xEA80, 'description': 'CP2105 (Silicon Labs)'},
+    {'vid': 0x10C4, 'pid': 0xEA63, 'description': 'CP2102N (Silicon Labs)'},
+
+    # FTDI FT232 / FT2232 / FT4232
+    {'vid': 0x0403, 'pid': None,   'description': 'FT232/FT2232/FT4232 (FTDI)'},
+
+    # Espressif native USB — all PIDs (CDC ACM = 0x1000, JTAG = 0x1001, composite, etc.)
+    {'vid': 0x303A, 'pid': None,   'description': 'Espressif USB (ESP32-S2/S3/C3/C6)'},
+]
+
+# CFSC probe constants
+_CFSC_PROBE_COMMAND = b'CFSC\r\n'
+_CFSC_PROBE_MARKER  = 'CFSC_RESP:START'
+_CFSC_PROBE_TIMEOUT = 3.0   # seconds
 
 
 class SerialManager:
@@ -33,11 +64,123 @@ class SerialManager:
     
     @staticmethod
     def list_ports() -> List[Tuple[str, str]]:
-        """List available serial ports"""
+        """List all available serial ports (unfiltered)."""
         ports = []
         for port in serial.tools.list_ports.comports():
             ports.append((port.device, port.description))
         return ports
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Gateway Scan — VID/PID filter → CFSC probe
+    # ──────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def list_gateway_candidate_ports() -> List[Tuple[str, str]]:
+        """Return ports whose VID/PID match a known USB-serial adapter.
+
+        Iterates ``KNOWN_GATEWAY_ADAPTERS``; an entry with ``pid=None``
+        matches every PID under that VID (whole family wildcard).
+
+        Returns:
+            List of ``(device, description)`` tuples — may be empty.
+        """
+        candidates = []
+        for port in serial.tools.list_ports.comports():
+            port_vid = getattr(port, 'vid', None)
+            port_pid = getattr(port, 'pid', None)
+            if port_vid is None:
+                continue
+            for adapter in KNOWN_GATEWAY_ADAPTERS:
+                vid_match = (port_vid == adapter['vid'])
+                pid_match = (adapter['pid'] is None) or (port_pid == adapter['pid'])
+                if vid_match and pid_match:
+                    candidates.append((port.device, port.description))
+                    break   # already matched, skip remaining adapters for this port
+        return candidates
+
+    @staticmethod
+    def probe_gateway_port(port: str, baudrate: int = 115200,
+                           timeout: float = _CFSC_PROBE_TIMEOUT) -> bool:
+        """Open *port*, send a CFSC probe, and check for a valid CFSC response.
+
+        Uses a temporary isolated serial session.  DTR and RTS are driven LOW
+        *before* the port is opened so that boards with an auto-reset circuit
+        (ESP32 EN/BOOT capacitor network) are not inadvertently reset.
+        """
+        s = serial.Serial()
+        s.port      = port
+        s.baudrate  = baudrate
+        s.bytesize  = serial.EIGHTBITS
+        s.parity    = serial.PARITY_NONE
+        s.stopbits  = serial.STOPBITS_ONE
+        s.rtscts    = False
+        s.dsrdtr    = False
+        s.timeout   = 0.1
+        # Pre-set line levels so the OS applies them atomically on open().
+        # This prevents the brief DTR/RTS pulse that triggers auto-reset.
+        s.dtr = False
+        s.rts = False
+        try:
+            s.open()
+            try:
+                time.sleep(0.15)          # let port settle (important for native USB)
+                s.reset_input_buffer()
+                s.write(_CFSC_PROBE_COMMAND)
+
+                deadline = time.time() + timeout
+                buf = b''
+                while time.time() < deadline:
+                    chunk = s.read(256)
+                    if chunk:
+                        buf += chunk
+                        if _CFSC_PROBE_MARKER.encode() in buf:
+                            return True
+                    else:
+                        time.sleep(0.05)
+            finally:
+                s.close()
+        except (serial.SerialException, OSError):
+            pass
+        return False
+
+    def scan_for_gateways(self, baudrate: int = 115200,
+                          progress_callback: Optional[Callable[[int, int, str], None]] = None
+                          ) -> List[Tuple[str, str]]:
+        """Scan descriptor-filtered candidate COM ports and return gateways.
+
+        Flow:
+        1) Filter by known USB-serial adapter descriptor (VID/PID table)
+        2) Probe only filtered ports with CFSC command
+        """
+        candidates = self.list_gateway_candidate_ports()
+        total = len(candidates)
+        if total == 0:
+            return []
+
+        confirmed: List[Tuple[str, str]] = []
+        lock = threading.Lock()
+        completed_count = [0]
+
+        def _probe(device_desc: Tuple[str, str]) -> Tuple[str, str, bool]:
+            device, desc = device_desc
+            result = self.probe_gateway_port(device, baudrate)
+            with lock:
+                completed_count[0] += 1
+                if progress_callback:
+                    progress_callback(completed_count[0], total, device)
+            return device, desc, result
+
+        max_workers = min(total, 4)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_probe, c): c for c in candidates}
+            for future in as_completed(futures):
+                device, desc, ok = future.result()
+                if ok:
+                    with lock:
+                        confirmed.append((device, desc))
+
+        confirmed.sort(key=lambda x: x[0])
+        return confirmed
     
     def connect(self, port: str, baudrate: int = 115200, timeout: float = 1.0) -> bool:
         """Connect to serial port"""

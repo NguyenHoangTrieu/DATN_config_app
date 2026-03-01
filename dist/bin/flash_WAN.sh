@@ -99,8 +99,8 @@ if [ $FLASH_LAN -eq 1 ]; then
     echo ""
     
     if [ $FLASH_WAN -eq 1 ]; then
-        echo "Waiting 2 seconds..."
-        sleep 2
+        echo "Waiting 5 seconds for USB re-enumeration..."
+        sleep 5
     fi
     
     echo "[LAN 1/4] Erasing NVS..."

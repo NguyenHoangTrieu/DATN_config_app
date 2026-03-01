@@ -22,9 +22,9 @@ class FirmwareTab(ttk.Frame):
     
     def _create_widgets(self):
         """Create firmware tab widgets"""
-        # Container - no expand to avoid whitespace
+        # Container fills available space so Flash Log can expand
         container = ttk.Frame(self, padding=10)
-        container.pack(fill=tk.X, anchor="nw")
+        container.pack(fill=tk.BOTH, expand=True)
         
         # Info section - compact
         info_section = ttk.LabelFrame(container, text="Information", padding=8)
@@ -32,7 +32,7 @@ class FirmwareTab(ttk.Frame):
         
         ttk.Label(info_section, text="Flash both WAN and LAN MCU firmware",
                  font=("Segoe UI", 9)).pack(anchor="w")
-        ttk.Label(info_section, text="⚠️ Requires flash_WAN.sh (Linux/macOS) or flash_WAN.bat (Windows) in bin/",
+        ttk.Label(info_section, text="⚠️ Requires flash_WAN.bat (Windows) or flash_WAN.sh (Linux/macOS) in dist/bin/",
              font=("Segoe UI", 9), foreground="#FF9800").pack(anchor="w")
         
         # COM Port selection - compact
@@ -61,9 +61,9 @@ class FirmwareTab(ttk.Frame):
                                       command=self._on_update_click)
         self.update_btn.pack(anchor="e", padx=5)
         
-        # Flash output log - smaller
+        # Flash output log - expands to use remaining space
         log_section = ttk.LabelFrame(container, text="Flash Log", padding=5)
-        log_section.pack(fill=tk.X, pady=5)
+        log_section.pack(fill=tk.BOTH, expand=True, pady=5)
         
         log_scroll = ttk.Scrollbar(log_section)
         log_scroll.pack(side=tk.RIGHT, fill=tk.Y)
@@ -72,7 +72,7 @@ class FirmwareTab(ttk.Frame):
                                 font=("Consolas", 8),
                                 yscrollcommand=log_scroll.set,
                                 bg="#1E1E1E", fg="#CCCCCC")
-        self.log_text.pack(fill=tk.X)
+        self.log_text.pack(fill=tk.BOTH, expand=True)
         log_scroll.config(command=self.log_text.yview)
         
         # Configure tags
@@ -127,25 +127,25 @@ class FirmwareTab(ttk.Frame):
         is_windows = sys.platform.startswith("win")
         script_name = "flash_WAN.bat" if is_windows else "flash_WAN.sh"
 
-        # Resolve base path (works for PyInstaller onedir/onefile and source)
+        # Resolve script directory:
+        #   Frozen (PyInstaller exe): exe is in dist/, bin/ folder sits next to it.
+        #   Source: firmware_tab.py is 4 levels under DATN_config_app/; bin files are in dist/bin/.
         if getattr(sys, "frozen", False):
-            base_path = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+            script_dir = Path(sys.executable).parent / "bin"
         else:
-            base_path = Path(__file__).resolve().parent.parent.parent.parent
+            script_dir = Path(__file__).resolve().parent.parent.parent.parent / "dist" / "bin"
 
-        flash_script = base_path / "bin" / script_name
-        
+        flash_script = script_dir / script_name
+
         if not flash_script.exists():
             self._log(f"{script_name} not found at {flash_script}", "ERROR")
-            messagebox.showerror("Error", f"{script_name} not found!")
+            messagebox.showerror("Error", f"{script_name} not found!\n\nExpected at:\n{flash_script}")
             return
-        
+
         self.flashing = True
         self.update_btn.config(state=tk.DISABLED)
         self._log("=" * 60, "DEBUG")
         self._log(f"Starting firmware update: BOTH WAN and LAN", "INFO")
-
-        script_dir = flash_script.parent
 
         if is_windows:
             cmd = f'"{flash_script}" {com_port}'

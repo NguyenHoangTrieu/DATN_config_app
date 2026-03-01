@@ -1,0 +1,45 @@
+{
+    "module_id": "002",
+    "module_type": "BLE",
+    "module_name": "STM32WB55 BLE",
+    "cmd_prefix": "CFBL",
+    "description": "App command map for STM32WB55 BLE module. button_functions = one-click (command sent as-is). manual_functions = command_prefix + user param (no colon between).",
+
+    "button_functions": [
+        { "id": "SW_RESET",        "command": "AT+RESET",        "label": "SW Reset",       "group": "system" },
+        { "id": "FACTORY_RESET",   "command": "AT+FACTORY",      "label": "Factory Reset",  "group": "system" },
+        { "id": "ENTER_CMD_MODE",  "command": "AT+CMDMODE",      "label": "CMD Mode",       "group": "system" },
+        { "id": "SAVE_CONFIG",     "command": "AT+SAVE",         "label": "Save Config",    "group": "system" },
+        { "id": "ENTER_SLEEP",     "command": "AT+SLEEP",        "label": "Sleep",           "group": "system" },
+        { "id": "WAKEUP",          "command": "MODULE_WAKEUP",   "label": "Wakeup",          "group": "system" },
+        { "id": "GET_INFO",        "command": "AT+GETINFO",      "label": "Get Info",        "group": "info" },
+        { "id": "GET_STATUS",      "command": "AT+LIST",         "label": "List Devices",    "group": "info" },
+        { "id": "SCAN",            "command": "AT+SCAN=5000",    "label": "Scan (5s)",       "group": "scan" },
+        { "id": "STOP_SCAN",       "command": "AT+STOP",         "label": "Stop Scan",       "group": "scan" },
+        { "id": "CLEAR_DEVICES",   "command": "AT+CLEAR",        "label": "Clear List",      "group": "scan" }
+    ],
+
+    "manual_functions": [
+        { "id": "SET_NAME",          "command_prefix": "AT+NAME=",        "label": "Set Name",        "group": "config",     "param_hint": "device_name",              "example": "AT+NAME=MyBLEDevice" },
+        { "id": "SET_RF_PARAMS",     "command_prefix": "AT+RF=",          "label": "Set RF Params",   "group": "config",     "param_hint": "tx_pwr,scan_int,scan_win", "example": "AT+RF=0,160,80" },
+        { "id": "CUSTOM_SCAN",       "command_prefix": "AT+SCAN=",        "label": "Scan (custom)",   "group": "scan",       "param_hint": "duration_ms",              "example": "AT+SCAN=10000" },
+        { "id": "CONNECT",           "command_prefix": "AT+CONNECT=",     "label": "Connect",         "group": "connection", "param_hint": "dev_index",                "example": "AT+CONNECT=0" },
+        { "id": "DISCONNECT",        "command_prefix": "AT+DISCONNECT=",  "label": "Disconnect",      "group": "connection", "param_hint": "dev_index",                "example": "AT+DISCONNECT=0" },
+        { "id": "ENTER_DATA_MODE",   "command_prefix": "AT+DATAMODE=",    "label": "Data Mode",       "group": "connection", "param_hint": "dev_idx,char_handle",      "example": "AT+DATAMODE=0,0012" },
+        { "id": "GET_DEV_INFO",      "command_prefix": "AT+INFO=",        "label": "Device Info",     "group": "info",       "param_hint": "dev_index",                "example": "AT+INFO=0" },
+        { "id": "GET_DIAGNOSTICS",   "command_prefix": "AT+DIAG=",        "label": "Diagnostics",     "group": "info",       "param_hint": "dev_index",                "example": "AT+DIAG=0" },
+        { "id": "STATUS",            "command_prefix": "AT+STATUS=",      "label": "Conn Status",     "group": "info",       "param_hint": "dev_index",                "example": "AT+STATUS=0" },
+        { "id": "DISCOVER_SERVICES", "command_prefix": "AT+DISC=",        "label": "Disc Services",   "group": "discovery",  "param_hint": "dev_index",                "example": "AT+DISC=0" },
+        { "id": "DISCOVER_CHARS",    "command_prefix": "AT+CHARS=",       "label": "Disc Chars",      "group": "discovery",  "param_hint": "dev_idx,start,end",        "example": "AT+CHARS=0,0001,FFFF" },
+        { "id": "READ_DATA",         "command_prefix": "AT+READ=",        "label": "Read Char",       "group": "data",       "param_hint": "dev_idx,char_handle",      "example": "AT+READ=0,0012" },
+        { "id": "SEND_DATA",         "command_prefix": "AT+WRITE=",       "label": "Write Char",      "group": "data",       "param_hint": "dev_idx,char,hex_data",    "example": "AT+WRITE=0,0012,48656C6C6F" },
+        { "id": "NOTIFY",            "command_prefix": "AT+NOTIFY=",      "label": "Notification",    "group": "data",       "param_hint": "dev_idx,desc_handle,0|1",  "example": "AT+NOTIFY=0,0013,1" }
+    ],
+
+    "response_patterns": {
+        "ok":           "OK",
+        "error":        "ERROR",
+        "json_ok":      "PARSE_OK",
+        "json_fail":    "PARSE_FAIL"
+    }
+}

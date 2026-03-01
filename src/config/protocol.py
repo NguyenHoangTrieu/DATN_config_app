@@ -37,6 +37,7 @@ class StackType(Enum):
     RS485 = "RS485"
     ZIGBEE = "ZIGBEE"
     CAN = "CAN"
+    BLE = "BLE"
 
 
 # Protocol constants
@@ -78,6 +79,10 @@ class WanConfig:
     lte_max_retries: int = 5
     lte_timeout_ms: int = 30000
     lte_auto_reconnect: str = "false"
+    lte_modem_name: str = ""
+    lte_pwr_pin: str = "WK"
+    lte_rst_pin: str = "PE"
+    stack_wan_id: str = "000"
     server_type: str = "MQTT"
     mqtt_broker: str = ""
     mqtt_device_token: str = ""
@@ -122,9 +127,25 @@ class Rs485Config:
 
 @dataclass
 class StackConfig:
-    """Stack configuration"""
+    """Stack configuration (legacy, kept for compatibility)"""
     stack_1_type: str = "NONE"
     stack_2_type: str = "NONE"
+
+
+@dataclass
+class LanStackInfo:
+    """LAN stack info parsed from CFSC response"""
+    stack1_id: str = "000"       # "000"=empty, "001"=Zigbee, "002"=BLE, ...
+    stack2_id: str = "000"
+    rs485_baudrate: int = 115200
+    stack1_json_len: int = 0    # 0 = no JSON stored on gateway
+    stack2_json_len: int = 0
+
+    def get_stack_id(self, stack_idx: int) -> str:
+        return self.stack1_id if stack_idx == 0 else self.stack2_id
+
+    def get_json_len(self, stack_idx: int) -> int:
+        return self.stack1_json_len if stack_idx == 0 else self.stack2_json_len
 
 
 @dataclass
@@ -134,6 +155,7 @@ class LanConfig:
     can: CanConfig = field(default_factory=CanConfig)
     rs485: Rs485Config = field(default_factory=Rs485Config)
     stack: StackConfig = field(default_factory=StackConfig)
+    stack_info: LanStackInfo = field(default_factory=LanStackInfo)
 
 
 @dataclass
@@ -204,8 +226,28 @@ class ConfigParser:
                     setattr(config.wan, key, value)
             
             elif section == "lan":
+                # New stack-based fields from firmware CFSC response
+                if key == "stack1_id":
+                    config.lan.stack_info.stack1_id = value
+                elif key == "stack2_id":
+                    config.lan.stack_info.stack2_id = value
+                elif key == "rs485_baudrate":
+                    try:
+                        config.lan.stack_info.rs485_baudrate = int(value)
+                    except ValueError:
+                        pass
+                elif key == "stack1_json_len":
+                    try:
+                        config.lan.stack_info.stack1_json_len = int(value)
+                    except ValueError:
+                        pass
+                elif key == "stack2_json_len":
+                    try:
+                        config.lan.stack_info.stack2_json_len = int(value)
+                    except ValueError:
+                        pass
                 # LoRa configs
-                if key.startswith("lora_e32_"):
+                elif key.startswith("lora_e32_"):
                     attr = key.replace("lora_e32_", "e32_")
                     if attr in ["e32_addh", "e32_addl", "e32_sped", "e32_option", "e32_header"]:
                         setattr(config.lan.lora, attr, int(value, 16) if value.startswith("0x") else int(value))

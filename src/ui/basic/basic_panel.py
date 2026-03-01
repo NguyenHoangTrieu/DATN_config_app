@@ -13,7 +13,41 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
+import json
+
 from src.config.protocol import GatewayConfig
+from src.config.paths import load_stack_id_map
+from src.ui.basic.ble_basic_tab import BLEBasicTab
+
+_STACK_ID_BLE = "002"  # kept for backward compatibility — use _LAN_STACK_REGISTRY below
+
+# ── LAN stack type registry ───────────────────────────────────────────────────
+# Maps stack_id → metadata for dynamic widget creation in the Interfaces tab.
+# To add a new module type (e.g. Zigbee):
+#   1. Create ZigbeeBasicTab in src/ui/basic/zigbee_basic_tab.py
+#   2. Import it here, add an entry below.
+_LAN_STACK_REGISTRY: dict[str, dict] = {
+    "002": {
+        "widget_class": BLEBasicTab,
+        "cmd_prefix":   "CFBL",
+        "default_cmd_map": None,   # None → BLEBasicTab loads from JSON
+        "label":        "🔷 BLE",
+    },
+    "004": {
+        "widget_class": BLEBasicTab,
+        "cmd_prefix":   "CFBL",
+        "default_cmd_map": None,
+        "label":        "🔷 BLE",
+    },
+    # "001": {
+    #     "widget_class": ZigbeeBasicTab,
+    #     "cmd_prefix":   "CFZG",
+    #     "default_cmd_map": None,
+    #     "label":        "🔶 Zigbee",
+    # },
+}
+
+_STACK_MAP = load_stack_id_map()
 
 
 class BasicPanel(ttk.Frame):
@@ -31,15 +65,18 @@ class BasicPanel(ttk.Frame):
         # Title
         title_frame = ttk.Frame(self)
         title_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        ttk.Label(title_frame, text="📋 BASIC CONFIGURATION", 
+
+        ttk.Label(title_frame, text="📋 BASIC CONFIGURATION",
                  font=("Segoe UI", 12, "bold")).pack(anchor="w")
-        
-        # Notebook with 4 tabs (no expand to avoid whitespace)
+
+        # Notebook — fixed tabs first, dynamic module tabs added by set_config()
         self.notebook = ttk.Notebook(self)
-        self.notebook.pack(fill=tk.X, padx=5, pady=5)
-        
-        # Create tabs
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        # Tracks dynamically-added LAN stack tabs: key = stack slot (0 or 1)
+        self._stack_tabs: dict[int, ttk.Frame] = {}
+
+        # Create fixed tabs
         self._create_wifi_tab()
         self._create_lte_tab()
         self._create_server_tab()
@@ -109,28 +146,42 @@ class BasicPanel(ttk.Frame):
             self.wifi_username_var.set("")
     
     def _create_lte_tab(self):
-        """Create LTE configuration tab"""
+        """Create LTE configuration tab (hidden when no LTE adapter present)"""
         tab = ttk.Frame(self.notebook, padding=10)
-        self.notebook.add(tab, text="📱 LTE")
-        
+        self._lte_tab_frame = tab
+
+        # Hidden-from-user defaults populated by set_config() from stack_id_map
+        self._lte_modem_default  = ""
+        self._lte_comm_default   = "USB"
+        self._lte_pwr_default    = "WK"
+        self._lte_rst_default    = "PE"
+
+        # Adapter info row (read-only)
+        info_row = ttk.Frame(tab)
+        info_row.pack(fill=tk.X, pady=(0, 4))
+        ttk.Label(info_row, text="LTE Module:", width=15).pack(side=tk.LEFT)
+        self._lte_modem_info_var = tk.StringVar(value="—")
+        ttk.Label(info_row, textvariable=self._lte_modem_info_var,
+                  foreground="#1565C0", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=4)
+
         # LTE Settings LabelFrame
         lte_frame = ttk.LabelFrame(tab, text="LTE Settings", padding=10)
         lte_frame.pack(fill=tk.X, pady=5)
-        
+
         # APN
         row1 = ttk.Frame(lte_frame)
         row1.pack(fill=tk.X, pady=3)
         ttk.Label(row1, text="APN:", width=15).pack(side=tk.LEFT)
         self.lte_apn_var = tk.StringVar(value="internet")
         ttk.Entry(row1, textvariable=self.lte_apn_var).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        
+
         # Username
         row2 = ttk.Frame(lte_frame)
         row2.pack(fill=tk.X, pady=3)
         ttk.Label(row2, text="Username:", width=15).pack(side=tk.LEFT)
         self.lte_user_var = tk.StringVar()
         ttk.Entry(row2, textvariable=self.lte_user_var).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        
+
         # Password
         row3 = ttk.Frame(lte_frame)
         row3.pack(fill=tk.X, pady=3)
@@ -138,17 +189,20 @@ class BasicPanel(ttk.Frame):
         self.lte_pwd_var = tk.StringVar()
         self.lte_pwd_entry = ttk.Entry(row3, textvariable=self.lte_pwd_var, show="*")
         self.lte_pwd_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        
         self.show_lte_pwd_var = tk.BooleanVar()
         ttk.Checkbutton(row3, text="Show", variable=self.show_lte_pwd_var,
-                       command=lambda: self.lte_pwd_entry.config(show="" if self.show_lte_pwd_var.get() else "*")
-                       ).pack(side=tk.LEFT, padx=5)
-        
+                        command=lambda: self.lte_pwd_entry.config(
+                            show="" if self.show_lte_pwd_var.get() else "*")
+                        ).pack(side=tk.LEFT, padx=5)
+
         # Set Button
         btn_frame = ttk.Frame(tab)
         btn_frame.pack(fill=tk.X, pady=10)
-        ttk.Button(btn_frame, text="Set LTE Config", style='Set.TButton',
-                  command=self._set_lte_config).pack(anchor="e", padx=5)
+        ttk.Button(btn_frame, text="✅ Set LTE Config", style='Set.TButton',
+                   command=self._set_lte_config).pack(anchor="e", padx=5)
+
+        # NOTE: tab is NOT added to notebook here.
+        # set_config() will add/remove it based on wan_stack_id.
     
     def _create_server_tab(self):
         """Create Server configuration tab"""
@@ -193,37 +247,30 @@ class BasicPanel(ttk.Frame):
                   command=self._set_server_config).pack(anchor="e", padx=5)
     
     def _create_interfaces_tab(self):
-        """Create Interfaces configuration tab"""
+        """Create a read-only 'Detected Stacks' status tab."""
         tab = ttk.Frame(self.notebook, padding=10)
+        self._interfaces_tab_frame = tab
         self.notebook.add(tab, text="🔌 Interfaces")
-        
-        # Stack Settings LabelFrame
-        stack_frame = ttk.LabelFrame(tab, text="Communication Stacks", padding=10)
-        stack_frame.pack(fill=tk.X, pady=5)
-        
-        stack_options = ["NONE", "LORA", "RS485", "ZIGBEE", "CAN"]
-        
-        # Stack 1
-        row1 = ttk.Frame(stack_frame)
-        row1.pack(fill=tk.X, pady=3)
-        ttk.Label(row1, text="Stack 1:", width=15).pack(side=tk.LEFT)
-        self.stack1_var = tk.StringVar(value="NONE")
-        ttk.Combobox(row1, textvariable=self.stack1_var, values=stack_options,
-                    state="readonly").pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        
-        # Stack 2
-        row2 = ttk.Frame(stack_frame)
-        row2.pack(fill=tk.X, pady=3)
-        ttk.Label(row2, text="Stack 2:", width=15).pack(side=tk.LEFT)
-        self.stack2_var = tk.StringVar(value="NONE")
-        ttk.Combobox(row2, textvariable=self.stack2_var, values=stack_options,
-                    state="readonly").pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        
-        # Set Button
-        btn_frame = ttk.Frame(tab)
-        btn_frame.pack(fill=tk.X, pady=10)
-        ttk.Button(btn_frame, text="Set Interfaces", style='Set.TButton',
-                  command=self._set_interfaces_config).pack(anchor="e", padx=5)
+
+        info_frame = ttk.LabelFrame(tab, text="Detected LAN Stacks", padding=10)
+        info_frame.pack(fill=tk.X, pady=5)
+
+        r1 = ttk.Frame(info_frame); r1.pack(fill=tk.X, pady=3)
+        ttk.Label(r1, text="Stack 1:", width=12).pack(side=tk.LEFT)
+        self._stack1_info_var = tk.StringVar(value="— (not loaded)")
+        ttk.Label(r1, textvariable=self._stack1_info_var,
+                  foreground="#1565C0", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=4)
+
+        r2 = ttk.Frame(info_frame); r2.pack(fill=tk.X, pady=3)
+        ttk.Label(r2, text="Stack 2:", width=12).pack(side=tk.LEFT)
+        self._stack2_info_var = tk.StringVar(value="— (not loaded)")
+        ttk.Label(r2, textvariable=self._stack2_info_var,
+                  foreground="#1565C0", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=4)
+
+        ttk.Label(info_frame,
+                  text="💡 Module config tabs appear automatically when a module stack is detected.",
+                  font=("Segoe UI", 9), foreground="#757575",
+                  wraplength=380).pack(anchor="w", pady=(8, 0))
     
     def _check_connection(self) -> bool:
         """Check if serial is connected"""
@@ -284,38 +331,33 @@ class BasicPanel(ttk.Frame):
         thread.start()
     
     def _set_lte_config(self):
-        """Set LTE configuration"""
+        """Set LTE configuration using full CFLT format"""
         if not self._check_connection():
             return
-        
-        apn = self.lte_apn_var.get().strip()
+
+        apn  = self.lte_apn_var.get().strip()
         user = self.lte_user_var.get().strip()
-        pwd = self.lte_pwd_var.get()
-        
+        pwd  = self.lte_pwd_var.get()
+
         if not apn:
             messagebox.showwarning("Warning", "Please enter APN")
             return
-        
-        # Build CFLT command: CFLT:APN:USERNAME:PASSWORD:COMM_TYPE:AUTO_RECONNECT:TIMEOUT:MAX_RETRY
-        # Basic mode defaults: UART, false, 30000, 0
-        cmd = f"CFLT:{apn}:{user}:{pwd}:UART:false:30000:0"
-        
-        # Send CFLT first, then CFIN:LTE after 1s delay (no response waiting)
+
+        # CFLT:MODEM:APN:USER:PASS:COMM:AUTO:TIMEOUT_MS:MAX_RETRY:PWR:RST
+        cmd = (f"CFLT:{self._lte_modem_default}:{apn}:{user}:{pwd}"
+               f":{self._lte_comm_default}:true:30000:0"
+               f":{self._lte_pwr_default}:{self._lte_rst_default}")
+
         def send_lte_sequence():
-            import time
-            self.log(f"Sending: LTE Config", "INFO")
+            self.log(f"→ {cmd}", "DEBUG")
             self.serial_manager.send(cmd)
-            self.log(f"LTE Config - Sent", "SUCCESS")
-            
-            # Wait 1s before sending CFIN:LTE
+            self.log("✓ LTE Config sent", "SUCCESS")
             time.sleep(1.0)
-            
-            self.log(f"Sending: Set Internet Type = LTE", "INFO")
+            self.log("→ CFIN:LTE", "DEBUG")
             self.serial_manager.send("CFIN:LTE")
-            self.log(f"Set Internet Type = LTE - Sent", "SUCCESS")
-        
-        thread = threading.Thread(target=send_lte_sequence)
-        thread.daemon = True
+            self.log("✓ Internet type = LTE set", "SUCCESS")
+
+        thread = threading.Thread(target=send_lte_sequence, daemon=True)
         thread.start()
     
     def _set_server_config(self):
@@ -339,38 +381,105 @@ class BasicPanel(ttk.Frame):
         cmd = f"CFMQ:{broker}|{token}|{sub_topic}|{pub_topic}|{attr_topic}"
         self._send_command(cmd, "MQTT Config")
     
-    def _set_interfaces_config(self):
-        """Set Interfaces configuration"""
-        if not self._check_connection():
-            return
-        
-        stack1 = self.stack1_var.get()
-        stack2 = self.stack2_var.get()
-        
-        # Send CFML:CFST commands for each stack (CFML prefix for LAN MCU)
-        # CFML:CFST:ST_1:TYPE or CFML:CFST:ST_2:TYPE
-        self._send_command(f"CFML:CFST:ST_1:{stack1}", f"Stack 1 = {stack1}")
-        
-        # 1s delay between commands
-        time.sleep(1.0)
-        
-        self._send_command(f"CFML:CFST:ST_2:{stack2}", f"Stack 2 = {stack2}")
-    
     def set_config(self, config: GatewayConfig):
         """Set config values from loaded config"""
         # WiFi
         self.wifi_ssid_var.set(config.wan.wifi_ssid or "")
         if config.wan.wifi_password and config.wan.wifi_password != "***HIDDEN***":
             self.wifi_pwd_var.set(config.wan.wifi_password)
-        
-        # LTE
-        self.lte_apn_var.set(config.wan.lte_apn or "internet")
-        
+
+        # LTE — show/hide tab based on wan_stack_id
+        wan_id  = getattr(config.wan, "stack_wan_id", "000") or "000"
+        wan_map = _STACK_MAP.get("wan_stack_map", {})
+        lte_entry = wan_map.get(wan_id, {})
+
+        # Determine whether LTE tab should be visible
+        lte_visible = (wan_id != "000")
+        # Manage tab presence in notebook
+        tab_ids = list(self.notebook.tabs())
+        lte_frame_id = str(self._lte_tab_frame)
+        tab_present = lte_frame_id in tab_ids
+        if lte_visible and not tab_present:
+            self.notebook.insert(1, self._lte_tab_frame, text="📱 LTE")
+        elif not lte_visible and tab_present:
+            self.notebook.forget(self._lte_tab_frame)
+
+        if lte_visible:
+            # Auto-fill hidden defaults
+            self._lte_modem_default = lte_entry.get("modem", getattr(config.wan, "lte_modem_name", "") or "")
+            self._lte_comm_default  = lte_entry.get("comm_type", getattr(config.wan, "lte_comm_type", "USB") or "USB")
+            self._lte_pwr_default   = lte_entry.get("pwr_pin",  getattr(config.wan, "lte_pwr_pin", "WK") or "WK")
+            self._lte_rst_default   = lte_entry.get("rst_pin",  getattr(config.wan, "lte_rst_pin", "PE") or "PE")
+            label = lte_entry.get("label", f"Stack {wan_id}")
+            self._lte_modem_info_var.set(f"{self._lte_modem_default}  ({label})")
+            # Populate user-editable fields
+            self.lte_apn_var.set(getattr(config.wan, "lte_apn", "") or "")
+            self.lte_user_var.set(getattr(config.wan, "lte_username", "") or "")
+            pwd = getattr(config.wan, "lte_password", "") or ""
+            if pwd and pwd != "***HIDDEN***":
+                self.lte_pwd_var.set(pwd)
+
         # Server
         self.mqtt_broker_var.set(config.wan.mqtt_broker or "mqtt.thingsboard.cloud")
         if config.wan.mqtt_device_token and config.wan.mqtt_device_token != "***HIDDEN***":
             self.mqtt_token_var.set(config.wan.mqtt_device_token)
-        
-        # Interfaces
-        self.stack1_var.set(config.lan.stack.stack_1_type or "NONE")
-        self.stack2_var.set(config.lan.stack.stack_2_type or "NONE")
+
+        # Interfaces — update stack status labels
+        stack_info = config.lan.stack_info
+        lan_map = _STACK_MAP.get("lan_stack_map", {})
+
+        def _stack_label(sid: str) -> str:
+            entry = lan_map.get(sid, {})
+            if not sid or sid == "000":
+                return "(no module)"
+            label = entry.get("label", entry.get("type", f"ID {sid}"))
+            return f"{sid} — {label}"
+
+        self._stack1_info_var.set(_stack_label(stack_info.stack1_id))
+        self._stack2_info_var.set(_stack_label(stack_info.stack2_id))
+
+        # —— Dynamic LAN stack tabs ————————————————————————————————————————————
+        # Each module stack with a registry entry gets its OWN dedicated notebook
+        # tab inserted before the Interfaces tab.  When a slot goes back to 000
+        # (or changes type) the old tab is removed.
+        stack_pairs = [
+            (0, stack_info.stack1_id, stack_info.stack1_json_len),
+            (1, stack_info.stack2_id, stack_info.stack2_json_len),
+        ]
+        interfaces_tab_id = str(self._interfaces_tab_frame)
+
+        # Remove tabs whose slot is now 000 or changed module type
+        for slot_idx in list(self._stack_tabs.keys()):
+            current_sid = stack_pairs[slot_idx][1]
+            existing    = self._stack_tabs[slot_idx]
+            reg = _LAN_STACK_REGISTRY.get(current_sid)
+            if reg is None or not isinstance(existing, reg["widget_class"]):
+                self.notebook.forget(existing)
+                existing.destroy()
+                del self._stack_tabs[slot_idx]
+
+        # Add / update tabs for active module slots
+        for slot_idx, sid, json_len in stack_pairs:
+            reg = _LAN_STACK_REGISTRY.get(sid)
+            if reg:
+                slot_label = f"{reg['label']} (S{slot_idx + 1})"
+                if slot_idx not in self._stack_tabs:
+                    # Create new dedicated tab
+                    widget = reg["widget_class"](
+                        self.notebook,
+                        stack_idx=slot_idx,
+                        stack_id=sid,
+                        serial_manager=self.serial_manager,
+                        log_callback=self.log,
+                        cmd_prefix=reg["cmd_prefix"],
+                        cmd_map=reg["default_cmd_map"],
+                    )
+                    # Insert just before the Interfaces tab
+                    insert_pos = self.notebook.index(self._interfaces_tab_frame)
+                    self.notebook.insert(insert_pos, widget, text=slot_label)
+                    self._stack_tabs[slot_idx] = widget
+                else:
+                    # Update tab label if needed
+                    self.notebook.tab(self._stack_tabs[slot_idx], text=slot_label)
+                # Update stack info in the widget
+                self._stack_tabs[slot_idx].set_config(slot_idx, sid, json_len)

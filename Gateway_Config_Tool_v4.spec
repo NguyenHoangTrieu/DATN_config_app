@@ -1,5 +1,16 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import shutil, os
+
+# JSON config files — bundled inside the EXE as fallback,
+# AND copied to dist/config/ so users can edit without rebuilding.
+_CONFIG_FILES = [
+    'src/config/stack_id_map.json',
+    'src/config/stack_002_config.json',
+    'src/config/stack_004_config.json',
+    'src/config/stack_002_app_commands.json',
+    'src/config/stack_004_app_commands.json',
+]
 
 a = Analysis(
     ['main.py'],
@@ -8,7 +19,7 @@ a = Analysis(
     datas=[
         ('dist/bin/flash_WAN.sh', 'bin'),
         ('dist/bin/flash_WAN.bat', 'bin'),
-    ],
+    ] + [(f, 'src/config') for f in _CONFIG_FILES],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -39,3 +50,14 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
 )
+
+# ── Post-build: copy config files next to EXE ──────────────────
+# Users can edit these JSON files directly — no rebuild needed.
+# The app checks <exe_dir>/config/<file>.json FIRST before using
+# the bundled copy inside the EXE.
+_dist_config = os.path.join(DISTPATH, 'config')
+os.makedirs(_dist_config, exist_ok=True)
+for _cf in _CONFIG_FILES:
+    _dst = os.path.join(_dist_config, os.path.basename(_cf))
+    shutil.copy2(_cf, _dst)
+    print(f'  [post-build] copied {_cf} -> {_dst}')

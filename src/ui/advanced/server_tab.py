@@ -115,8 +115,8 @@ class ServerTab(ttk.Frame):
         """Handle server type change"""
         server_type = self.type_var.get()
         if server_type == "MQTT":
-            self.mqtt_frame.pack(fill=tk.X, pady=5, anchor="nw", after=self.mqtt_frame.master.winfo_children()[0])
-            self.topics_frame.pack(fill=tk.X, pady=5, anchor="nw", after=self.mqtt_frame)
+            self.mqtt_frame.pack(fill=tk.X, pady=5)
+            self.topics_frame.pack(fill=tk.X, pady=5)
         else:
             # Hide MQTT-specific fields for HTTP/CoAP
             self.mqtt_frame.pack_forget()
