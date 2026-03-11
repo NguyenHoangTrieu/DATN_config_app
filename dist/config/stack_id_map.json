@@ -2,25 +2,32 @@
   "lan_stack_map": {
     "000": { "type": "NONE",   "label": "Empty" },
     "001": {
-      "type":        "ZIGBEE",
-      "label":       "Zigbee",
-      "cmd_prefix":  "CFZG",
+      "type":              "ZIGBEE",
+      "label":             "Zigbee (E180-ZG120B)",
+      "cmd_prefix":        "CFZB",
       "gateway_json":      "stack_001_config.json",
-      "app_commands_json":  null
+      "app_commands_json": "stack_001_app_commands.json"
     },
     "002": {
-      "type":        "BLE",
-      "label":       "BLE (STM32WB55)",
-      "cmd_prefix":  "CFBL",
+      "type":              "BLE",
+      "label":             "BLE (STM32WB55)",
+      "cmd_prefix":        "CFBL",
       "gateway_json":      "stack_002_config.json",
-      "app_commands_json":  "stack_002_app_commands.json"
+      "app_commands_json": "stack_002_app_commands.json"
+    },
+    "003": {
+      "type":              "LORA",
+      "label":             "LoRa (RAK3172)",
+      "cmd_prefix":        "CFLR",
+      "gateway_json":      "stack_003_config.json",
+      "app_commands_json": "stack_003_app_commands.json"
     },
     "004": {
-      "type":        "BLE",
-      "label":       "BLE (Custom)",
-      "cmd_prefix":  "CFBL",
+      "type":              "BLE",
+      "label":             "BLE (Custom)",
+      "cmd_prefix":        "CFBL",
       "gateway_json":      "stack_004_config.json",
-      "app_commands_json":  "stack_004_app_commands.json"
+      "app_commands_json": "stack_004_app_commands.json"
     }
   },
   "wan_stack_map": {

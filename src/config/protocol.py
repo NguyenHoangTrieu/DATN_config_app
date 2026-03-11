@@ -16,8 +16,23 @@ class InternetType(Enum):
 
 class ServerType(Enum):
     MQTT = "MQTT"
+    COAP = "COAP"
     HTTP = "HTTP"
     UNKNOWN = "UNKNOWN"
+
+
+# Server type numeric codes (must match config_server_type_t in firmware)
+SERVER_TYPE_MQTT  = 0
+SERVER_TYPE_COAP  = 1
+SERVER_TYPE_HTTP  = 2
+
+SERVER_TYPE_LABELS = {
+    SERVER_TYPE_MQTT: "MQTT",
+    SERVER_TYPE_COAP: "CoAP",
+    SERVER_TYPE_HTTP: "HTTP/HTTPS",
+}
+
+SERVER_TYPE_FROM_LABEL = {v: k for k, v in SERVER_TYPE_LABELS.items()}
 
 
 class CanMode(Enum):
@@ -82,13 +97,28 @@ class WanConfig:
     lte_modem_name: str = ""
     lte_pwr_pin: str = "WK"
     lte_rst_pin: str = "PE"
-    stack_wan_id: str = "000"
+    stack_wan_id: str = "100"
     server_type: str = "MQTT"
     mqtt_broker: str = ""
     mqtt_device_token: str = ""
     mqtt_pub_topic: str = ""
     mqtt_sub_topic: str = ""
     mqtt_attribute_topic: str = ""
+    # HTTP server fields
+    http_url: str = "http://demo.thingsboard.io:8080/api/v1/{token}/telemetry"
+    http_auth_token: str = ""
+    http_port: int = 8080
+    http_use_tls: bool = False
+    http_verify_server: bool = False
+    http_timeout_ms: int = 10000
+    # CoAP server fields
+    coap_host: str = "demo.thingsboard.io"
+    coap_resource_path: str = "/api/v1/{token}/telemetry"
+    coap_device_token: str = ""
+    coap_port: int = 5683
+    coap_use_dtls: bool = False
+    coap_ack_timeout_ms: int = 2000
+    coap_max_retransmit: int = 4
 
 
 @dataclass
@@ -343,3 +373,34 @@ class ConfigParser:
         lines.append(f"CF:stack_2_type={lan.stack.stack_2_type}")
         
         return '\r\n'.join(lines)
+
+
+# =============================================================================
+# Standalone server-config command builders
+# =============================================================================
+
+def build_server_type_cmd(server_type: int) -> str:
+    """Build CFSV command: CFSV:<type_code>  (0=MQTT, 1=CoAP, 2=HTTP)"""
+    return f"CFSV:{server_type}"
+
+
+def build_mqtt_cmd(broker: str, token: str,
+                   sub: str = "v1/devices/me/rpc/request/+",
+                   pub: str = "v1/devices/me/telemetry",
+                   attr: str = "v1/devices/me/attributes") -> str:
+    """Build CFMQ command: CFMQ:BROKER|TOKEN|SUB|PUB|ATTR"""
+    return f"CFMQ:{broker}|{token}|{sub}|{pub}|{attr}"
+
+
+def build_http_cmd(url: str, auth_token: str, port: int = 80,
+                   use_tls: bool = False, verify_server: bool = False,
+                   timeout_ms: int = 10000) -> str:
+    """Build CFHP command: CFHP:URL|AUTH_TOKEN|PORT|USE_TLS|VERIFY|TIMEOUT_MS"""
+    return f"CFHP:{url}|{auth_token}|{port}|{int(use_tls)}|{int(verify_server)}|{timeout_ms}"
+
+
+def build_coap_cmd(host: str, resource_path: str, token: str,
+                   port: int = 5683, use_dtls: bool = False,
+                   ack_timeout_ms: int = 2000, max_retransmit: int = 4) -> str:
+    """Build CFCP command: CFCP:HOST|RESOURCE_PATH|TOKEN|PORT|USE_DTLS|ACK_TIMEOUT|MAX_RTX"""
+    return f"CFCP:{host}|{resource_path}|{token}|{port}|{int(use_dtls)}|{ack_timeout_ms}|{max_retransmit}"

@@ -48,7 +48,7 @@ class LTETab(ttk.Frame):
 
         r0 = ttk.Frame(id_frame); r0.pack(fill=tk.X, pady=2)
         ttk.Label(r0, text="WAN Stack ID:", width=18).pack(side=tk.LEFT)
-        self._stack_id_var = tk.StringVar(value="000")
+        self._stack_id_var = tk.StringVar(value="100")
         self._stack_id_lbl = ttk.Label(r0, textvariable=self._stack_id_var,
                                        foreground="#1565C0",
                                        font=("Segoe UI", 9, "bold"))
@@ -206,7 +206,7 @@ class LTETab(ttk.Frame):
         """Populate fields from loaded GatewayConfig.wan."""
         wan = config if hasattr(config, "lte_apn") else getattr(config, "wan", config)
 
-        stack_id = getattr(wan, "stack_wan_id", "000")
+        stack_id = getattr(wan, "stack_wan_id", "100")
         self._stack_id_var.set(stack_id)
 
         # Look up adapter label from stack_id_map

@@ -20,19 +20,23 @@ from src.ui.advanced.wifi_tab import WiFiTab
 from src.ui.advanced.lte_tab import LTETab
 from src.ui.advanced.server_tab import ServerTab
 from src.ui.advanced.firmware_tab import FirmwareTab
-from src.ui.advanced.ble_tab import BLETab
+from src.ui.advanced.ble_tab    import BLETab
+from src.ui.advanced.lora_tab   import LoRaTab
+from src.ui.advanced.zigbee_tab import ZigbeeTab
 
 # ── Tab class registry keyed by *type string* ───────────────────────────────
 # Maps the "type" field from stack_id_map.json → ttk.Frame subclass.
 # Add a new module type here AND import its tab class above.
 _TYPE_TO_TAB: dict = {
     "BLE":    BLETab,
-    # "ZIGBEE": ZigbeeTab,
+    "LORA":   LoRaTab,
+    "ZIGBEE": ZigbeeTab,
 }
 
 # Emoji label prefix per type string (for notebook tab decoration)
 _TYPE_TO_EMOJI: dict = {
     "BLE":    "🔷",
+    "LORA":   "🟩",
     "ZIGBEE": "🔶",
 }
 

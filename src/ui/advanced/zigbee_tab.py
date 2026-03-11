@@ -1,9 +1,8 @@
-﻿"""
-LoRa Advanced Configuration Tab â€” fully generic, JSON-driven.
+"""
+Zigbee Advanced Configuration Tab — fully generic, JSON-driven.
 
-Mirrors BLETab exactly; only _GROUP_META and response coloring differ.
-\x1E (Record Separator) in UART responses is replaced with \n before display
-because LoRa AT modules may use it as a multi-line delimiter.
+Mirrors LoRaTab/BLETab layout. EVT responses containing hex bytes are
+displayed as-is (e.g. "55 80 03 ...") in the response log.
 """
 
 import tkinter as tk
@@ -16,21 +15,20 @@ from src.config.paths import _resource_path, load_app_commands, STACK_DEFAULT_JS
 _JSON_REQUIRED_KEYS = {"module_id", "module_type", "functions"}
 
 _GROUP_META: dict[str, dict] = {
-    "system":  {"emoji": "ðŸ”„", "title": "System"},
-    "region":  {"emoji": "ðŸŒ", "title": "Region & Class"},
-    "otaa":    {"emoji": "ðŸ”‘", "title": "OTAA Provisioning"},
-    "abp":     {"emoji": "ðŸ”", "title": "ABP Provisioning"},
-    "mac_rf":  {"emoji": "ðŸ“¶", "title": "MAC & RF Settings"},
-    "data":    {"emoji": "ðŸ“¨", "title": "Data Transfer"},
+    "lifecycle": {"emoji": "🔄", "title": "Lifecycle"},
+    "network":   {"emoji": "🌐", "title": "Network Management"},
+    "discovery": {"emoji": "🔍", "title": "Node Discovery"},
+    "zcl":       {"emoji": "⚡", "title": "ZCL Control"},
+    "data":      {"emoji": "📨", "title": "Data Transfer"},
 }
 
 
-class LoRaTab(ttk.Frame):
-    """Advanced LoRa tab â€” fully JSON-driven, generic UI."""
+class ZigbeeTab(ttk.Frame):
+    """Advanced Zigbee tab — fully JSON-driven, generic UI."""
 
     def __init__(self, parent, serial_manager=None, log_callback=None,
-                 stack_idx: int = 0, stack_id: str = "003",
-                 cmd_prefix: str = "CFLR",
+                 stack_idx: int = 0, stack_id: str = "001",
+                 cmd_prefix: str = "CFZB",
                  cmd_map: dict | None = None,
                  **kwargs):
         super().__init__(parent, **kwargs)
@@ -52,7 +50,7 @@ class LoRaTab(ttk.Frame):
 
         self._build_ui()
 
-    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ──────────────────────────────────────────────────────────────
     def _parse_app_commands(self):
         btn_list    = self._app_cmds.get("button_functions", [])
         manual_list = self._app_cmds.get("manual_functions", [])
@@ -66,9 +64,9 @@ class LoRaTab(ttk.Frame):
             self._manual_groups.setdefault(grp, []).append(mf)
         self._response_patterns = self._app_cmds.get("response_patterns", {})
 
-    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ──────────────────────────────────────────────────────────────
     # Command builders
-    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ──────────────────────────────────────────────────────────────
     def _build_button_cmd(self, btn_cfg: dict) -> str:
         return f"CFML:{self._cmd_prefix}:{self._stack_idx}:{btn_cfg['command']}"
 
@@ -76,9 +74,9 @@ class LoRaTab(ttk.Frame):
         return (f"CFML:{self._cmd_prefix}:{self._stack_idx}:"
                 f"{mf_cfg['command_prefix']}{user_input}")
 
-    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ──────────────────────────────────────────────────────────────
     # UI
-    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ──────────────────────────────────────────────────────────────
     def _build_ui(self):
         top = ttk.Frame(self, padding=(8, 4))
         top.pack(fill=tk.X)
@@ -132,7 +130,7 @@ class LoRaTab(ttk.Frame):
         self._build_left()
         self._build_right(right_frame)
 
-    # â”€â”€ Left column â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Left column ───────────────────────────────────────────────
     def _build_left(self):
         lf  = self._left_frame
         pad = {"padx": 6, "pady": 4, "fill": tk.X}
@@ -185,8 +183,8 @@ class LoRaTab(ttk.Frame):
                               foreground="#888888",
                               font=("Segoe UI", 8)).pack(anchor="w")
 
-        # â”€â”€ JSON Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        jsn = ttk.LabelFrame(lf, text="ðŸ“¤ JSON Config", padding=6)
+        # ── JSON Config ───────────────────────────────────────────
+        jsn = ttk.LabelFrame(lf, text="📤 JSON Config", padding=6)
         jsn.pack(**pad)
         frow = ttk.Frame(jsn)
         frow.pack(fill=tk.X, pady=2)
@@ -198,21 +196,21 @@ class LoRaTab(ttk.Frame):
                                              fill=tk.X, expand=True)
         brow = ttk.Frame(jsn)
         brow.pack(fill=tk.X, pady=2)
-        ttk.Button(brow, text="ðŸ“‹ Load Default", width=15,
+        ttk.Button(brow, text="📋 Load Default", width=15,
                    command=self._load_default_json).pack(side=tk.LEFT, padx=2)
-        ttk.Button(brow, text="ðŸ“‚ Custom JSON", width=16,
+        ttk.Button(brow, text="📂 Custom JSON", width=16,
                    command=self._load_json).pack(side=tk.LEFT, padx=2)
         self._send_json_btn = ttk.Button(
-            brow, text="ðŸ“¤ Send JSON", width=14,
+            brow, text="📤 Send JSON", width=14,
             command=self._send_json, state="disabled")
         self._send_json_btn.pack(side=tk.LEFT, padx=2)
-        self._json_status_var = tk.StringVar(value="â€”")
+        self._json_status_var = tk.StringVar(value="—")
         ttk.Label(jsn, textvariable=self._json_status_var,
                   foreground="#1565C0",
                   font=("Segoe UI", 9, "italic")).pack(anchor="w", pady=(2, 0))
 
-        # â”€â”€ Raw Command â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        raw = ttk.LabelFrame(lf, text="ðŸ–¥ï¸ Raw Command", padding=6)
+        # ── Raw Command ───────────────────────────────────────────
+        raw = ttk.LabelFrame(lf, text="🖥️ Raw Command", padding=6)
         raw.pack(**pad)
         rr = ttk.Frame(raw)
         rr.pack(fill=tk.X)
@@ -222,9 +220,9 @@ class LoRaTab(ttk.Frame):
         ttk.Button(rr, text="Send", width=8,
                    command=self._send_raw_cmd).pack(side=tk.LEFT, padx=2)
 
-    # â”€â”€ Right column: Response Log â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Right column: Response Log ────────────────────────────────
     def _build_right(self, parent):
-        log_frame = ttk.LabelFrame(parent, text="ðŸ“‹ Response Log", padding=6)
+        log_frame = ttk.LabelFrame(parent, text="📋 Response Log", padding=6)
         log_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
 
         self._log_text = tk.Text(log_frame, font=("Consolas", 9),
@@ -239,12 +237,12 @@ class LoRaTab(ttk.Frame):
         self._log_text.tag_config("info",  foreground="#1565C0")
         self._log_text.tag_config("warn",  foreground="#E65100")
 
-        ttk.Button(log_frame, text="ðŸ—‘ Clear", width=8,
+        ttk.Button(log_frame, text="🗑 Clear", width=8,
                    command=self._clear_log).pack(anchor="e", pady=(4, 0))
 
-    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ──────────────────────────────────────────────────────────────
     # Helpers
-    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ──────────────────────────────────────────────────────────────
     def _on_entry_focus_in(self, entry, hint):
         if entry.get() == hint:
             entry.delete(0, tk.END)
@@ -260,9 +258,9 @@ class LoRaTab(ttk.Frame):
             messagebox.showwarning("Not Connected",
                                    "Connect to a gateway first.")
             return
-        self.log(f"â†’ {cmd}", "DEBUG")
+        self.log(f"→ {cmd}", "DEBUG")
         self.serial_manager.send(cmd)
-        self._append_log(f"â†’ {cmd}", "info")
+        self._append_log(f"→ {cmd}", "info")
 
     def _send_button(self, btn_cfg: dict):
         self._send(self._build_button_cmd(btn_cfg))
@@ -290,7 +288,7 @@ class LoRaTab(ttk.Frame):
         self._stack_idx = 0 if sel == "Stack 1" else 1
         self._stack_id_lbl.config(text=f"Stack idx: {self._stack_idx}")
 
-    # â”€â”€ JSON actions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── JSON actions ──────────────────────────────────────────────
     def _load_default_json(self):
         rel = STACK_DEFAULT_JSON.get(self._stack_id)
         if not rel:
@@ -330,7 +328,7 @@ class LoRaTab(ttk.Frame):
             self._json_file_var.set(fname)
             n = len(data["functions"])
             self._json_status_var.set(
-                f"{n} functions Â· {len(self._json_content)} bytes")
+                f"{n} functions · {len(self._json_content)} bytes")
             self._send_json_btn.config(state="normal")
             self._append_log(f"JSON loaded: {fname} ({n} functions)", "info")
         except json.JSONDecodeError as e:
@@ -345,7 +343,7 @@ class LoRaTab(ttk.Frame):
         cmd = (f"CFML:{self._cmd_prefix}:JSON:"
                f"{self._stack_idx}:{self._json_content}")
         self._send(cmd)
-        self._json_status_var.set("Sent â€” waiting for gateway responseâ€¦")
+        self._json_status_var.set("Sent — waiting for gateway response…")
 
     def _send_raw_cmd(self):
         cmd = self._raw_cmd_var.get().strip()
@@ -353,11 +351,11 @@ class LoRaTab(ttk.Frame):
             self._send(cmd)
             self._raw_cmd_var.set("")
 
-    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ──────────────────────────────────────────────────────────────
     # Response handler
-    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ──────────────────────────────────────────────────────────────
     def handle_response(self, line: str):
-        """Color-coded response display. \x1E separators are expanded to newlines."""
+        """Color-coded response display. EVT lines with hex bytes shown as-is."""
         line = line.strip()
         if not line:
             return
@@ -367,18 +365,18 @@ class LoRaTab(ttk.Frame):
         # JSON config push results
         if line in (rp.get("json_ok", "PARSE_OK"),
                     f"{self._cmd_prefix}:JSON:OK"):
-            self._json_status_var.set("âœ… Config loaded by gateway")
-            self._append_log(f"â† {line}", "ok")
+            self._json_status_var.set("✅ Config loaded by gateway")
+            self._append_log(f"← {line}", "ok")
             return
         json_fail = rp.get("json_fail", "PARSE_FAIL")
         if (line.startswith(json_fail)
                 or line.startswith(f"{self._cmd_prefix}:JSON:FAIL")):
             reason = line.split(":", 1)[-1] if ":" in line else line
-            self._json_status_var.set(f"âŒ Parse failed: {reason}")
-            self._append_log(f"â† {line}", "error")
+            self._json_status_var.set(f"❌ Parse failed: {reason}")
+            self._append_log(f"← {line}", "error")
             return
 
-        # CFLR:<stack>:OK/FAIL/EVT:<payload>  â€” split \x1E for multi-line AT
+        # CFZB:<stack>:OK/FAIL/EVT:<payload>
         if line.startswith(f"{self._cmd_prefix}:"):
             parts = line.split(":", 3)
             if len(parts) >= 3:
@@ -387,27 +385,25 @@ class LoRaTab(ttk.Frame):
                 tag = ("ok" if status == "OK"
                        else "warn" if status == "EVT"
                        else "error")
-                for resp_line in payload.split("\x1e"):
-                    resp_line = resp_line.strip()
-                    if resp_line:
-                        self._append_log(f"â† {resp_line}", tag)
+                display = f"← [{status}] {payload}" if payload else f"← {status}"
+                self._append_log(display, tag)
                 return
 
         # Bare OK / ERROR
         ok_str  = rp.get("ok",    "OK")
         err_str = rp.get("error", "ERROR")
         if line == ok_str:
-            self._append_log(f"â† {line}", "ok")
+            self._append_log(f"← {line}", "ok")
             return
         if line.startswith(err_str):
-            self._append_log(f"â† {line}", "error")
+            self._append_log(f"← {line}", "error")
             return
 
-        self._append_log(f"â† {line}")
+        self._append_log(f"← {line}")
 
-    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ──────────────────────────────────────────────────────────────
     # Stack switching
-    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ──────────────────────────────────────────────────────────────
     def set_stack(self, stack_idx: int, stack_id: str,
                   cmd_map: dict | None = None,
                   cmd_prefix: str | None = None):
@@ -423,4 +419,3 @@ class LoRaTab(ttk.Frame):
         self._stack_var.set(f"Stack {stack_idx + 1}")
         self._stack_id_lbl.config(
             text=f"ID: {stack_id}  ({module_name})")
-    

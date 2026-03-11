@@ -16,6 +16,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 import json
 
 from src.config.protocol import GatewayConfig
+from src.config.protocol import (
+    SERVER_TYPE_LABELS, SERVER_TYPE_FROM_LABEL,
+    SERVER_TYPE_MQTT, SERVER_TYPE_COAP, SERVER_TYPE_HTTP,
+    build_server_type_cmd, build_mqtt_cmd, build_http_cmd, build_coap_cmd,
+)
 from src.config.paths import load_stack_id_map
 from src.ui.basic.ble_basic_tab import BLEBasicTab
 
@@ -208,44 +213,120 @@ class BasicPanel(ttk.Frame):
         """Create Server configuration tab"""
         tab = ttk.Frame(self.notebook, padding=10)
         self.notebook.add(tab, text="🌐 Server")
-        
-        # MQTT Settings LabelFrame  
-        mqtt_frame = ttk.LabelFrame(tab, text="MQTT Settings", padding=10)
-        mqtt_frame.pack(fill=tk.X, pady=5)
-        
-        # Broker
-        row1 = ttk.Frame(mqtt_frame)
+
+        # ── Server Type ───────────────────────────────────────────────────
+        type_frame = ttk.LabelFrame(tab, text="Server Type", padding=8)
+        type_frame.pack(fill=tk.X, pady=5)
+
+        row = ttk.Frame(type_frame)
+        row.pack(fill=tk.X, pady=3)
+        ttk.Label(row, text="Type:", width=15).pack(side=tk.LEFT)
+        self.server_type_var = tk.StringVar(value="MQTT")
+        _labels = list(SERVER_TYPE_LABELS.values())
+        self._server_type_combo = ttk.Combobox(row, textvariable=self.server_type_var,
+                                               state="readonly", values=_labels)
+        self._server_type_combo.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        self._server_type_combo.bind("<<ComboboxSelected>>", self._on_server_type_change)
+
+        # Container for protocol-specific frames
+        self._server_proto_container = tab
+
+        # ── MQTT frame ───────────────────────────────────────────────────
+        self._mqtt_settings_frame = ttk.LabelFrame(tab, text="MQTT Settings", padding=10)
+
+        row1 = ttk.Frame(self._mqtt_settings_frame)
         row1.pack(fill=tk.X, pady=3)
         ttk.Label(row1, text="Broker:", width=15).pack(side=tk.LEFT)
         self.mqtt_broker_var = tk.StringVar(value="mqtt.thingsboard.cloud")
         ttk.Entry(row1, textvariable=self.mqtt_broker_var).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        
-        # Device Token
-        row2 = ttk.Frame(mqtt_frame)
+
+        row2 = ttk.Frame(self._mqtt_settings_frame)
         row2.pack(fill=tk.X, pady=3)
         ttk.Label(row2, text="Device Token:", width=15).pack(side=tk.LEFT)
-        
-        # Pack Checkbutton first (right side)
         self.show_token_var = tk.BooleanVar()
         ttk.Checkbutton(row2, text="Show", variable=self.show_token_var,
-                       command=lambda: self.mqtt_token_entry.config(show="" if self.show_token_var.get() else "*")
+                       command=lambda: self.mqtt_token_entry.config(
+                           show="" if self.show_token_var.get() else "*")
                        ).pack(side=tk.RIGHT, padx=5)
-        
-        # Then Entry fills remaining space
         self.mqtt_token_var = tk.StringVar()
         self.mqtt_token_entry = ttk.Entry(row2, textvariable=self.mqtt_token_var, show="*")
         self.mqtt_token_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        
-        # Help text
-        ttk.Label(mqtt_frame, text="💡 Get token from ThingsBoard dashboard",
+
+        ttk.Label(self._mqtt_settings_frame, text="💡 Get token from ThingsBoard dashboard",
                  font=("Segoe UI", 9), foreground="#757575").pack(anchor="w", pady=(5, 0))
-        
+
+        # ── HTTP frame ───────────────────────────────────────────────────
+        self._http_settings_frame = ttk.LabelFrame(tab, text="HTTP / HTTPS Settings", padding=10)
+
+        _r = ttk.Frame(self._http_settings_frame)
+        _r.pack(fill=tk.X, pady=3)
+        ttk.Label(_r, text="Server URL:", width=15).pack(side=tk.LEFT)
+        self.http_url_var = tk.StringVar(value="http://server:8080/api/v1/{token}/telemetry")
+        ttk.Entry(_r, textvariable=self.http_url_var).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+
+        _r = ttk.Frame(self._http_settings_frame)
+        _r.pack(fill=tk.X, pady=3)
+        ttk.Label(_r, text="Auth Token:", width=15).pack(side=tk.LEFT)
+        self.http_token_var = tk.StringVar()
+        ttk.Entry(_r, textvariable=self.http_token_var).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+
+        _r = ttk.Frame(self._http_settings_frame)
+        _r.pack(fill=tk.X, pady=3)
+        self.http_tls_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(_r, text="Use TLS (HTTPS)", variable=self.http_tls_var).pack(side=tk.LEFT, padx=5)
+
+        ttk.Label(self._http_settings_frame,
+                  text="💡 Use {token} in URL to inject auth token",
+                  font=("Segoe UI", 9), foreground="#757575").pack(anchor="w", pady=(5, 0))
+
+        # ── CoAP frame ──────────────────────────────────────────────────
+        self._coap_settings_frame = ttk.LabelFrame(tab, text="CoAP Settings", padding=10)
+
+        _r = ttk.Frame(self._coap_settings_frame)
+        _r.pack(fill=tk.X, pady=3)
+        ttk.Label(_r, text="Host:", width=15).pack(side=tk.LEFT)
+        self.coap_host_var = tk.StringVar(value="demo.thingsboard.io")
+        ttk.Entry(_r, textvariable=self.coap_host_var).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+
+        _r = ttk.Frame(self._coap_settings_frame)
+        _r.pack(fill=tk.X, pady=3)
+        ttk.Label(_r, text="Resource Path:", width=15).pack(side=tk.LEFT)
+        self.coap_resource_var = tk.StringVar(value="/api/v1/{token}/telemetry")
+        ttk.Entry(_r, textvariable=self.coap_resource_var).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+
+        _r = ttk.Frame(self._coap_settings_frame)
+        _r.pack(fill=tk.X, pady=3)
+        ttk.Label(_r, text="Device Token:", width=15).pack(side=tk.LEFT)
+        self.coap_token_var = tk.StringVar()
+        ttk.Entry(_r, textvariable=self.coap_token_var).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+
+        ttk.Label(self._coap_settings_frame,
+                  text="💡 Use {token} in Resource Path to inject device token",
+                  font=("Segoe UI", 9), foreground="#757575").pack(anchor="w", pady=(5, 0))
+
         # Set Button
         btn_frame = ttk.Frame(tab)
         btn_frame.pack(fill=tk.X, pady=10)
         ttk.Button(btn_frame, text="Set Server Config", style='Set.TButton',
                   command=self._set_server_config).pack(anchor="e", padx=5)
+
+        # Show default frame
+        self._on_server_type_change()
     
+    def _on_server_type_change(self, event=None):
+        """Show/hide server type-specific settings frame"""
+        stype = self.server_type_var.get()
+        for frame in (self._mqtt_settings_frame,
+                      self._http_settings_frame,
+                      self._coap_settings_frame):
+            frame.pack_forget()
+        if stype == "MQTT":
+            self._mqtt_settings_frame.pack(fill=tk.X, pady=5)
+        elif stype == "HTTP/HTTPS":
+            self._http_settings_frame.pack(fill=tk.X, pady=5)
+        elif stype == "CoAP":
+            self._coap_settings_frame.pack(fill=tk.X, pady=5)
+
     def _create_interfaces_tab(self):
         """Create a read-only 'Detected Stacks' status tab."""
         tab = ttk.Frame(self.notebook, padding=10)
@@ -364,22 +445,49 @@ class BasicPanel(ttk.Frame):
         """Set Server configuration"""
         if not self._check_connection():
             return
-        
-        broker = self.mqtt_broker_var.get().strip()
-        token = self.mqtt_token_var.get().strip()
-        
-        if not broker:
-            messagebox.showwarning("Warning", "Please enter MQTT broker")
-            return
-        
-        # Default topics
-        sub_topic = "v1/devices/me/rpc/request/+"
-        pub_topic = "v1/devices/me/telemetry"
-        attr_topic = "v1/devices/me/attributes"
-        
-        # Send CFMQ command: CFMQ:BROKER|TOKEN|SUB_TOPIC|PUB_TOPIC|ATTR_TOPIC
-        cmd = f"CFMQ:{broker}|{token}|{sub_topic}|{pub_topic}|{attr_topic}"
-        self._send_command(cmd, "MQTT Config")
+
+        label = self.server_type_var.get()
+        type_code = SERVER_TYPE_FROM_LABEL.get(label, SERVER_TYPE_MQTT)
+
+        # Always send CFSV first
+        self._send_command(build_server_type_cmd(type_code),
+                           f"Set Server Type = {label}")
+
+        if label == "MQTT":
+            broker = self.mqtt_broker_var.get().strip()
+            token  = self.mqtt_token_var.get().strip()
+            if not broker:
+                messagebox.showwarning("Warning", "Please enter MQTT broker")
+                return
+            # Use default ThingsBoard topics
+            sub_topic  = "v1/devices/me/rpc/request/+"
+            pub_topic  = "v1/devices/me/telemetry"
+            attr_topic = "v1/devices/me/attributes"
+            self._send_command(
+                build_mqtt_cmd(broker, token, sub_topic, pub_topic, attr_topic),
+                "MQTT Config")
+
+        elif label == "HTTP/HTTPS":
+            url   = self.http_url_var.get().strip()
+            token = self.http_token_var.get().strip()
+            if not url:
+                messagebox.showwarning("Warning", "Please enter HTTP server URL")
+                return
+            self._send_command(
+                build_http_cmd(url, token, 8080,
+                               self.http_tls_var.get(), False, 10000),
+                "HTTP Config")
+
+        elif label == "CoAP":
+            host     = self.coap_host_var.get().strip()
+            resource = self.coap_resource_var.get().strip()
+            token    = self.coap_token_var.get().strip()
+            if not host:
+                messagebox.showwarning("Warning", "Please enter CoAP server host")
+                return
+            self._send_command(
+                build_coap_cmd(host, resource, token),
+                "CoAP Config")
     
     def set_config(self, config: GatewayConfig):
         """Set config values from loaded config"""
@@ -389,12 +497,12 @@ class BasicPanel(ttk.Frame):
             self.wifi_pwd_var.set(config.wan.wifi_password)
 
         # LTE — show/hide tab based on wan_stack_id
-        wan_id  = getattr(config.wan, "stack_wan_id", "000") or "000"
+        wan_id  = getattr(config.wan, "stack_wan_id", "100") or "100"
         wan_map = _STACK_MAP.get("wan_stack_map", {})
         lte_entry = wan_map.get(wan_id, {})
 
         # Determine whether LTE tab should be visible
-        lte_visible = (wan_id != "000")
+        lte_visible = lte_entry.get("type", "NONE") != "NONE"
         # Manage tab presence in notebook
         tab_ids = list(self.notebook.tabs())
         lte_frame_id = str(self._lte_tab_frame)
@@ -420,9 +528,29 @@ class BasicPanel(ttk.Frame):
                 self.lte_pwd_var.set(pwd)
 
         # Server
+        # — type
+        srv_str = getattr(config.wan, 'server_type', 'MQTT') or 'MQTT'
+        srv_label = SERVER_TYPE_LABELS.get(
+            SERVER_TYPE_FROM_LABEL.get(srv_str, SERVER_TYPE_MQTT), "MQTT"
+        ) if srv_str in SERVER_TYPE_FROM_LABEL else "MQTT"
+        self.server_type_var.set(srv_label)
+        self._on_server_type_change()
+        # — MQTT
         self.mqtt_broker_var.set(config.wan.mqtt_broker or "mqtt.thingsboard.cloud")
         if config.wan.mqtt_device_token and config.wan.mqtt_device_token != "***HIDDEN***":
             self.mqtt_token_var.set(config.wan.mqtt_device_token)
+        # — HTTP
+        self.http_url_var.set(getattr(config.wan, 'http_url', '') or '')
+        http_tok = getattr(config.wan, 'http_auth_token', '') or ''
+        if http_tok and http_tok != '***HIDDEN***':
+            self.http_token_var.set(http_tok)
+        self.http_tls_var.set(bool(getattr(config.wan, 'http_use_tls', False)))
+        # — CoAP
+        self.coap_host_var.set(getattr(config.wan, 'coap_host', '') or '')
+        self.coap_resource_var.set(getattr(config.wan, 'coap_resource_path', '') or '')
+        coap_tok = getattr(config.wan, 'coap_device_token', '') or ''
+        if coap_tok and coap_tok != '***HIDDEN***':
+            self.coap_token_var.set(coap_tok)
 
         # Interfaces — update stack status labels
         stack_info = config.lan.stack_info
