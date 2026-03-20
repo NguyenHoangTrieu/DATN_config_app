@@ -28,6 +28,20 @@
       "cmd_prefix":        "CFBL",
       "gateway_json":      "stack_004_config.json",
       "app_commands_json": "stack_004_app_commands.json"
+    },
+    "005": {
+      "type":              "ZIGBEE",
+      "label":             "Zigbee (STM32WB55)",
+      "cmd_prefix":        "CFZB",
+      "gateway_json":      "stack_005_config.json",
+      "app_commands_json": "stack_005_app_commands.json"
+    },
+    "006": {
+      "type":              "LORA",
+      "label":             "LoRa (Wio-E5 mini)",
+      "cmd_prefix":        "CFLR",
+      "gateway_json":      "stack_006_config.json",
+      "app_commands_json": "stack_006_app_commands.json"
     }
   },
   "wan_stack_map": {

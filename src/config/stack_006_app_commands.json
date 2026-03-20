@@ -1,0 +1,119 @@
+{
+  "module_id": "006",
+  "module_type": "LORA",
+  "module_name": "Wio-E5 mini",
+  "cmd_prefix": "CFLR",
+  "description": "App command map for Wio-E5 mini (Seeed LoRa-E5) based on official AT command quick start.",
+  "button_functions": [
+    { "id": "AT",                 "command": "AT",                 "label": "AT Test",       "group": "system" },
+    { "id": "MODULE_GET_INFO",    "command": "AT+VER",             "label": "Version",       "group": "system" },
+    { "id": "MODULE_GET_DEVEUI",  "command": "AT+ID=DevEui",       "label": "Get DevEUI",    "group": "provision" },
+    { "id": "MODULE_SW_RESET",    "command": "AT+RESET",           "label": "Reset",         "group": "system" },
+    { "id": "MODULE_JOIN",        "command": "AT+JOIN",            "label": "Join",          "group": "join" },
+    { "id": "MODULE_FACTORY_RESET","command": "AT+FDEFAULT",       "label": "Factory Default","group": "system" }
+  ],
+  "manual_functions": [
+    {
+      "id": "SET_MODE",
+      "command_prefix": "AT+MODE=",
+      "label": "Set Mode",
+      "group": "join",
+      "param_hint": "LWOTAA | LWABP | TEST",
+      "example": "LWOTAA"
+    },
+    {
+      "id": "SET_REGION",
+      "command_prefix": "AT+DR=",
+      "label": "Set Region",
+      "group": "region",
+      "param_hint": "EU868 | US915 | AU915 | AS923 | KR920 | IN865",
+      "example": "EU868"
+    },
+    {
+      "id": "SET_CHANNEL",
+      "command_prefix": "AT+CH=",
+      "label": "Set Channel",
+      "group": "region",
+      "param_hint": "NUM,0-2 or NUM,8-15",
+      "example": "NUM,0-2"
+    },
+    {
+      "id": "SET_APPEUI",
+      "command_prefix": "AT+ID=AppEui,",
+      "label": "Set AppEUI",
+      "group": "provision",
+      "param_hint": "16-hex (optionally quoted)",
+      "example": "\"8000000000000007\""
+    },
+    {
+      "id": "SET_DEVEUI",
+      "command_prefix": "AT+ID=DevEui,",
+      "label": "Set DevEUI",
+      "group": "provision",
+      "param_hint": "16-hex (optionally quoted)",
+      "example": "\"2CF7F12024900363\""
+    },
+    {
+      "id": "SET_APPKEY",
+      "command_prefix": "AT+KEY=APPKEY,",
+      "label": "Set AppKey",
+      "group": "provision",
+      "param_hint": "32-hex (optionally quoted)",
+      "example": "\"2B7E151628AED2A6ABF7158809CF4F3C\""
+    },
+    {
+      "id": "SET_ADR",
+      "command_prefix": "AT+ADR=",
+      "label": "Set ADR",
+      "group": "mac_rf",
+      "param_hint": "ON | OFF",
+      "example": "ON"
+    },
+    {
+      "id": "SET_PORT",
+      "command_prefix": "AT+PORT=",
+      "label": "Set Port",
+      "group": "mac_rf",
+      "param_hint": "1-255",
+      "example": "8"
+    },
+    {
+      "id": "SEND_MSG",
+      "command_prefix": "AT+MSG=",
+      "label": "Send MSG",
+      "group": "data",
+      "param_hint": "plain text payload",
+      "example": "HELLO"
+    },
+    {
+      "id": "SEND_CMSG",
+      "command_prefix": "AT+CMSG=",
+      "label": "Send CMSG",
+      "group": "data",
+      "param_hint": "plain text payload",
+      "example": "HELLO"
+    },
+    {
+      "id": "SEND_MSGHEX",
+      "command_prefix": "AT+MSGHEX=",
+      "label": "Send MSGHEX",
+      "group": "data",
+      "param_hint": "hex bytes",
+      "example": "\"0011223344\""
+    },
+    {
+      "id": "SEND_CMSGHEX",
+      "command_prefix": "AT+CMSGHEX=",
+      "label": "Send CMSGHEX",
+      "group": "data",
+      "param_hint": "hex bytes",
+      "example": "\"0011223344\""
+    }
+  ],
+  "response_patterns": {
+    "ok": "OK",
+    "error": "ERROR",
+    "json_ok": "PARSE_OK",
+    "json_fail": "PARSE_FAIL"
+  }
+}

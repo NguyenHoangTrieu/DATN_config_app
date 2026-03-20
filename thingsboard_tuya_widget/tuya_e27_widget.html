@@ -1,0 +1,129 @@
+﻿<!-- =====================================================================
+     Tuya E27 LED Controller -- ThingsBoard Custom Widget (Single Window)
+     Paste into "HTML" tab | CSS into "CSS" tab | JS into "JavaScript" tab
+     ThingsBoard v4.x  --  Control widget
+     ===================================================================== -->
+
+<div id="tuya-widget" class="tuya-root">
+  <div class="main-layout">
+
+    <!-- LEFT: Device Panel -->
+    <div class="panel-devices">
+      <div class="panel-header">
+        <span class="panel-title">Thi&#7871;t b&#7883;</span>
+        <button id="btn-rescan" class="btn-scan" onclick="startScan()" title="Qu&#233;t l&#7841;i">
+          <span id="scan-btn-icon" class="scan-icon">&#8635;</span>
+        </button>
+      </div>
+
+      <div class="scan-status">
+        <div id="scan-spinner-mini" class="mini-spinner hidden"></div>
+        <span id="scan-status-text">&#8212;</span>
+      </div>
+
+      <div id="device-list" class="device-list"></div>
+    </div>
+
+    <!-- RIGHT: Control Panel -->
+    <div class="panel-control">
+
+      <!-- Header -->
+      <div class="ctrl-header">
+        <div class="status-dot" id="status-dot" data-state="off"></div>
+        <span id="ctrl-device-name" class="ctrl-title">&#8212;</span>
+        <button id="btn-disconnect" class="btn-disc hidden" onclick="disconnectDevice()" title="Ng&#7855;t k&#7871;t n&#7889;i">&#10005;</button>
+      </div>
+
+      <!-- Bulb preview -->
+      <div id="bulb-preview" class="bulb-preview off">
+        <div class="bulb-glow" id="bulb-glow"></div>
+        <div class="bulb-icon-wrap">&#128161;</div>
+      </div>
+
+      <!-- Power toggle -->
+      <div class="ctrl-row center">
+        <label class="toggle-switch">
+          <input type="checkbox" id="power-toggle" onchange="onPowerToggle(this.checked)">
+          <span class="toggle-track">
+            <span class="toggle-thumb"></span>
+          </span>
+          <span class="toggle-label" id="power-label">B&#7840;T</span>
+        </label>
+      </div>
+
+      <!-- Brightness -->
+      <div class="ctrl-section" id="section-brightness">
+        <div class="ctrl-row space-between">
+          <span class="ctrl-label">&#272;&#7897; s&#225;ng</span>
+          <span class="ctrl-value" id="brightness-value">75%</span>
+        </div>
+        <input type="range" id="brightness-slider" class="slider" min="0" max="100" value="75"
+               oninput="onBrightnessInput(this.value)"
+               onchange="sendBrightness(this.value)">
+      </div>
+
+      <!-- Mode tabs -->
+      <div class="tab-bar" id="section-tabs">
+        <button id="tab-white" class="tab active" onclick="setMode('white')">White</button>
+        <button id="tab-color" class="tab" onclick="setMode('color')">M&#224;u s&#7855;c</button>
+      </div>
+
+      <!-- White mode: CCT slider -->
+      <div id="panel-white" class="ctrl-section">
+        <div class="ctrl-row space-between">
+          <span class="cct-label warm">V&#224;ng &#7845;m</span>
+          <span class="cct-label cool">Tr&#7855;ng l&#7841;nh</span>
+        </div>
+        <div class="cct-slider-wrap">
+          <input type="range" id="cct-slider" class="slider cct" min="0" max="100" value="30"
+                 oninput="onCCTInput(this.value)"
+                 onchange="sendCCT(this.value)">
+        </div>
+      </div>
+
+      <!-- Color mode: preset + custom picker -->
+      <div id="panel-color" class="ctrl-section hidden">
+        <div class="color-grid">
+          <button class="color-swatch" style="background:#FF3B30" onclick="sendHSV(0,100,100)" title="&#272;&#7887;">&#128308;</button>
+          <button class="color-swatch" style="background:#FF9500" onclick="sendHSV(30,100,100)" title="Cam">&#129000;</button>
+          <button class="color-swatch" style="background:#FFCC00" onclick="sendHSV(48,100,100)" title="V&#224;ng">&#129001;</button>
+          <button class="color-swatch" style="background:#34C759" onclick="sendHSV(120,100,100)" title="Xanh l&#225;">&#128994;</button>
+          <button class="color-swatch" style="background:#007AFF" onclick="sendHSV(211,100,100)" title="Xanh bi&#7875;n">&#128309;</button>
+          <button class="color-swatch" style="background:#AF52DE" onclick="sendHSV(280,100,100)" title="T&#237;m">&#128995;</button>
+          <button class="color-swatch" style="background:#FFFFFF;border:1px solid #444" onclick="sendHSV(0,0,100)" title="Tr&#7855;ng">&#11036;</button>
+          <button class="color-swatch picker-btn" onclick="openPicker()" title="T&#249;y ch&#7881;nh">&#127912;</button>
+        </div>
+        <!-- HSV custom picker -->
+        <div id="picker-panel" class="picker-panel hidden">
+          <div class="ctrl-row space-between">
+            <span class="ctrl-label">Hue</span>
+            <span class="ctrl-value" id="hue-val">0&deg;</span>
+          </div>
+          <input type="range" id="hue-slider" class="slider hue" min="0" max="365" value="0"
+                 oninput="onPickerInput()">
+          <div class="ctrl-row space-between" style="margin-top:8px">
+            <span class="ctrl-label">Saturation</span>
+            <span class="ctrl-value" id="sat-val">100%</span>
+          </div>
+          <input type="range" id="sat-slider" class="slider sat" min="0" max="100" value="100"
+                 oninput="onPickerInput()">
+          <button class="btn-apply" onclick="sendCustomHSV()">&#193;p d&#7909;ng</button>
+        </div>
+      </div>
+
+      <!-- Overlay when not connected / connecting -->
+      <div id="ctrl-overlay" class="ctrl-overlay">
+        <div class="overlay-inner">
+          <div id="overlay-spinner" class="spinner hidden"></div>
+          <p id="overlay-msg" class="overlay-msg">&#8592; Ch&#7885;n thi&#7871;t b&#7883; &#273;&#7875; b&#7855;t &#273;&#7847;u</p>
+        </div>
+      </div>
+
+    </div><!-- /panel-control -->
+
+  </div><!-- /main-layout -->
+
+  <!-- Toast -->
+  <div id="toast" class="toast hidden"></div>
+
+</div><!-- /tuya-root -->
