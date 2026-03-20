@@ -1,0 +1,164 @@
+{
+    "module_id": "003",
+    "module_type": "LORA",
+    "module_name": "RAK3172",
+    "cmd_prefix": "CFLR",
+    "description": "App command map for RAK3172 LoRaWAN module. 25 functions covering lifecycle, region/class, OTAA provisioning, ABP provisioning, MAC/RF settings, and data transfer.",
+
+    "button_functions": [
+        { "id": "MODULE_HW_RESET",        "command": "MODULE_HW_RESET",        "label": "HW Reset",      "group": "system" },
+        { "id": "MODULE_SW_RESET",        "command": "MODULE_SW_RESET",        "label": "SW Reset",      "group": "system" },
+        { "id": "MODULE_FACTORY_RESET",   "command": "MODULE_FACTORY_RESET",   "label": "Factory Reset", "group": "system" },
+        { "id": "MODULE_GET_INFO",        "command": "MODULE_GET_INFO",        "label": "Get Info",      "group": "system" },
+        { "id": "MODULE_JOIN",            "command": "MODULE_JOIN",            "label": "Join Network",  "group": "otaa"   },
+        { "id": "MODULE_GET_JOIN_STATUS", "command": "MODULE_GET_JOIN_STATUS", "label": "Join Status",   "group": "otaa"   },
+        { "id": "MODULE_GET_DEVEUI",      "command": "MODULE_GET_DEVEUI",      "label": "Get DevEUI",    "group": "otaa"   },
+        { "id": "MODULE_READ_RECV",       "command": "MODULE_READ_RECV",       "label": "Read RX",       "group": "data"   }
+    ],
+
+    "manual_functions": [
+        {
+            "id": "MODULE_SET_REGION",
+            "command_prefix": "MODULE_SET_REGION:",
+            "label": "Set Region",
+            "group": "region",
+            "param_hint": "AS923|AU915|EU868|IN865|KR920|RU864|US915",
+            "example": "EU868"
+        },
+        {
+            "id": "MODULE_SET_CLASS",
+            "command_prefix": "MODULE_SET_CLASS:",
+            "label": "Set Class",
+            "group": "region",
+            "param_hint": "A|B|C",
+            "example": "A"
+        },
+        {
+            "id": "MODULE_SET_JOIN_MODE",
+            "command_prefix": "MODULE_SET_JOIN_MODE:",
+            "label": "Set Join Mode",
+            "group": "otaa",
+            "param_hint": "OTAA|ABP",
+            "example": "OTAA"
+        },
+        {
+            "id": "MODULE_SET_DEVEUI",
+            "command_prefix": "MODULE_SET_DEVEUI:",
+            "label": "Set DevEUI",
+            "group": "otaa",
+            "param_hint": "16 hex chars",
+            "example": "AC1F09FFFE065C3E"
+        },
+        {
+            "id": "MODULE_SET_APPEUI",
+            "command_prefix": "MODULE_SET_APPEUI:",
+            "label": "Set AppEUI",
+            "group": "otaa",
+            "param_hint": "16 hex chars",
+            "example": "0000000000000000"
+        },
+        {
+            "id": "MODULE_SET_APPKEY",
+            "command_prefix": "MODULE_SET_APPKEY:",
+            "label": "Set AppKey",
+            "group": "otaa",
+            "param_hint": "32 hex chars",
+            "example": "2B7E151628AED2A6ABF7158809CF4F3C"
+        },
+        {
+            "id": "MODULE_SET_DEVADDR",
+            "command_prefix": "MODULE_SET_DEVADDR:",
+            "label": "Set DevAddr",
+            "group": "abp",
+            "param_hint": "8 hex chars",
+            "example": "260B5FDD"
+        },
+        {
+            "id": "MODULE_SET_NWKSKEY",
+            "command_prefix": "MODULE_SET_NWKSKEY:",
+            "label": "Set NwkSKey",
+            "group": "abp",
+            "param_hint": "32 hex chars",
+            "example": "2B7E151628AED2A6ABF7158809CF4F3C"
+        },
+        {
+            "id": "MODULE_SET_APPSKEY",
+            "command_prefix": "MODULE_SET_APPSKEY:",
+            "label": "Set AppSKey",
+            "group": "abp",
+            "param_hint": "32 hex chars",
+            "example": "2B7E151628AED2A6ABF7158809CF4F3C"
+        },
+        {
+            "id": "MODULE_SET_DR",
+            "command_prefix": "MODULE_SET_DR:",
+            "label": "Set DR",
+            "group": "mac_rf",
+            "param_hint": "0-5",
+            "example": "2"
+        },
+        {
+            "id": "MODULE_SET_ADR",
+            "command_prefix": "MODULE_SET_ADR:",
+            "label": "Set ADR",
+            "group": "mac_rf",
+            "param_hint": "0=disable 1=enable",
+            "example": "1"
+        },
+        {
+            "id": "MODULE_SET_TXP",
+            "command_prefix": "MODULE_SET_TXP:",
+            "label": "Set TX Power",
+            "group": "mac_rf",
+            "param_hint": "0-7",
+            "example": "0"
+        },
+        {
+            "id": "MODULE_SET_CHANNEL",
+            "command_prefix": "MODULE_SET_CHANNEL:",
+            "label": "Set Channel Mask",
+            "group": "mac_rf",
+            "param_hint": "hex mask e.g. 00FF (US915/AU915)",
+            "example": "00FF"
+        },
+        {
+            "id": "MODULE_SET_CONFIRM",
+            "command_prefix": "MODULE_SET_CONFIRM:",
+            "label": "Set Confirm",
+            "group": "mac_rf",
+            "param_hint": "0=unconfirmed 1=confirmed",
+            "example": "0"
+        },
+        {
+            "id": "MODULE_SET_PUBLIC_NET",
+            "command_prefix": "MODULE_SET_PUBLIC_NET:",
+            "label": "Public Network",
+            "group": "mac_rf",
+            "param_hint": "0=private 1=public",
+            "example": "1"
+        },
+        {
+            "id": "MODULE_SEND_UNCONFIRMED",
+            "command_prefix": "MODULE_SEND_UNCONFIRMED:",
+            "label": "Send Unconfirmed",
+            "group": "data",
+            "param_hint": "port:hexData",
+            "example": "2:01020304"
+        },
+        {
+            "id": "MODULE_SEND_CONFIRMED",
+            "command_prefix": "MODULE_SEND_CONFIRMED:",
+            "label": "Send Confirmed",
+            "group": "data",
+            "param_hint": "port:hexData",
+            "example": "2:01020304"
+        }
+    ],
+
+    "response_patterns": {
+        "ok":        "OK",
+        "error":     "ERROR",
+        "json_ok":   "PARSE_OK",
+        "json_fail": "PARSE_FAIL"
+    }
+}

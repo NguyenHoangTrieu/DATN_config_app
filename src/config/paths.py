@@ -104,5 +104,41 @@ def load_app_commands(stack_id: str) -> Optional[dict]:
         return None
 
 
+def load_module_config(stack_id: str) -> Optional[dict]:
+    """Load the ``gateway_json`` (module config) for *stack_id*.
+
+    Returns the parsed dict or ``None`` if the stack has no gateway_json
+    file configured or the file cannot be read.
+    """
+    data = load_stack_id_map()
+    entry = data.get("lan_stack_map", {}).get(stack_id, {})
+    gj = entry.get("gateway_json")
+    if not gj:
+        return None
+    path = _resource_path(f"src/config/{gj}")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return None
+
+
+def get_presets_for_type(module_type: str) -> list[dict]:
+    """Return list of presets ``[{"stack_id": ..., "label": ...}, ...]``
+    for a given module type (BLE / LORA / ZIGBEE)."""
+    data = load_stack_id_map()
+    presets = []
+    for sid, entry in data.get("lan_stack_map", {}).items():
+        if entry.get("type") == module_type:
+            presets.append({"stack_id": sid, "label": entry.get("label", sid)})
+    return presets
+
+
+def get_pin_options() -> list[str]:
+    """Return pin option list from stack_id_map.json."""
+    data = load_stack_id_map()
+    return data.get("pin_options", ["01", "02", "03", "04", "05"])
+
+
 # Module-level convenience — built once at import time.
 STACK_DEFAULT_JSON: dict[str, str] = build_gateway_json_map()

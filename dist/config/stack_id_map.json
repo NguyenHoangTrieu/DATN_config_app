@@ -28,10 +28,24 @@
       "cmd_prefix":        "CFBL",
       "gateway_json":      "stack_004_config.json",
       "app_commands_json": "stack_004_app_commands.json"
+    },
+    "005": {
+      "type":              "ZIGBEE",
+      "label":             "Zigbee (STM32WB55)",
+      "cmd_prefix":        "CFZB",
+      "gateway_json":      "stack_005_config.json",
+      "app_commands_json": "stack_005_app_commands.json"
+    },
+    "006": {
+      "type":              "LORA",
+      "label":             "LoRa (Wio-E5 mini)",
+      "cmd_prefix":        "CFLR",
+      "gateway_json":      "stack_006_config.json",
+      "app_commands_json": "stack_006_app_commands.json"
     }
   },
   "wan_stack_map": {
-    "000": {
+    "100": {
       "type":       "NONE",
       "label":      "No WAN adapter",
       "modem":      "",
@@ -39,7 +53,7 @@
       "pwr_pin":    "WK",
       "rst_pin":    "PE"
     },
-    "001": {
+    "101": {
       "type":       "QUECTEL",
       "label":      "Quectel (A7600)",
       "modem":      "A7600C1",
@@ -47,7 +61,7 @@
       "pwr_pin":    "WK",
       "rst_pin":    "PE"
     },
-    "002": {
+    "102": {
       "type":       "SIMCOM",
       "label":      "SIMCom (SIM7600)",
       "modem":      "SIM7600",

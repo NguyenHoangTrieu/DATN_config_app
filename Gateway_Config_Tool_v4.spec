@@ -6,20 +6,25 @@ import shutil, os
 # AND copied to dist/config/ so users can edit without rebuilding.
 _CONFIG_FILES = [
     'src/config/stack_id_map.json',
+    'src/config/stack_001_config.json',
     'src/config/stack_002_config.json',
+    'src/config/stack_003_config.json',
     'src/config/stack_004_config.json',
+    'src/config/stack_005_config.json',
+    'src/config/stack_006_config.json',
+    'src/config/stack_001_app_commands.json',
     'src/config/stack_002_app_commands.json',
+    'src/config/stack_003_app_commands.json',
     'src/config/stack_004_app_commands.json',
+    'src/config/stack_005_app_commands.json',
+    'src/config/stack_006_app_commands.json',
 ]
 
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[
-        ('dist/bin/flash_WAN.sh', 'bin'),
-        ('dist/bin/flash_WAN.bat', 'bin'),
-    ] + [(f, 'src/config') for f in _CONFIG_FILES],
+    datas=[(f, 'src/config') for f in _CONFIG_FILES],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
