@@ -22,36 +22,6 @@ from src.config.protocol import (
     build_server_type_cmd, build_mqtt_cmd, build_http_cmd, build_coap_cmd,
 )
 from src.config.paths import load_stack_id_map
-from src.ui.basic.ble_basic_tab import BLEBasicTab
-
-_STACK_ID_BLE = "002"  # kept for backward compatibility — use _LAN_STACK_REGISTRY below
-
-# ── LAN stack type registry ───────────────────────────────────────────────────
-# Maps stack_id → metadata for dynamic widget creation in the Interfaces tab.
-# To add a new module type (e.g. Zigbee):
-#   1. Create ZigbeeBasicTab in src/ui/basic/zigbee_basic_tab.py
-#   2. Import it here, add an entry below.
-_LAN_STACK_REGISTRY: dict[str, dict] = {
-    "002": {
-        "widget_class": BLEBasicTab,
-        "cmd_prefix":   "CFBL",
-        "default_cmd_map": None,   # None → BLEBasicTab loads from JSON
-        "label":        "🔷 BLE",
-    },
-    "004": {
-        "widget_class": BLEBasicTab,
-        "cmd_prefix":   "CFBL",
-        "default_cmd_map": None,
-        "label":        "🔷 BLE",
-    },
-    # "001": {
-    #     "widget_class": ZigbeeBasicTab,
-    #     "cmd_prefix":   "CFZG",
-    #     "default_cmd_map": None,
-    #     "label":        "🔶 Zigbee",
-    # },
-}
-
 _STACK_MAP = load_stack_id_map()
 
 
@@ -77,9 +47,6 @@ class BasicPanel(ttk.Frame):
         # Notebook — fixed tabs first, dynamic module tabs added by set_config()
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-        # Tracks dynamically-added LAN stack tabs: key = stack slot (0 or 1)
-        self._stack_tabs: dict[int, ttk.Frame] = {}
 
         # Create fixed tabs
         self._create_wifi_tab()
@@ -333,6 +300,23 @@ class BasicPanel(ttk.Frame):
         self._interfaces_tab_frame = tab
         self.notebook.add(tab, text="🔌 Interfaces")
 
+        # ── WAN Adapter info ───────────────────────────────────────────────────
+        wan_frame = ttk.LabelFrame(tab, text="Detected WAN Adapter", padding=10)
+        wan_frame.pack(fill=tk.X, pady=5)
+
+        r_wan_id = ttk.Frame(wan_frame); r_wan_id.pack(fill=tk.X, pady=3)
+        ttk.Label(r_wan_id, text="WAN Stack ID:", width=12).pack(side=tk.LEFT)
+        self._wan_stack_id_var = tk.StringVar(value="—")
+        ttk.Label(r_wan_id, textvariable=self._wan_stack_id_var,
+                  foreground="#1565C0", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=4)
+
+        r_wan_adapter = ttk.Frame(wan_frame); r_wan_adapter.pack(fill=tk.X, pady=3)
+        ttk.Label(r_wan_adapter, text="Adapter:", width=12).pack(side=tk.LEFT)
+        self._wan_adapter_info_var = tk.StringVar(value="—")
+        ttk.Label(r_wan_adapter, textvariable=self._wan_adapter_info_var,
+                  foreground="#1565C0", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=4)
+
+        # ── LAN Stacks info ───────────────────────────────────────────────────
         info_frame = ttk.LabelFrame(tab, text="Detected LAN Stacks", padding=10)
         info_frame.pack(fill=tk.X, pady=5)
 
@@ -349,7 +333,7 @@ class BasicPanel(ttk.Frame):
                   foreground="#1565C0", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=4)
 
         ttk.Label(info_frame,
-                  text="💡 Module config tabs appear automatically when a module stack is detected.",
+                  text="💡 Stack IDs are reported by the gateway when you read the config.",
                   font=("Segoe UI", 9), foreground="#757575",
                   wraplength=380).pack(anchor="w", pady=(8, 0))
     
@@ -552,6 +536,15 @@ class BasicPanel(ttk.Frame):
         if coap_tok and coap_tok != '***HIDDEN***':
             self.coap_token_var.set(coap_tok)
 
+        # Interfaces — update WAN adapter info
+        wan_id = getattr(config.wan, "stack_wan_id", "100") or "100"
+        wan_map = _STACK_MAP.get("wan_stack_map", {})
+        wan_entry = wan_map.get(wan_id, {})
+        wan_label = wan_entry.get("label", f"ID {wan_id}")
+        
+        self._wan_stack_id_var.set(wan_id)
+        self._wan_adapter_info_var.set(wan_label)
+
         # Interfaces — update stack status labels
         stack_info = config.lan.stack_info
         lan_map = _STACK_MAP.get("lan_stack_map", {})
@@ -565,49 +558,3 @@ class BasicPanel(ttk.Frame):
 
         self._stack1_info_var.set(_stack_label(stack_info.stack1_id))
         self._stack2_info_var.set(_stack_label(stack_info.stack2_id))
-
-        # —— Dynamic LAN stack tabs ————————————————————————————————————————————
-        # Each module stack with a registry entry gets its OWN dedicated notebook
-        # tab inserted before the Interfaces tab.  When a slot goes back to 000
-        # (or changes type) the old tab is removed.
-        stack_pairs = [
-            (0, stack_info.stack1_id, stack_info.stack1_json_len),
-            (1, stack_info.stack2_id, stack_info.stack2_json_len),
-        ]
-        interfaces_tab_id = str(self._interfaces_tab_frame)
-
-        # Remove tabs whose slot is now 000 or changed module type
-        for slot_idx in list(self._stack_tabs.keys()):
-            current_sid = stack_pairs[slot_idx][1]
-            existing    = self._stack_tabs[slot_idx]
-            reg = _LAN_STACK_REGISTRY.get(current_sid)
-            if reg is None or not isinstance(existing, reg["widget_class"]):
-                self.notebook.forget(existing)
-                existing.destroy()
-                del self._stack_tabs[slot_idx]
-
-        # Add / update tabs for active module slots
-        for slot_idx, sid, json_len in stack_pairs:
-            reg = _LAN_STACK_REGISTRY.get(sid)
-            if reg:
-                slot_label = f"{reg['label']} (S{slot_idx + 1})"
-                if slot_idx not in self._stack_tabs:
-                    # Create new dedicated tab
-                    widget = reg["widget_class"](
-                        self.notebook,
-                        stack_idx=slot_idx,
-                        stack_id=sid,
-                        serial_manager=self.serial_manager,
-                        log_callback=self.log,
-                        cmd_prefix=reg["cmd_prefix"],
-                        cmd_map=reg["default_cmd_map"],
-                    )
-                    # Insert just before the Interfaces tab
-                    insert_pos = self.notebook.index(self._interfaces_tab_frame)
-                    self.notebook.insert(insert_pos, widget, text=slot_label)
-                    self._stack_tabs[slot_idx] = widget
-                else:
-                    # Update tab label if needed
-                    self.notebook.tab(self._stack_tabs[slot_idx], text=slot_label)
-                # Update stack info in the widget
-                self._stack_tabs[slot_idx].set_config(slot_idx, sid, json_len)

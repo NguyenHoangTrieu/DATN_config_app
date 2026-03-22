@@ -382,9 +382,6 @@ class GatewayConfigApp:
             # Advanced panel stack tabs (BLE, Zigbee, …)
             for widget in getattr(self.advanced_panel, '_stack_tabs', {}).values():
                 self.root.after(0, lambda w=widget, l=line: w.handle_response(l))
-            # Basic panel module stack tabs (BLE, Zigbee, …)
-            for widget in getattr(self.basic_panel, '_stack_tabs', {}).values():
-                self.root.after(0, lambda w=widget, l=line: w.handle_response(l))
     
     def _on_serial_tx(self, data: str):
         """Handle outgoing serial data - display in UART Log"""
