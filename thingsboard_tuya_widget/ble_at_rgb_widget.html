@@ -1,0 +1,141 @@
+<!-- =====================================================================
+     ESP32-C6 RGB LED — ThingsBoard Control Widget
+     BLE AT Module (CFBL: protocol via STM32WB55 Gateway)
+     Paste into "HTML" tab | CSS into "CSS" tab | JS into "JavaScript" tab
+     ThingsBoard v4.x  —  Control widget
+     ===================================================================== -->
+
+<div id="at-widget" class="at-root">
+
+  <!-- ── Config Bar (Stack slot + Char handle) ── -->
+  <div class="config-bar">
+    <div class="cfg-group">
+      <label class="cfg-label">Stack</label>
+      <select id="cfg-slot" class="cfg-input cfg-select" onchange="onSlotChange(this.value)">
+        <option value="0">S1 (slot 0)</option>
+        <option value="1">S2 (slot 1)</option>
+      </select>
+    </div>
+    <div class="cfg-group">
+      <label class="cfg-label">Char Handle</label>
+      <input id="cfg-handle" class="cfg-input" type="text"
+             value="14" placeholder="e.g. 14 or 0x000E"
+             onchange="onHandleChange(this.value)" />
+    </div>
+    <button class="btn-cfg-discover" onclick="startDiscover()" title="AT+DISC=0 then AT+CHARS=0,1,65535">
+      &#128269; Discover
+    </button>
+  </div>
+
+  <!-- ── Main Layout ── -->
+  <div class="main-layout">
+
+    <!-- LEFT: Device Panel -->
+    <div class="panel-devices">
+      <div class="panel-header">
+        <span class="panel-title">Thiết bị</span>
+        <button id="btn-scan" class="btn-scan" onclick="startScan()" title="Quét BLE">
+          <span id="scan-icon" class="scan-icon">&#8635;</span>
+        </button>
+      </div>
+
+      <div class="scan-status">
+        <div id="scan-spinner-mini" class="mini-spinner hidden"></div>
+        <span id="scan-status-text">—</span>
+      </div>
+
+      <!-- Scanned devices list -->
+      <div id="device-list" class="device-list">
+        <div class="no-devices-msg">Nhấn &#8635; để quét</div>
+      </div>
+    </div><!-- /panel-devices -->
+
+    <!-- RIGHT: Control Panel -->
+    <div class="panel-control">
+
+      <!-- Header -->
+      <div class="ctrl-header">
+        <div class="status-dot" id="status-dot" data-state="off"></div>
+        <span id="ctrl-device-name" class="ctrl-title">—</span>
+        <button id="btn-disconnect" class="btn-disc hidden"
+                onclick="disconnectDevice()" title="Ngắt kết nối">✕</button>
+      </div>
+
+      <!-- LED bulb preview -->
+      <div id="bulb-preview" class="bulb-preview off">
+        <div class="bulb-glow" id="bulb-glow"></div>
+        <div class="bulb-body">
+          <div class="bulb-color-ring" id="bulb-ring"></div>
+        </div>
+      </div>
+
+      <!-- Power toggle -->
+      <div class="ctrl-row center">
+        <label class="toggle-switch">
+          <input type="checkbox" id="power-toggle" onchange="onPowerToggle(this.checked)">
+          <span class="toggle-track">
+            <span class="toggle-thumb"></span>
+          </span>
+          <span class="toggle-label" id="power-label">TẮT</span>
+        </label>
+      </div>
+
+      <!-- Color Picker -->
+      <div class="ctrl-section" id="section-color">
+        <div class="ctrl-row space-between">
+          <span class="ctrl-label">Màu sắc</span>
+          <span class="ctrl-value" id="color-hex-value">#FF8000</span>
+        </div>
+        <div class="color-row">
+          <input type="color" id="color-picker" class="color-picker" value="#ff8000"
+                 oninput="onColorInput(this.value)"
+                 onchange="onColorChange(this.value)" />
+          <div class="color-presets">
+            <button class="preset-dot" style="background:#ff0000" onclick="applyPreset('#ff0000')" title="Red"></button>
+            <button class="preset-dot" style="background:#00ff00" onclick="applyPreset('#00ff00')" title="Green"></button>
+            <button class="preset-dot" style="background:#0000ff" onclick="applyPreset('#0000ff')" title="Blue"></button>
+            <button class="preset-dot" style="background:#ffffff" onclick="applyPreset('#ffffff')" title="White"></button>
+            <button class="preset-dot" style="background:#ffcc00" onclick="applyPreset('#ffcc00')" title="Warm"></button>
+            <button class="preset-dot" style="background:#00ffff" onclick="applyPreset('#00ffff')" title="Cyan"></button>
+            <button class="preset-dot" style="background:#ff00ff" onclick="applyPreset('#ff00ff')" title="Magenta"></button>
+            <button class="preset-dot" style="background:#ff8000" onclick="applyPreset('#ff8000')" title="Orange"></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Brightness -->
+      <div class="ctrl-section" id="section-brightness">
+        <div class="ctrl-row space-between">
+          <span class="ctrl-label">Độ sáng</span>
+          <span class="ctrl-value" id="brightness-value">100%</span>
+        </div>
+        <input type="range" id="brightness-slider" class="slider" min="0" max="100" value="100"
+               oninput="onBrightnessInput(this.value)"
+               onchange="onBrightnessChange(this.value)">
+      </div>
+
+      <!-- Overlay (no device / connecting / busy) -->
+      <div id="ctrl-overlay" class="ctrl-overlay">
+        <div class="overlay-inner">
+          <div id="overlay-spinner" class="spinner hidden"></div>
+          <p id="overlay-msg" class="overlay-msg">← Quét và kết nối thiết bị</p>
+        </div>
+      </div>
+
+    </div><!-- /panel-control -->
+
+  </div><!-- /main-layout -->
+
+  <!-- ── Console ── -->
+  <div class="console-panel">
+    <div class="console-header">
+      <span>Console</span>
+      <button class="btn-clear-log" onclick="clearLog()">&#10005;</button>
+    </div>
+    <div id="console-log" class="console-log"></div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast hidden"></div>
+
+</div><!-- /at-widget -->

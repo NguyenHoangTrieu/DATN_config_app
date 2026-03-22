@@ -11,7 +11,7 @@
     "002": {
       "type":              "BLE",
       "label":             "BLE (STM32WB55)",
-      "cmd_prefix":        "CFBL",
+      "cmd_prefix":        "CFML",
       "gateway_json":      "stack_002_config.json",
       "app_commands_json": "stack_002_app_commands.json"
     },
@@ -25,8 +25,8 @@
     "004": {
       "type":              "BLE",
       "label":             "BLE (Custom)",
-      "cmd_prefix":        "CFBL",
-      "gateway_json":      "stack_004_config.json",
+      "cmd_prefix":        "CFML",
+      "gateway_json":      "stack_004_config.json",,
       "app_commands_json": "stack_004_app_commands.json"
     },
     "005": {

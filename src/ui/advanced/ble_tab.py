@@ -13,7 +13,7 @@ from src.config.paths import load_module_config, get_presets_for_type
 from src.ui.advanced.config_form import ConfigForm
 
 _MODULE_TYPE = "BLE"
-_CMD_PREFIX = "CFBL"
+_CMD_PREFIX = "CFML"
 
 
 class BLETab(ttk.Frame):

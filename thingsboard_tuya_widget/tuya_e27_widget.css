@@ -141,8 +141,20 @@
 .device-item:hover { background: var(--surface2); border-color: rgba(233,69,96,0.5); }
 .device-item.selected { background: var(--surface2); border-color: var(--accent); }
 .device-item:active { transform: scale(0.97); }
+.device-item.unprov { border-color: rgba(255,159,67,0.3); }
+.device-item.unprov:hover { border-color: var(--warn); }
 
 .device-icon { font-size: 16px; line-height: 1; flex-shrink: 0; }
+
+/* Name + address stacked */
+.device-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
 .device-name {
   font-size: 12px;
   font-weight: 600;
@@ -150,10 +162,15 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
-  min-width: 0;
 }
-.device-rssi { font-size: 10px; color: var(--text-dim); flex-shrink: 0; }
+.device-addr {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-family: monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .no-devices-msg {
   text-align: center;
@@ -162,6 +179,43 @@
   font-size: 11px;
   line-height: 1.6;
 }
+
+/* Unprovisioned devices section */
+.unprov-section {
+  margin-top: 8px;
+  border-top: 1px solid var(--surface2);
+  padding-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex-shrink: 0;
+}
+.unprov-header {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--warn);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 0 2px;
+}
+.btn-provision {
+  background: var(--warn);
+  border: none;
+  color: #fff;
+  border-radius: 6px;
+  width: 22px;
+  height: 22px;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s;
+  line-height: 1;
+}
+.btn-provision:hover { opacity: 0.8; }
 
 /* ---------- Right: Control Panel ---------- */
 .panel-control {
