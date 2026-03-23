@@ -29,6 +29,12 @@
       "gateway_json":      "stack_004_config.json",
       "app_commands_json": "stack_004_app_commands.json"
     },
+    "007": {
+      "type":              "RS485",
+      "label":             "RS485 Module",
+      "cmd_prefix":        "CFRS",
+      "gateway_json":      "stack_007_config.json"
+    },
     "005": {
       "type":              "ZIGBEE",
       "label":             "Zigbee (STM32WB55)",
@@ -72,3 +78,4 @@
   },
   "pin_options": ["WK", "PE", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11"]
 }
+

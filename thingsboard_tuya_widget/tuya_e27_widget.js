@@ -1,15 +1,16 @@
-﻿/* =====================================================================
+﻿cd DA2_esp
+./build.sh/* =====================================================================
    Tuya E27 LED — ThingsBoard Control Widget — ESP32-S3 Native BLE Mesh
-   RPC: sendCommand(CFBN:<slot>:<verb>) routed by Gateway
+   RPC: sendCommand(CFML:CFBN:S1:<verb>) routed by Gateway
    ThingsBoard v4.x  Control widget
 
    Flow:
      1. Load provisioned nodes from localStorage on init
-     2. 🔍 Scan  → CFBN:0:SCAN:10000  → parse UNPROV_DEV lines
-     3. + Provision → CFBN:0:PROVISION:<uuid> → unicast addr assigned
-     4. Select node → Control via CFBN:0:CONTROL:{cmd,addr,params}
+     2. 🔍 Scan  → CFML:CFBN:S1:SCAN:10000  → parse UNPROV_DEV lines
+     3. + Provision → CFML:CFBN:S1:PROVISION:<uuid> → unicast addr assigned
+     4. Select node → Control via CFML:CFBN:S1:CONTROL:{cmd,addr,params}
 
-   Commands used (must be in JSON config loaded via CFBN:JSON:0:{...}):
+   Commands used (must be in JSON config loaded via CFML:CFBN:S1:JSON:{...}):
      ONOFF     — Generic OnOff (0x1000), params: {value:0|1}
      LIGHTNESS — Light Lightness (0x1300), params: {lightness:0-65535}
      CTL       — Light CTL (0x1303), params: {lightness, temperature(K), delta_uv}
@@ -76,7 +77,8 @@ function sendRPC(method, params, timeout) {
 }
 
 function sendCFBN(verb, timeout) {
-  return sendRPC('sendCommand', 'CFBN:' + state.slot + ':' + verb, timeout);
+  var slotLabel = 'S' + (state.slot + 1);   // 0 → S1, 1 → S2
+  return sendRPC('sendCommand', 'CFML:CFBN:' + slotLabel + ':' + verb, timeout);
 }
 
 function enqueueControl(verb) {

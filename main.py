@@ -306,6 +306,9 @@ class GatewayConfigApp:
         self.connection_bar.set_connected(False)
         self.uart_log.set_disconnected()  # Update UART log header
         self._set_status("Disconnected")
+        # Clear guard so a re-connect triggers auto-send again if the
+        # gateway still has no JSON config loaded.
+        self._prompted_stacks.clear()
 
     def _on_scan_complete(self, gateways):
         """Called after a manual scan finishes.  The user selects the port and
@@ -493,41 +496,65 @@ class GatewayConfigApp:
             self._log(f"[auto-JSON] Failed to read {json_path}: {exc}", "ERROR")
             return
 
-        # Look up cmd_prefix from stack_id_map (e.g. "CFBL", "CFZG")
+        # Look up cmd_prefix and module type from stack_id_map
         stack_map = load_stack_id_map()
         entry = stack_map.get("lan_stack_map", {}).get(stack_id, {})
-        cmd_prefix = entry.get("cmd_prefix", "CFBL")
+        cmd_prefix   = entry.get("cmd_prefix", "CFML")
+        module_type  = entry.get("type", "")
 
-        # Command format: CFML:<cmd_prefix>:JSON:<stack_idx>:<json_payload>
-        cmd = f"CFML:{cmd_prefix}:JSON:{stack_idx}:{json_content}"
+        # All modules use: CFML:<prefix>:JSON:<slot>:<json>
+        # Patch stack_id in JSON body to match physical slot before sending
+        data["stack_id"] = stack_idx
+        json_content = json.dumps(data, separators=(",", ":"))
+        cmd = f"CFML:{cmd_prefix}:JSON:{stack_idx}:{json_content}\r\n"
+
         self._log(
             f"[auto-JSON] Sending default JSON for stack {stack_idx} "
             f"(id={stack_id}, {len(json_content)} bytes)", "INFO")
         self.serial_manager.send(cmd)
 
     def _prompt_json_upload(self, stack_idx: int, stack_id: str):
-        """Notify user that JSON config is missing for the given stack."""
-        stack_type = {"002": "BLE"}.get(stack_id, f"stack_id={stack_id}")
+        """Notify user that JSON config is missing for the given stack.
+
+        Clicking Yes sends the default JSON immediately (same as basic mode)
+        and then navigates to the module tab in Advanced mode so the user
+        can review / re-send.
+        """
+        from src.config.paths import load_stack_id_map
+        stack_map  = load_stack_id_map()
+        entry      = stack_map.get("lan_stack_map", {}).get(stack_id, {})
+        stack_type = entry.get("label", f"stack_id={stack_id}")
+        module_type = entry.get("type", "")
+
         answer = messagebox.askyesno(
             "JSON Config Missing",
             f"Stack {stack_idx + 1} ({stack_type}) has no JSON config loaded on the gateway.\n"
-            f"Would you like to open the Advanced tab to send a JSON config now?",
+            f"Send the default JSON config now?",
         )
         if answer:
-            # Switch to advanced mode — pack() is queued by tkinter's geometry
-            # manager and may not be flushed yet, so defer notebook.select()
-            # with a short after() so the panel is fully rendered first.
+            # Send the default JSON immediately (same path as basic mode)
+            self._auto_send_stack_json(stack_idx, stack_id)
+
+            # Also switch to Advanced mode and select the matching module tab
+            # so the user can review or re-send.
             self.advanced_mode.set(True)
             self._on_mode_change()
-            stack_tabs = getattr(self.advanced_panel, '_stack_tabs', {})
-            target_tab = stack_tabs.get(stack_idx) or (next(iter(stack_tabs.values()), None))
-            if target_tab is not None:
-                def _select(tab=target_tab):
+
+            # Map module type → actual tab attribute on advanced_panel
+            _TYPE_TAB = {
+                "BLE":    lambda p: p.ble_tab,
+                "LORA":   lambda p: p.lora_tab,
+                "ZIGBEE": lambda p: p.zigbee_tab,
+                "RS485":  lambda p: p.rs485_tab,
+            }
+            tab_getter = _TYPE_TAB.get(module_type)
+            if tab_getter is not None:
+                def _select(getter=tab_getter):
                     try:
-                        self.advanced_panel.notebook.select(tab)
+                        self.advanced_panel.notebook.select(getter(self.advanced_panel))
                     except Exception as e:
                         self._log(f"[prompt_json] notebook.select failed: {e}", "ERROR")
-                self.root.after(100, _select)
+                self.root.after(150, _select)
         else:
             # User dismissed — remove the guard so a manual "Read Config"
             # can re-trigger the prompt if the stack still has no JSON.

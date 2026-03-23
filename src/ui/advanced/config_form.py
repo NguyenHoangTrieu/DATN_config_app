@@ -437,6 +437,7 @@ class ConfigForm(ttk.Frame):
         self._function_items: list[FunctionItem] = []
         self._loaded_file: str = ""  # Path to currently loaded/generated file
         self._suppress_preview = False
+        self._stack_slot_var = tk.StringVar(value="S1")
 
         self._build_ui()
         if self._module_config:
@@ -799,6 +800,9 @@ class ConfigForm(ttk.Frame):
         self._update_preview()
 
     # ── Public methods for tab header binding ─────────────────────
+    def set_stack_slot_var(self, var: tk.StringVar):
+        self._stack_slot_var = var
+
     def set_module_id_var(self, var: tk.StringVar):
         self._module_id_var = var
         var.trace_add("write", self._update_preview)
@@ -879,11 +883,12 @@ class ConfigForm(ttk.Frame):
             messagebox.showwarning("Not Connected",
                                    "Connect to a gateway first.")
             return
+        slot = 0 if self._stack_slot_var.get() == "S1" else 1
         data = self.build_json()
         minified = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
-        cmd = f"{self._cmd_prefix}:JSON:{minified}\r\n"
+        cmd = f"CFML:{self._cmd_prefix}:JSON:{slot}:{minified}\r\n"
         self.serial_manager.send(cmd)
-        self.log(f"→ {self._cmd_prefix}:JSON:... ({len(minified)} bytes)", "DEBUG")
+        self.log(f"→ CFML:{self._cmd_prefix}:JSON:{slot}:... ({len(minified)} bytes)", "DEBUG")
 
     # ── Response handler ──────────────────────────────────────────
     def handle_response(self, line: str):

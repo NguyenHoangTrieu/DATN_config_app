@@ -22,6 +22,7 @@ from src.ui.advanced.firmware_tab import FirmwareTab
 from src.ui.advanced.ble_tab import BLETab
 from src.ui.advanced.lora_tab import LoRaTab
 from src.ui.advanced.zigbee_tab import ZigbeeTab
+from src.ui.advanced.rs485_tab import Rs485Tab
 
 
 class AdvancedPanel(ttk.Frame):
@@ -63,6 +64,8 @@ class AdvancedPanel(ttk.Frame):
                                  log_callback=_log)
         self.zigbee_tab = ZigbeeTab(self.notebook, serial_manager=_sm,
                                      log_callback=_log)
+        self.rs485_tab = Rs485Tab(self.notebook, serial_manager=_sm,
+                                   log_callback=_log)
 
         # Firmware tab
         self.firmware_tab = FirmwareTab(self.notebook, log_callback=_log)
@@ -74,6 +77,7 @@ class AdvancedPanel(ttk.Frame):
         self.notebook.add(self.ble_tab,      text="🔷 BLE")
         self.notebook.add(self.lora_tab,     text="🟩 LoRa")
         self.notebook.add(self.zigbee_tab,   text="🔶 Zigbee")
+        self.notebook.add(self.rs485_tab,    text="🔌 RS485")
         self.notebook.add(self.firmware_tab, text="🔄 FW")
 
     def set_config(self, config: GatewayConfig):

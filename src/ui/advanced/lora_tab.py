@@ -83,6 +83,7 @@ class LoRaTab(ttk.Frame):
             log_callback=self.log)
         self._config_form.set_module_id_var(self._module_id_var)
         self._config_form.set_module_name_var(self._module_name_var)
+        self._config_form.set_stack_slot_var(self._slot_var)
         self._config_form.pack(fill=tk.BOTH, expand=True)
 
     def _on_preset_change(self, _event=None):
