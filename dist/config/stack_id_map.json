@@ -48,6 +48,18 @@
       "cmd_prefix":        "CFLR",
       "gateway_json":      "stack_006_config.json",
       "app_commands_json": "stack_006_app_commands.json"
+    },
+    "008": {
+      "type":              "BLE_GATT",
+      "label":             "BLE GATT Central (ESP32-S3 Native)",
+      "cmd_prefix":        "CFBG",
+      "gateway_json":      "stack_008_config.json"
+    },
+    "009": {
+      "type":              "BLE_MESH",
+      "label":             "BLE Mesh Provisioner (ESP32-S3 Native)",
+      "cmd_prefix":        "CFBN",
+      "gateway_json":      "stack_009_config.json"
     }
   },
   "wan_stack_map": {
