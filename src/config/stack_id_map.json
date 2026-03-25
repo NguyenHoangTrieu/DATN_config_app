@@ -56,26 +56,26 @@
       "label":      "No WAN adapter",
       "modem":      "",
       "comm_type":  "USB",
-      "pwr_pin":    "WK",
-      "rst_pin":    "PE"
+      "pwr_pin":    "05",
+      "rst_pin":    "06"
     },
     "101": {
       "type":       "QUECTEL",
       "label":      "Quectel (A7600)",
       "modem":      "A7600C1",
       "comm_type":  "USB",
-      "pwr_pin":    "WK",
-      "rst_pin":    "PE"
+      "pwr_pin":    "05",
+      "rst_pin":    "06"
     },
     "102": {
       "type":       "SIMCOM",
       "label":      "SIMCom (SIM7600)",
       "modem":      "SIM7600",
       "comm_type":  "USB",
-      "pwr_pin":    "WK",
-      "rst_pin":    "PE"
+      "pwr_pin":    "05",
+      "rst_pin":    "06"
     }
   },
-  "pin_options": ["WK", "PE", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11"]
+  "pin_options": ["04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17"]
 }
 

@@ -379,7 +379,6 @@ function disconnectDevice() {
       document.getElementById('ctrl-device-name').textContent = '—';
       document.getElementById('btn-disconnect').classList.add('hidden');
       renderDeviceList(state.scanResults);
-      showOverlay('← Quét và kết nối thiết bị', false);
       showToast('Đã ngắt kết nối');
     });
 }

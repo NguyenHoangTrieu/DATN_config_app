@@ -125,8 +125,8 @@ class BasicPanel(ttk.Frame):
         # Hidden-from-user defaults populated by set_config() from stack_id_map
         self._lte_modem_default  = ""
         self._lte_comm_default   = "USB"
-        self._lte_pwr_default    = "WK"
-        self._lte_rst_default    = "PE"
+        self._lte_pwr_default    = "05"
+        self._lte_rst_default    = "06"
 
         # Adapter info row (read-only)
         info_row = ttk.Frame(tab)
@@ -500,8 +500,8 @@ class BasicPanel(ttk.Frame):
             # Auto-fill hidden defaults
             self._lte_modem_default = lte_entry.get("modem", getattr(config.wan, "lte_modem_name", "") or "")
             self._lte_comm_default  = lte_entry.get("comm_type", getattr(config.wan, "lte_comm_type", "USB") or "USB")
-            self._lte_pwr_default   = lte_entry.get("pwr_pin",  getattr(config.wan, "lte_pwr_pin", "WK") or "WK")
-            self._lte_rst_default   = lte_entry.get("rst_pin",  getattr(config.wan, "lte_rst_pin", "PE") or "PE")
+            self._lte_pwr_default   = lte_entry.get("pwr_pin",  getattr(config.wan, "lte_pwr_pin", "05") or "05")
+            self._lte_rst_default   = lte_entry.get("rst_pin",  getattr(config.wan, "lte_rst_pin", "06") or "06")
             label = lte_entry.get("label", f"Stack {wan_id}")
             self._lte_modem_info_var.set(f"{self._lte_modem_default}  ({label})")
             # Populate user-editable fields

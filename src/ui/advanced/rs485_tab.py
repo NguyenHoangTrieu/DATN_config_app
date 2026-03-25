@@ -70,7 +70,7 @@ class _GpioPinList(ttk.Frame):
                    command=self._add_row).pack(anchor="w", pady=(2, 0))
 
         for gpio in (initial or []):
-            self._add_row(gpio.get("pin", "03"), gpio.get("state", "HIGH"))
+            self._add_row(gpio.get("pin", "04"), gpio.get("state", "HIGH"))
 
     def _add_row(self, pin: str = "03", state: str = "HIGH"):
         row = _GpioPinRow(self._rows_frame, pin=pin, state=state,
@@ -98,7 +98,7 @@ class _GpioPinList(ttk.Frame):
             r.destroy()
         self._rows.clear()
         for gpio in gpio_list:
-            self._add_row(gpio.get("pin", "03"), gpio.get("state", "HIGH"))
+            self._add_row(gpio.get("pin", "04"), gpio.get("state", "HIGH"))
 
 
 class Rs485Tab(ttk.Frame):
