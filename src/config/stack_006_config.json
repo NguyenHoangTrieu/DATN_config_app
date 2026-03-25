@@ -138,19 +138,19 @@
       "is_prefix": false,
       "gpio_start_control": [],
       "delay_start": 0,
-      "expect_response": "+JOIN:",
+      "expect_response": "+JOIN: Done",
       "timeout": 30000,
       "gpio_end_control": [],
       "delay_end": 0
     },
     {
       "function_name": "MODULE_GET_JOIN_STATUS",
-      "command": "AT+MODE",
+      "command": "",
       "is_prefix": false,
       "gpio_start_control": [],
       "delay_start": 0,
-      "expect_response": "+MODE:",
-      "timeout": 1500,
+      "expect_response": "+JOIN:",
+      "timeout": 0,
       "gpio_end_control": [],
       "delay_end": 0
     },
@@ -211,12 +211,12 @@
     },
     {
       "function_name": "MODULE_SET_TXP",
-      "command": "AT+DR=",
-      "is_prefix": true,
+      "command": "",
+      "is_prefix": false,
       "gpio_start_control": [],
       "delay_start": 0,
-      "expect_response": "+DR:",
-      "timeout": 1500,
+      "expect_response": "",
+      "timeout": 0,
       "gpio_end_control": [],
       "delay_end": 0
     },
@@ -232,23 +232,12 @@
       "delay_end": 0
     },
     {
-      "function_name": "MODULE_SET_CONFIRM",
+      "function_name": "MODULE_SET_PORT",
       "command": "AT+PORT=",
       "is_prefix": true,
       "gpio_start_control": [],
       "delay_start": 0,
       "expect_response": "+PORT:",
-      "timeout": 1500,
-      "gpio_end_control": [],
-      "delay_end": 0
-    },
-    {
-      "function_name": "MODULE_SET_PUBLIC_NET",
-      "command": "AT+MODE=",
-      "is_prefix": true,
-      "gpio_start_control": [],
-      "delay_start": 0,
-      "expect_response": "+MODE:",
       "timeout": 1500,
       "gpio_end_control": [],
       "delay_end": 0
@@ -277,14 +266,15 @@
     },
     {
       "function_name": "MODULE_READ_RECV",
-      "command": "AT+MSG?",
+      "command": "",
       "is_prefix": false,
       "gpio_start_control": [],
       "delay_start": 0,
-      "expect_response": "+MSG:",
-      "timeout": 2000,
+      "expect_response": "+MSG: RX",
+      "timeout": 0,
       "gpio_end_control": [],
       "delay_end": 0
     }
+
   ]
 }

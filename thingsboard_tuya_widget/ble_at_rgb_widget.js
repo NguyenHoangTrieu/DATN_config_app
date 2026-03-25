@@ -56,8 +56,6 @@ self.onInit = function () {
     if (state.connected) {
       // Restore visual state from localStorage
       applyConnectedUI(state.mac, state.name);
-    } else {
-      showOverlay('← Quét và kết nối thiết bị', false);
     }
   });
 };
@@ -115,10 +113,6 @@ function loadLocalState() {
 function onSlotChange(val) {
   state.slot = parseInt(val);
   loadLocalState();   // reload slot-scoped storage
-  if (!state.connected) {
-    renderDeviceList([]);
-    showOverlay('← Quét và kết nối thiết bị', false);
-  }
   logInfo('Slot → S' + (state.slot + 1));
 }
 
@@ -282,9 +276,6 @@ function startScan() {
       document.getElementById('scan-status-text').textContent =
         count > 0 ? count + ' thiết bị' : 'Không tìm thấy';
       renderDeviceList(state.scanResults);
-      if (count === 0 && !state.connected) {
-        showOverlay('Không tìm thấy. Nhấn ⟳ thử lại.', false);
-      }
     });
 }
 
