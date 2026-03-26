@@ -62,21 +62,29 @@ FUNCTION_GROUPS: dict[str, list[dict]] = {
     "ZIGBEE": [
         {"emoji": "🔄", "title": "Lifecycle", "functions": [
             "MODULE_HW_RESET", "MODULE_SW_RESET", "MODULE_FACTORY_RESET",
-            "MODULE_GET_INFO", "MODULE_ENTER_HEX_MODE"]},
+            "MODULE_GET_INFO", "MODULE_ENTER_HEX_MODE", "MODULE_ENTER_AT_MODE",
+            "MODULE_ENTER_BOOTLOADER", "MODULE_SET_COMM_CONFIG"]},
         {"emoji": "🌐", "title": "Network Management", "functions": [
-            "MODULE_START_NETWORK", "MODULE_STOP_NETWORK",
+            "MODULE_START_NETWORK", "MODULE_STOP_NETWORK", "MODULE_LEAVE_NETWORK",
             "MODULE_GET_NET_STATUS", "MODULE_SET_CHANNEL", "MODULE_SET_PANID",
-            "MODULE_SET_TX_POWER", "MODULE_SET_PERMIT_JOIN"]},
+            "MODULE_SET_TX_POWER", "MODULE_SET_PERMIT_JOIN", "MODULE_SET_DEVICE_TYPE"]},
         {"emoji": "🔍", "title": "Node Discovery", "functions": [
             "MODULE_NODE_JOIN_NOTIFY", "MODULE_NODE_LEAVE_NOTIFY",
             "MODULE_NODE_ANNOUNCE_NOTIFY", "MODULE_QUERY_SHORT_ADDR",
-            "MODULE_QUERY_NODE_PORT_INFO", "MODULE_DELETE_NODE"]},
+            "MODULE_QUERY_NODE_PORT_INFO", "MODULE_QUERY_IEEE_ADDR",
+            "MODULE_DELETE_NODE", "MODULE_AUTO_FIND_TARGET"]},
         {"emoji": "⚡", "title": "ZCL Control", "functions": [
             "MODULE_ZCL_READ_ATTR", "MODULE_ZCL_WRITE_ATTR",
             "MODULE_ZCL_SEND_CONTROL_CMD", "MODULE_ZCL_RECV_CONTROL_CMD",
-            "MODULE_ZCL_RECV_ATTR_REPORT", "MODULE_ZCL_SET_REPORT_RULE"]},
+            "MODULE_ZCL_RECV_ATTR_REPORT", "MODULE_ZCL_SET_REPORT_RULE",
+            "MODULE_ZCL_DISCOVER_ATTR", "MODULE_ZCL_IDENTIFY",
+            "MODULE_ZCL_BIND", "MODULE_ZCL_UNBIND", "MODULE_ZCL_GET_BIND_TABLE"]},
         {"emoji": "📨", "title": "Data Transfer", "functions": [
-            "MODULE_SEND_UNICAST", "MODULE_SEND_BROADCAST"]},
+            "MODULE_SEND_UNICAST", "MODULE_SEND_BROADCAST", "MODULE_SEND_MULTICAST",
+            "MODULE_ENTER_TRANSPARENT_MODE", "MODULE_SET_DEST_ADDR",
+            "MODULE_SET_DEST_EP"]},
+        {"emoji": "💤", "title": "Power Management", "functions": [
+            "MODULE_SET_LP_LEVEL", "MODULE_ENTER_SLEEP", "MODULE_WAKEUP"]},
     ],
 }
 
@@ -268,40 +276,12 @@ class FunctionItem(ttk.Frame):
         self._prefix_var = tk.BooleanVar(value=fd.get("is_prefix", False))
         self._add_field(body, "Is Prefix", self._prefix_var, "check")
 
-        # Zigbee-specific: cmd_type, cmd_code, response_format
+        # Is hex (all module types: false=ASCII/AT, true=binary HEX frame)
+        self._is_hex_var = tk.BooleanVar(value=fd.get("is_hex", False))
+        self._add_field(body, "Is Hex", self._is_hex_var, "check")
+
+        # Zigbee async event flag (read-only indicator from JSON data)
         if self._module_type == "ZIGBEE":
-            ct = fd.get("cmd_type", -1)
-            cc = fd.get("cmd_code", -1)
-            self._cmd_type_var = tk.StringVar(
-                value="N/A" if ct == -1 else f"0x{ct:02X}")
-            self._cmd_code_var = tk.StringVar(
-                value="N/A" if cc == -1 else f"0x{cc:02X}")
-            self._resp_fmt_var = tk.StringVar(
-                value=fd.get("response_format", "ascii"))
-
-            fr_ct, w_ct = self._add_field(body, "CMD Type", self._cmd_type_var, width=8)
-            # Add dec label
-            self._ct_dec_lbl = ttk.Label(fr_ct, text=f"(dec: {ct})",
-                                         foreground="#888")
-            self._ct_dec_lbl.pack(side=tk.LEFT, padx=4)
-
-            fr_cc, w_cc = self._add_field(body, "CMD Code", self._cmd_code_var, width=8)
-            self._cc_dec_lbl = ttk.Label(fr_cc, text=f"(dec: {cc})",
-                                         foreground="#888")
-            self._cc_dec_lbl.pack(side=tk.LEFT, padx=4)
-
-            self._add_field(body, "Resp Format", self._resp_fmt_var, "combo",
-                            options=["ascii", "hex"], width=8)
-
-            # Disable cmd fields based on cmd_type
-            if ct == -1:
-                w_ct.configure(state="disabled")
-                w_cc.configure(state="disabled")
-            else:
-                # Disable command for HEX mode
-                self._widgets["Command"].configure(state="disabled")
-
-            # Async event — disable timeout
             self._is_async = fd.get("is_async_event", False)
 
         # GPIO start
@@ -349,15 +329,12 @@ class FunctionItem(ttk.Frame):
             "function_name": self._func_data.get("function_name", ""),
             "command": self._cmd_var.get(),
             "is_prefix": self._prefix_var.get(),
+            "is_hex": self._is_hex_var.get(),
         }
 
-        # Zigbee extras
-        if self._module_type == "ZIGBEE":
-            d["cmd_type"] = self._parse_hex_val(self._cmd_type_var.get())
-            d["cmd_code"] = self._parse_hex_val(self._cmd_code_var.get())
-            d["response_format"] = self._resp_fmt_var.get()
-            if getattr(self, "_is_async", False):
-                d["is_async_event"] = True
+        # Zigbee async event flag
+        if self._module_type == "ZIGBEE" and getattr(self, "_is_async", False):
+            d["is_async_event"] = True
 
         d["gpio_start_control"] = self._gpio_start.get_data()
         d["delay_start"] = self._safe_int(self._delay_start_var.get())
@@ -376,6 +353,7 @@ class FunctionItem(ttk.Frame):
         self._func_data = func_data
         self._cmd_var.set(func_data.get("command", ""))
         self._prefix_var.set(func_data.get("is_prefix", False))
+        self._is_hex_var.set(func_data.get("is_hex", False))
         self._enabled_var.set(func_data.get("enabled", True))
         self._gpio_start.set_data(func_data.get("gpio_start_control", []))
         self._delay_start_var.set(str(func_data.get("delay_start", 0)))
@@ -383,15 +361,6 @@ class FunctionItem(ttk.Frame):
         self._delay_end_var.set(str(func_data.get("delay_end", 0)))
         self._expect_var.set(func_data.get("expect_response", ""))
         self._timeout_var.set(str(func_data.get("timeout", 0)))
-
-        if self._module_type == "ZIGBEE":
-            ct = func_data.get("cmd_type", -1)
-            cc = func_data.get("cmd_code", -1)
-            self._cmd_type_var.set("N/A" if ct == -1 else f"0x{ct:02X}")
-            self._cmd_code_var.set("N/A" if cc == -1 else f"0x{cc:02X}")
-            self._resp_fmt_var.set(func_data.get("response_format", "ascii"))
-            self._ct_dec_lbl.config(text=f"(dec: {ct})")
-            self._cc_dec_lbl.config(text=f"(dec: {cc})")
 
     @staticmethod
     def _parse_hex_val(text: str) -> int:
