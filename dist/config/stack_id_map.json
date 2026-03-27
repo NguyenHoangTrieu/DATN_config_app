@@ -60,6 +60,12 @@
       "label":             "BLE Mesh Provisioner (ESP32-S3 Native)",
       "cmd_prefix":        "CFBN",
       "gateway_json":      "stack_009_config.json"
+    },
+    "010": {
+      "type":              "ZIGBEE",
+      "label":             "Zigbee (E180-ZG120B HEX)",
+      "cmd_prefix":        "CFZB",
+      "gateway_json":      "stack_010_config.json"
     }
   },
   "wan_stack_map": {

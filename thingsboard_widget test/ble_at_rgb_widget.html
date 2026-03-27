@@ -1,13 +1,14 @@
 <!-- =====================================================================
-     ESP32-C6 RGB LED — ThingsBoard Control Widget
-     BLE AT Module (CFBL: protocol via STM32WB55 Gateway)
+     ESP32-C6 BLE GATT Peripheral — ThingsBoard Control Widget
+     Native BLE GATT (no AT commands) via Gateway BLE handler
+     Service: 0xFFF0 | Char FFF1: READ|NOTIFY (counter) | Char FFF2: WRITE (LED)
      Paste into "HTML" tab | CSS into "CSS" tab | JS into "JavaScript" tab
-     ThingsBoard v4.x  —  Control widget
+     ThingsBoard v4.x  —  Test & Monitor Widget
      ===================================================================== -->
 
-<div id="at-widget" class="at-root">
+<div id="gatt-widget" class="gatt-root">
 
-  <!-- ── Config Bar (Stack slot + Char handle) ── -->
+  <!-- ── Config Bar (Stack slot + Target device) ── -->
   <div class="config-bar">
     <div class="cfg-group">
       <label class="cfg-label">Stack</label>
@@ -17,13 +18,13 @@
       </select>
     </div>
     <div class="cfg-group">
-      <label class="cfg-label">Char Handle</label>
-      <input id="cfg-handle" class="cfg-input" type="text"
-             value="14" placeholder="e.g. 14 or 0x000E"
-             onchange="onHandleChange(this.value)" />
+      <label class="cfg-label">Target Device</label>
+      <input id="cfg-device-name" class="cfg-input" type="text"
+             value="DA2_TEST_GATT" placeholder="e.g. DA2_TEST_GATT"
+             onchange="onDeviceNameChange(this.value)" />
     </div>
-    <button class="btn-cfg-discover" onclick="startDiscover()" title="AT+DISC=0 then AT+CHARS=0,1,65535">
-      &#128269; Discover
+    <button class="btn-cfg-discover" onclick="startAutoConnect()" title="Auto-scan and connect">
+      &#128269; Auto-Connect
     </button>
   </div>
 
@@ -33,8 +34,8 @@
     <!-- LEFT: Device Panel -->
     <div class="panel-devices">
       <div class="panel-header">
-        <span class="panel-title">Thiết bị</span>
-        <button id="btn-scan" class="btn-scan" onclick="startScan()" title="Quét BLE">
+        <span class="panel-title">Devices</span>
+        <button id="btn-scan" class="btn-scan" onclick="startScan()" title="Scan BLE">
           <span id="scan-icon" class="scan-icon">&#8635;</span>
         </button>
       </div>
@@ -46,7 +47,7 @@
 
       <!-- Scanned devices list -->
       <div id="device-list" class="device-list">
-        <div class="no-devices-msg">Nhấn &#8635; để quét</div>
+        <div class="no-devices-msg">Click &#8635; to scan</div>
       </div>
     </div><!-- /panel-devices -->
 
@@ -58,67 +59,56 @@
         <div class="status-dot" id="status-dot" data-state="off"></div>
         <span id="ctrl-device-name" class="ctrl-title">—</span>
         <button id="btn-disconnect" class="btn-disc hidden"
-                onclick="disconnectDevice()" title="Ngắt kết nối">✕</button>
+                onclick="disconnectDevice()" title="Disconnect">✕</button>
       </div>
 
-      <!-- LED bulb preview -->
-      <div id="bulb-preview" class="bulb-preview off">
-        <div class="bulb-glow" id="bulb-glow"></div>
-        <div class="bulb-body">
-          <div class="bulb-color-ring" id="bulb-ring"></div>
+      <!-- Counter Tile (FFF1) -->
+      <div class="gatt-tiles">
+        <div class="gatt-tile">
+          <div class="tile-label">Counter (FFF1)</div>
+          <div class="tile-val" id="counter-value">—</div>
+          <div class="tile-sub">READ | NOTIFY</div>
         </div>
       </div>
 
-      <!-- Power toggle -->
-      <div class="ctrl-row center">
-        <label class="toggle-switch">
-          <input type="checkbox" id="power-toggle" onchange="onPowerToggle(this.checked)">
-          <span class="toggle-track">
-            <span class="toggle-thumb"></span>
-          </span>
-          <span class="toggle-label" id="power-label">TẮT</span>
-        </label>
-      </div>
-
-      <!-- Color Picker -->
-      <div class="ctrl-section" id="section-color">
+      <!-- LED Control (FFF2) -->
+      <div class="ctrl-section" id="section-led">
         <div class="ctrl-row space-between">
-          <span class="ctrl-label">Màu sắc</span>
-          <span class="ctrl-value" id="color-hex-value">#FF8000</span>
+          <span class="ctrl-label">LED Control</span>
+          <span class="ctrl-value" id="led-state">OFF</span>
         </div>
-        <div class="color-row">
-          <input type="color" id="color-picker" class="color-picker" value="#ff8000"
-                 oninput="onColorInput(this.value)"
-                 onchange="onColorChange(this.value)" />
-          <div class="color-presets">
-            <button class="preset-dot" style="background:#ff0000" onclick="applyPreset('#ff0000')" title="Red"></button>
-            <button class="preset-dot" style="background:#00ff00" onclick="applyPreset('#00ff00')" title="Green"></button>
-            <button class="preset-dot" style="background:#0000ff" onclick="applyPreset('#0000ff')" title="Blue"></button>
-            <button class="preset-dot" style="background:#ffffff" onclick="applyPreset('#ffffff')" title="White"></button>
-            <button class="preset-dot" style="background:#ffcc00" onclick="applyPreset('#ffcc00')" title="Warm"></button>
-            <button class="preset-dot" style="background:#00ffff" onclick="applyPreset('#00ffff')" title="Cyan"></button>
-            <button class="preset-dot" style="background:#ff00ff" onclick="applyPreset('#ff00ff')" title="Magenta"></button>
-            <button class="preset-dot" style="background:#ff8000" onclick="applyPreset('#ff8000')" title="Orange"></button>
-          </div>
+        <div class="led-icon" id="led-icon">⭕</div>
+        <div class="ctrl-row center">
+          <button class="btn-led" id="btn-led-on" onclick="sendLedCommand(1)" title="Turn ON">
+            ◉ ON
+          </button>
+          <button class="btn-led" id="btn-led-off" onclick="sendLedCommand(0)" title="Turn OFF">
+            ○ OFF
+          </button>
         </div>
       </div>
 
-      <!-- Brightness -->
-      <div class="ctrl-section" id="section-brightness">
+      <!-- GATT Info -->
+      <div class="ctrl-section">
         <div class="ctrl-row space-between">
-          <span class="ctrl-label">Độ sáng</span>
-          <span class="ctrl-value" id="brightness-value">100%</span>
+          <span class="ctrl-label">Service</span>
+          <span class="ctrl-value" id="service-uuid">—</span>
         </div>
-        <input type="range" id="brightness-slider" class="slider" min="0" max="100" value="100"
-               oninput="onBrightnessInput(this.value)"
-               onchange="onBrightnessChange(this.value)">
+        <div class="ctrl-row space-between">
+          <span class="ctrl-label">FFF1 Handle</span>
+          <span class="ctrl-value" id="handle-fff1">—</span>
+        </div>
+        <div class="ctrl-row space-between">
+          <span class="ctrl-label">FFF2 Handle</span>
+          <span class="ctrl-value" id="handle-fff2">—</span>
+        </div>
       </div>
 
       <!-- Overlay (no device / connecting / busy) -->
       <div id="ctrl-overlay" class="ctrl-overlay">
         <div class="overlay-inner">
           <div id="overlay-spinner" class="spinner hidden"></div>
-          <p id="overlay-msg" class="overlay-msg">← Quét và kết nối thiết bị</p>
+          <p id="overlay-msg" class="overlay-msg">← Scan and connect device</p>
         </div>
       </div>
 

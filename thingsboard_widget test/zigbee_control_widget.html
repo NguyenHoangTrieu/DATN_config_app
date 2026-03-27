@@ -1,0 +1,204 @@
+<!-- =====================================================================
+     DA2 Zigbee Gateway Control — ThingsBoard Control Widget
+     Protocol: CFML:CFZB:<slot>:<function_name>  (CF parsed by MCU WAN)
+     Paste into "HTML" tab | CSS into "CSS" tab | JS into "JavaScript" tab
+     ThingsBoard v4.x  —  Control widget
+     ===================================================================== -->
+
+<div id="zb-widget" class="zb-root">
+
+  <!-- ── Config Bar ── -->
+  <div class="config-bar">
+    <div class="cfg-group">
+      <label class="cfg-label">Stack</label>
+      <select id="cfg-slot" class="cfg-input cfg-select" onchange="onSlotChange(this.value)">
+        <option value="0">ZB S1</option>
+        <option value="1">ZB S2</option>
+      </select>
+    </div>
+    <div class="cfg-group">
+      <label class="cfg-label">Node Addr</label>
+      <input id="cfg-short" class="cfg-input" type="text" value=""
+             placeholder="1A2B" onchange="onShortAddrChange(this.value)" />
+    </div>
+    <div class="cfg-group">
+      <label class="cfg-label">EP</label>
+      <input id="cfg-ep" class="cfg-input" type="text" value="01"
+             placeholder="01" style="width:38px;" onchange="state.ep=this.value.trim()" />
+    </div>
+    <div class="cfg-group">
+      <label class="cfg-label">Cluster</label>
+      <select id="cfg-cluster" class="cfg-input cfg-select cfg-cluster"
+              onchange="onClusterChange(this.value)">
+        <option value="0006">On/Off</option>
+        <option value="0008">Level</option>
+        <option value="0300">Color</option>
+        <option value="0402">Temperature</option>
+        <option value="0405">Humidity</option>
+        <option value="0000">Basic</option>
+      </select>
+    </div>
+    <button class="btn-cfg-action" onclick="queryNetStatus()" title="Refresh network status">
+      &#8635; Status
+    </button>
+  </div>
+
+  <!-- ── Main Layout ── -->
+  <div class="main-layout">
+
+    <!-- LEFT: Network & Node Panel -->
+    <div class="panel-devices">
+      <div class="panel-header">
+        <span class="panel-title">Mạng &amp; Nodes</span>
+        <div class="net-badge" id="net-badge" data-state="off">OFF</div>
+      </div>
+
+      <!-- Network controls -->
+      <div class="net-controls">
+        <div class="net-btn-row">
+          <button class="btn-net btn-start" onclick="startNetwork()">▶ Start</button>
+          <button class="btn-net btn-stop"  onclick="stopNetwork()">■ Stop</button>
+        </div>
+        <div class="net-btn-row">
+          <button class="btn-net btn-scan" id="btn-join" onclick="openPermitJoin()">
+            <span id="join-icon">⚡</span> Permit Join
+          </button>
+          <button class="btn-net btn-find" onclick="autoFind()">⊕ Find</button>
+        </div>
+      </div>
+
+      <!-- Net info line -->
+      <div class="net-info-line" id="net-info">—</div>
+
+      <!-- Separator -->
+      <div class="list-sep">Nodes (<span id="node-count">0</span>)</div>
+
+      <!-- Node list -->
+      <div id="node-list" class="node-list">
+        <div class="no-items-msg">Chưa có node. Nhấn ▶ Start → ⚡ Permit Join</div>
+      </div>
+    </div><!-- /panel-devices -->
+
+    <!-- RIGHT: ZCL Control Panel -->
+    <div class="panel-control">
+
+      <!-- Header -->
+      <div class="ctrl-header">
+        <div class="status-dot" id="status-dot" data-state="off"></div>
+        <span id="ctrl-node-name" class="ctrl-title">— Chọn node —</span>
+        <button id="btn-del" class="btn-del hidden" onclick="deleteNode()" title="Xóa node">✕</button>
+      </div>
+
+      <!-- Cluster presets -->
+      <div class="preset-clusters">
+        <button class="btn-cluster-preset" onclick="clusterPreset('0006')">💡 On/Off</button>
+        <button class="btn-cluster-preset" onclick="clusterPreset('0008')">🔆 Level</button>
+        <button class="btn-cluster-preset" onclick="clusterPreset('0300')">🎨 Color</button>
+        <button class="btn-cluster-preset" onclick="clusterPreset('0402')">🌡 Temp</button>
+      </div>
+
+      <!-- On/Off section -->
+      <div class="ctrl-section" id="section-onoff">
+        <div class="ctrl-row space-between">
+          <span class="ctrl-label">On / Off</span>
+          <span class="ctrl-value" id="onoff-val">—</span>
+        </div>
+        <div class="ctrl-row center" style="margin-top:8px;">
+          <label class="toggle-switch">
+            <input type="checkbox" id="onoff-toggle" onchange="onOnOffToggle(this.checked)">
+            <span class="toggle-track">
+              <span class="toggle-thumb"></span>
+            </span>
+            <span class="toggle-label" id="onoff-label">OFF</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Level section -->
+      <div class="ctrl-section" id="section-level">
+        <div class="ctrl-row space-between">
+          <span class="ctrl-label">Level (0–254)</span>
+          <span class="ctrl-value" id="level-val">—</span>
+        </div>
+        <input type="range" id="level-slider" class="slider" min="0" max="254" value="127"
+               oninput="onLevelInput(this.value)"
+               onchange="onLevelChange(this.value)">
+      </div>
+
+      <!-- Color section -->
+      <div class="ctrl-section" id="section-color">
+        <div class="ctrl-row space-between">
+          <span class="ctrl-label">Color</span>
+          <span class="ctrl-value" id="color-hex-val">#FFFFFF</span>
+        </div>
+        <div class="color-row">
+          <input type="color" id="color-picker" class="color-picker" value="#ffffff"
+                 oninput="onColorInput(this.value)"
+                 onchange="onColorChange(this.value)" />
+          <div class="color-presets">
+            <button class="preset-dot" style="background:#ff0000" onclick="applyColorPreset('#ff0000')"></button>
+            <button class="preset-dot" style="background:#00ff00" onclick="applyColorPreset('#00ff00')"></button>
+            <button class="preset-dot" style="background:#0000ff" onclick="applyColorPreset('#0000ff')"></button>
+            <button class="preset-dot" style="background:#ffffff" onclick="applyColorPreset('#ffffff')"></button>
+            <button class="preset-dot" style="background:#ffcc00" onclick="applyColorPreset('#ffcc00')"></button>
+            <button class="preset-dot" style="background:#00ffff" onclick="applyColorPreset('#00ffff')"></button>
+            <button class="preset-dot" style="background:#ff00ff" onclick="applyColorPreset('#ff00ff')"></button>
+            <button class="preset-dot" style="background:#ff8000" onclick="applyColorPreset('#ff8000')"></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Read Attribute -->
+      <div class="ctrl-section">
+        <div class="ctrl-row space-between" style="margin-bottom:5px;">
+          <span class="ctrl-label">Read Attribute</span>
+          <span class="ctrl-value" id="attr-read-val">—</span>
+        </div>
+        <div class="input-row">
+          <input id="inp-attr-id" class="small-input" type="text" placeholder="Attr ID e.g. 0000" />
+          <button class="btn-action btn-read" onclick="readAttribute()">Read</button>
+        </div>
+      </div>
+
+      <!-- Write Attribute -->
+      <div class="ctrl-section">
+        <span class="ctrl-label" style="margin-bottom:5px;display:block;">Write Attribute</span>
+        <div class="input-row">
+          <input id="inp-write-attr" class="small-input" type="text" placeholder="AttrID,Type,Val" />
+          <button class="btn-action btn-write" onclick="writeAttribute()">Write</button>
+        </div>
+      </div>
+
+      <!-- ZCL Raw Command -->
+      <div class="ctrl-section">
+        <span class="ctrl-label" style="margin-bottom:5px;display:block;">ZCL Raw Cmd</span>
+        <div class="input-row">
+          <input id="inp-zcl-cmd" class="small-input" type="text" placeholder="CmdID[,data]" />
+          <button class="btn-action btn-send" onclick="sendZclCmd()">Send</button>
+        </div>
+      </div>
+
+      <!-- Overlay -->
+      <div id="ctrl-overlay" class="ctrl-overlay">
+        <div class="overlay-inner">
+          <div id="overlay-spinner" class="spinner hidden"></div>
+          <p id="overlay-msg" class="overlay-msg">← Khởi động mạng và chọn node</p>
+        </div>
+      </div>
+
+    </div><!-- /panel-control -->
+  </div><!-- /main-layout -->
+
+  <!-- ── Console ── -->
+  <div class="console-panel">
+    <div class="console-header">
+      <span>Console</span>
+      <button class="btn-clear-log" onclick="clearLog()">&#10005;</button>
+    </div>
+    <div id="console-log" class="console-log"></div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast hidden"></div>
+
+</div><!-- /zb-widget -->

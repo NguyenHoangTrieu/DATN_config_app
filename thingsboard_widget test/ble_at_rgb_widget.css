@@ -1,19 +1,20 @@
 /* =====================================================================
-   ESP32-C6 BLE AT RGB LED — ThingsBoard Widget CSS
-   CFBL: protocol (STM32WB55 AT Command Module)
+   ESP32-C6 BLE GATT Peripheral — ThingsBoard Widget CSS
+   Native BLE GATT (no AT commands) | Service FFF0 | Char FFF1, FFF2
    ===================================================================== */
 
 /* ── Variables ── */
-.at-root {
+.gatt-root {
   --bg:        #0d1117;
   --surface:   #161b22;
   --surface2:  #21262d;
-  --accent:    #58a6ff;
-  --accent2:   #3fb950;
+  --accent:    #a78bfa;
+  --accent2:   #06b6d4;
   --warn:      #ff9f43;
   --error:     #f85149;
   --text:      #e6edf3;
   --text-dim:  #7d8590;
+  --ble-color: #a78bfa;
   --radius:    14px;
   --radius-sm: 8px;
 
@@ -303,42 +304,89 @@
 }
 .btn-disc:hover { border-color: var(--error); color: var(--error); }
 
-/* Bulb Preview */
-.bulb-preview {
+/* GATT Tiles (Counter display) */
+.gatt-tiles {
   display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 70px;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-bottom: 10px;
-  position: relative;
   flex-shrink: 0;
 }
-.bulb-glow {
-  position: absolute;
-  width: 60px; height: 60px;
-  border-radius: 50%;
-  opacity: 0;
-  transition: opacity 0.3s, background 0.3s;
-  pointer-events: none;
-}
-.bulb-body {
-  width: 44px; height: 44px;
-  border-radius: 50%;
+
+.gatt-tile {
+  flex: 1;
+  min-width: 100px;
   background: var(--surface2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 2px solid #30363d;
-  transition: border-color 0.3s;
-  z-index: 1;
+  border: 1px solid #30363d;
+  border-radius: var(--radius-sm);
+  padding: 10px 8px;
+  text-align: center;
+  transition: all 0.15s;
+  border-color: var(--ble-color);
+  border-left: 3px solid var(--ble-color);
 }
-.bulb-preview.on .bulb-body { border-color: var(--text-dim); }
-.bulb-color-ring {
-  width: 28px; height: 28px;
-  border-radius: 50%;
-  background: #30363d;
-  transition: background 0.2s;
+.gatt-tile:hover { border-color: var(--ble-color); }
+
+.tile-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 4px;
 }
+
+.tile-val {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ble-color);
+  font-family: monospace;
+  margin-bottom: 2px;
+}
+
+.tile-sub {
+  font-size: 9px;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* LED Icon & Controls */
+.led-icon {
+  font-size: 48px;
+  text-align: center;
+  margin: 12px 0;
+  color: #666;
+  transition: all 0.3s;
+}
+.led-icon.on {
+  color: #00ff00;
+  text-shadow: 0 0 12px rgba(0, 255, 0, 0.8);
+  transform: scale(1.1);
+}
+
+.btn-led {
+  background: var(--surface2);
+  border: 1px solid #30363d;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  margin: 0 4px;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.btn-led:hover {
+  border-color: var(--ble-color);
+  color: var(--ble-color);
+}
+.btn-led.active {
+  background: var(--ble-color);
+  color: var(--bg);
+  border-color: var(--ble-color);
+}
+
+/* Old RGB styles replaced - keeping basic structure */
 
 /* Power Toggle */
 .ctrl-row { display: flex; align-items: center; }
@@ -384,52 +432,18 @@
 .ctrl-label { font-size: 11px; color: var(--text-dim); }
 .ctrl-value { font-size: 11px; color: var(--accent); font-family: monospace; }
 
-/* Color Picker */
-.color-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 6px;
-}
-.color-picker {
-  width: 40px; height: 36px;
-  border: none;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  padding: 2px;
-  background: transparent;
-}
-.color-presets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  flex: 1;
-}
-.preset-dot {
-  width: 20px; height: 20px;
-  border-radius: 50%;
-  border: 2px solid transparent;
-  cursor: pointer;
-  transition: border-color 0.15s, transform 0.1s;
-  padding: 0;
-}
-.preset-dot:hover { border-color: #fff; transform: scale(1.15); }
 
-/* Brightness Slider */
-.slider {
-  width: 100%;
-  height: 6px;
-  margin-top: 8px;
-  -webkit-appearance: none;
-  border-radius: 3px;
-  outline: none;
-  cursor: pointer;
-  background: linear-gradient(to right, #e0a000 0%, #e0a000 100%, #21262d 100%);
-}
-.slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 16px; height: 16px;
-  border-radius: 50%;
+
+/* Color Picker & Brightness - Removed for GATT version */
+.color-row { display: none; }
+.color-picker { display: none; }
+.color-presets { display: none; }
+.preset-dot { display: none; }
+.slider { display: none; }
+.section-color { display: none; }
+.section-brightness { display: none; }
+.power-toggle { display: none; }
+.toggle-switch { display: none; }
   background: #fff;
   box-shadow: 0 1px 4px rgba(0,0,0,0.5);
   cursor: pointer;

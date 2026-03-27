@@ -1,49 +1,48 @@
 /* =====================================================================
-   ESP32-C6 RGB LED — ThingsBoard Control Widget — BLE AT Module
-   CFML: protocol routed via Gateway (DA2_esp → DA2_esp_LAN → STM32WB55)
-
-   Flow:
-     1. 🔍 Scan  → CFML:0:AT+SCAN=5000
-                  Response: CFML:0:OK:OK\x1E+SCAN:<mac>,<rssi>,<name>\x1E...
-     2. ⚡ Connect → CFML:0:AT+CONNECT=<MAC>
-                    Response: CFML:0:OK:OK\x1E+CONNECTING\x1E+CONNECTED:0,0x0001
-     3. 💡 Control → CFML:0:AT+WRITE=0,<handle>,<PRRGGBB>
-                     Response: CFML:0:OK:OK
-     4. ❌ Disconnect → CFML:0:AT+DISCONNECT=0
-
-   Write hex format (4 bytes): PPRRGGGBB
-       P  = power  (01 = ON, 00 = OFF)
-       RR = Red    (00–FF)
-       GG = Green  (00–FF)
-       BB = Blue   (00–FF)
-
-   Handle discovery:
-       Click "Discover" → runs AT+DISC=0 then AT+CHARS=0,1,65535
-       EVT lines from listener task show char handles.
-       OR: read the handle from ESP32 Serial Monitor at startup.
-
+   ESP32-C6 BLE GATT Peripheral — ThingsBoard Control Widget — NATIVE GATT
+   Protocol: CFML:CFBG:<cmd> (native GATT, no AT commands)
+   
+   Service FFF0:
+     - Char FFF1 (READ|NOTIFY): Counter value (4-byte uint32-LE)
+     - Char FFF2 (WRITE): LED control (0x00=OFF, 0x01=ON)
+   
+   Gateway GATT commands:
+     CFML:CFBG:SCAN:<duration_ms>        → scan for devices
+     CFML:CFBG:CONNECT:<mac>             → connect to device
+     CFML:CFBG:DISCOVER:<mac>            → discover services
+     CFML:CFBG:READ:<mac>:<uuid>         → read characteristic
+     CFML:CFBG:WRITE:<mac>:<uuid>:<hex>  → write characteristic
+     CFML:CFBG:SUBSCRIBE:<mac>:<uuid>    → enable notifications
+   
    ===================================================================== */
 
 /* -------------------------------------------------------------------
    STATE
 ------------------------------------------------------------------- */
 var state = {
-  slot       : 0,          // Gateway stack slot: 0 = S1, 1 = S2
-  handle     : 14,         // GATT characteristic value handle (decimal)
-  devIdx     : 0,          // Device index assigned by AT+CONNECT (usually 0)
-  mac        : null,       // Connected device MAC (for display)
-  name       : null,       // Connected device name
+  slot       : 0,                     // Gateway stack slot
+  targetName : 'DA2_TEST_GATT',       // Target device name
+  mac        : null,                  // Connected device MAC
   connected  : false,
   scanning   : false,
   connecting : false,
-  power      : false,
-  r : 255, g : 128, b : 0, // Current RGB (orange default)
-  brightness : 100,        // Brightness 0–100 %
-  scanResults : [],        // [{ mac, rssi, name }]
-  rpcSlot    : 0,          // derived from cfg slot — use state.slot
+  
+  // GATT characteristic UUIDs (lowercase for comparison)
+  svc_uuid   : '0000fff0-0000-1000-8000-00805f9b34fb',  // Service
+  fff1_uuid  : '0000fff1-0000-1000-8000-00805f9b34fb',  // Counter (RD|NT)
+  fff2_uuid  : '0000fff2-0000-1000-8000-00805f9b34fb',  // LED (WR)
+  
+  // Discovered handles
+  fff1_handle: null,
+  fff2_handle: null,
+  
+  // GATT data
+  counterVal : 0,
+  ledState   : false,                 // false=OFF, true=ON
+  scanResults: [],                    // [{ mac, rssi, name }]
+  
   rpcTimeout : 8000,
   cmdBusy    : false,
-  cmdQueue   : [],
 };
 
 /* -------------------------------------------------------------------
@@ -54,8 +53,9 @@ self.onInit = function () {
     loadLocalState();
     renderDeviceList([]);
     if (state.connected) {
-      // Restore visual state from localStorage
-      applyConnectedUI(state.mac, state.name);
+      applyConnectedUI();
+    } else {
+      showOverlay('← Scan and connect device', false);
     }
   });
 };
@@ -65,20 +65,19 @@ self.onDestroy = function () {};
 /* -------------------------------------------------------------------
    PERSISTENCE (localStorage)
 ------------------------------------------------------------------- */
-function storageKey() { return 'CFML_rgb_slot' + state.slot; }
+function storageKey() { return 'GATT_widget_' + state.slot; }
 
 function saveLocalState() {
   try {
     var data = {
-      slot      : state.slot,
-      handle    : state.handle,
-      devIdx    : state.devIdx,
-      mac       : state.mac,
-      name      : state.name,
-      connected : state.connected,
-      power     : state.power,
-      r : state.r, g : state.g, b : state.b,
-      brightness: state.brightness,
+      slot       : state.slot,
+      targetName : state.targetName,
+      mac        : state.mac,
+      connected  : state.connected,
+      counterVal : state.counterVal,
+      ledState   : state.ledState,
+      fff1_handle: state.fff1_handle,
+      fff2_handle: state.fff2_handle,
     };
     localStorage.setItem(storageKey(), JSON.stringify(data));
   } catch (e) {}
@@ -89,21 +88,17 @@ function loadLocalState() {
     var raw = localStorage.getItem(storageKey());
     if (!raw) return;
     var d = JSON.parse(raw);
-    state.slot       = d.slot       !== undefined ? d.slot       : state.slot;
-    state.handle     = d.handle     !== undefined ? d.handle     : state.handle;
-    state.devIdx     = d.devIdx     !== undefined ? d.devIdx     : state.devIdx;
-    state.mac        = d.mac        || null;
-    state.name       = d.name       || null;
-    state.connected  = d.connected  || false;
-    state.power      = d.power      || false;
-    state.r          = d.r          !== undefined ? d.r : state.r;
-    state.g          = d.g          !== undefined ? d.g : state.g;
-    state.b          = d.b          !== undefined ? d.b : state.b;
-    state.brightness = d.brightness !== undefined ? d.brightness : state.brightness;
-
-    // Sync UI inputs
-    document.getElementById('cfg-slot').value   = state.slot;
-    document.getElementById('cfg-handle').value = state.handle;
+    state.slot        = d.slot        !== undefined ? d.slot        : state.slot;
+    state.targetName  = d.targetName  || state.targetName;
+    state.mac         = d.mac         || null;
+    state.connected   = d.connected   || false;
+    state.counterVal  = d.counterVal  || 0;
+    state.ledState    = d.ledState    || false;
+    state.fff1_handle = d.fff1_handle || null;
+    state.fff2_handle = d.fff2_handle || null;
+    
+    document.getElementById('cfg-slot').value       = state.slot;
+    document.getElementById('cfg-device-name').value= state.targetName;
   } catch (e) {}
 }
 
@@ -112,26 +107,14 @@ function loadLocalState() {
 ------------------------------------------------------------------- */
 function onSlotChange(val) {
   state.slot = parseInt(val);
-  loadLocalState();   // reload slot-scoped storage
+  loadLocalState();
   logInfo('Slot → S' + (state.slot + 1));
 }
 
-function onHandleChange(val) {
-  var trimmed = val.trim().toLowerCase();
-  var parsed;
-  if (trimmed.startsWith('0x')) {
-    parsed = parseInt(trimmed, 16);
-  } else {
-    parsed = parseInt(trimmed, 10);
-  }
-  if (isNaN(parsed) || parsed <= 0) {
-    showToast('Handle không hợp lệ');
-    return;
-  }
-  state.handle = parsed;
-  document.getElementById('cfg-handle').value = state.handle;
+function onDeviceNameChange(val) {
+  state.targetName = val.trim();
   saveLocalState();
-  logInfo('Char handle → ' + state.handle + ' (0x' + state.handle.toString(16).toUpperCase().padStart(4, '0') + ')');
+  logInfo('Target device → ' + state.targetName);
 }
 
 /* -------------------------------------------------------------------
@@ -148,36 +131,15 @@ function sendRPC(method, params, timeoutMs) {
   });
 }
 
-function sendCFML(atCmd, timeoutMs) {
-  var cmd = 'CFML:' + state.slot + ':' + atCmd;
+function sendCFML(gattCmd, timeoutMs) {
+  var cmd = 'CFML:CFBG:' + gattCmd;
   logTx(cmd);
   return sendRPC('sendCommand', cmd, timeoutMs || state.rpcTimeout);
-}
-
-/* Command queue — send one at a time to avoid BLE handler overload */
-function enqueueWrite(atCmd) {
-  state.cmdQueue.push(atCmd);
-  drainQueue();
-}
-
-function drainQueue() {
-  if (state.cmdBusy || state.cmdQueue.length === 0) return;
-  state.cmdBusy = true;
-  var cmd = state.cmdQueue.shift();
-  sendCFML(cmd, 2000)
-    .then(function (resp) { logCFMLResponse(resp); })
-    .catch(function (e)   { logFail('WRITE timeout: ' + (e ? e.message || e : 'err')); })
-    .finally(function ()  { state.cmdBusy = false; drainQueue(); });
 }
 
 /* -------------------------------------------------------------------
    RESPONSE PARSERS
 ------------------------------------------------------------------- */
-
-/**
- * Parse lines from a CFML RPC response.
- * Lines are separated by \x1E (ASCII RS = 0x1E) or \n.
- */
 function parseLines(resp) {
   var text = typeof resp === 'string' ? resp
            : (resp && (resp.result || resp.value || JSON.stringify(resp))) || '';
@@ -185,16 +147,11 @@ function parseLines(resp) {
              .filter(function (l) { return l.length > 0; });
 }
 
-/**
- * Parse AT+SCAN response lines for device entries.
- * AT+SCAN format: +SCAN:<mac>,<rssi>,<name>
- * Response arrives as: CFML:0:OK:OK\x1E+SCAN:AA:BB...\x1E...
- */
 function parseScanLines(resp) {
   var devices = [];
   var lines = parseLines(resp);
   lines.forEach(function (line) {
-    // Match +SCAN: line directly (may be prefixed with CFML:N:OK:)
+    // Match +SCAN: line
     var m = line.match(/\+SCAN:([0-9A-Fa-f:]{17}),(-?\d+),(.*)$/);
     if (m) {
       devices.push({
@@ -207,32 +164,85 @@ function parseScanLines(resp) {
   return devices;
 }
 
-/**
- * Parse AT+CONNECT response for dev index.
- * +CONNECTED:0,0x0001  → devIdx = 0
- */
-function parseConnectLines(resp) {
-  var lines = parseLines(resp);
-  for (var i = 0; i < lines.length; i++) {
-    var m = lines[i].match(/\+CONNECTED:(\d+)/i);
-    if (m) return parseInt(m[1]);
+function parseConnectResult(resp) {
+  var text = typeof resp === 'string' ? resp : (resp && (resp.result || resp.value || '')) || '';
+  if (text.indexOf('FAIL') !== -1 || text.indexOf('ERROR') !== -1) {
+    return false;
   }
-  return 0;   // fallback
+  if (text.indexOf('CONNECTED') !== -1 || text.indexOf('OK') !== -1) {
+    return true;
+  }
+  return true;  // assume OK if response received
+}
+
+function parseDiscoverResult(resp) {
+  var text = typeof resp === 'string' ? resp : (resp && (resp.result || resp.value || '')) || '';
+  if (text.indexOf('OK') !== -1 || text.indexOf('DISCOVER') !== -1) {
+    return true;
+  }
+  return false;
 }
 
 function logCFMLResponse(resp) {
   var lines = parseLines(resp);
   lines.forEach(function (l) {
-    if (l.indexOf(':FAIL:') !== -1 || l.indexOf('ERROR') !== -1) {
+    var ul = l.toUpperCase();
+    if (ul.indexOf('FAIL') !== -1 || ul.indexOf('ERROR') !== -1) {
       logFail(l);
-    } else if (l.indexOf(':OK:') !== -1 || l === 'OK') {
+    } else if (ul.indexOf('OK') !== -1) {
       logOk(l);
-    } else if (l.indexOf(':EVT:') !== -1) {
+    } else if (l.indexOf('+') === 0) {
       logEvt(l);
     } else if (l.length > 0) {
-      logOk(l);
+      logInfo(l);
     }
   });
+}
+
+/* -------------------------------------------------------------------
+   AUTO-CONNECT
+------------------------------------------------------------------- */
+function startAutoConnect() {
+  if (state.connected) return;
+  
+  state.scanning = true;
+  setScanSpinner(true);
+  document.getElementById('scan-status-text').textContent = 'Auto-scanning...';
+
+  sendCFML('SCAN:5000', 8000)
+    .then(function (resp) {
+      logCFMLResponse(resp);
+      state.scanResults = parseScanLines(resp);
+      
+      // Find device matching targetName
+      var found = null;
+      for (var i = 0; i < state.scanResults.length; i++) {
+        if (state.scanResults[i].name === state.targetName) {
+          found = state.scanResults[i];
+          break;
+        }
+      }
+      
+      if (!found) {
+        throw new Error('Device "' + state.targetName + '" not found in scan');
+      }
+      
+      return connectToMAC(found.mac);
+    })
+    .catch(function (e) {
+      logFail('Auto-connect error: ' + (e ? e.message || e : 'timeout'));
+      state.connected = false;
+      setStatusDot('off');
+      showOverlay('Connection failed. Try manual scan.', false);
+    })
+    .finally(function () {
+      state.scanning = false;
+      setScanSpinner(false);
+      var count = state.scanResults.length;
+      document.getElementById('scan-status-text').textContent =
+        count > 0 ? count + ' devices' : 'No devices';
+      renderDeviceList(state.scanResults);
+    });
 }
 
 /* -------------------------------------------------------------------
@@ -254,14 +264,14 @@ function setScanSpinner(on) {
 
 function startScan() {
   if (state.scanning || state.connecting) return;
+  
   state.scanning = true;
   state.scanResults = [];
   renderDeviceList([]);
   setScanSpinner(true);
-  document.getElementById('scan-status-text').textContent = 'Đang quét…';
+  document.getElementById('scan-status-text').textContent = 'Scanning...';
 
-  // AT+SCAN with 5s duration; allow 7s for response
-  sendCFML('AT+SCAN=5000', 8000)
+  sendCFML('SCAN:5000', 8000)
     .then(function (resp) {
       logCFMLResponse(resp);
       state.scanResults = parseScanLines(resp);
@@ -274,7 +284,7 @@ function startScan() {
       setScanSpinner(false);
       var count = state.scanResults.length;
       document.getElementById('scan-status-text').textContent =
-        count > 0 ? count + ' thiết bị' : 'Không tìm thấy';
+        count > 0 ? count + ' devices' : 'No devices';
       renderDeviceList(state.scanResults);
     });
 }
@@ -287,7 +297,7 @@ function renderDeviceList(devices) {
   list.innerHTML = '';
 
   if (devices.length === 0) {
-    list.innerHTML = '<div class="no-devices-msg">Nhấn &#8635; để quét BLE</div>';
+    list.innerHTML = '<div class="no-devices-msg">Click &#8635; to scan for BLE devices</div>';
     return;
   }
 
@@ -304,242 +314,222 @@ function renderDeviceList(devices) {
       '<span class="device-rssi">' + dev.rssi + 'dBm</span>' +
       (isConnected
         ? ''
-        : '<button class="btn-connect" onclick="connectDevice(\'' + dev.mac + '\',\'' +
-          escapeHtml(dev.name).replace(/'/g, "\\'") + '\')">&#9889;</button>');
+        : '<button class="btn-connect" onclick="connectToDevice(\'' + dev.mac + '\',\'' +
+          escapeHtml(dev.name).replace(/'/g, "\\'") + '\')">⚡</button>');
     list.appendChild(item);
   });
 }
 
 /* -------------------------------------------------------------------
-   CONNECT / DISCONNECT
+   CONNECT / DISCONNECT  
 ------------------------------------------------------------------- */
-function connectDevice(mac, name) {
-  if (state.connected || state.connecting) return;
-  state.connecting = true;
-  setStatusDot('connecting');
-  showOverlay('Đang kết nối tới ' + name + '…', true);
+function connectToDevice(mac, name) {
+  connectToMAC(mac, name);
+}
 
-  sendCFML('AT+CONNECT=' + mac, 6000)
+function connectToMAC(mac, name) {
+  if (state.connected || state.connecting) return;
+  
+  state.connecting = true;
+  name = name || 'Device';
+  setStatusDot('connecting');
+  showOverlay('Connecting to ' + name + '...', true);
+
+  sendCFML('CONNECT:' + mac, 6000)
     .then(function (resp) {
       logCFMLResponse(resp);
-
-      // Check for error in response
-      var text = typeof resp === 'string' ? resp : (resp.result || resp.value || '');
-      if (text.indexOf(':FAIL:') !== -1 || text.indexOf('+ERROR:') !== -1) {
-        throw new Error('Connection refused: ' + text);
+      
+      if (!parseConnectResult(resp)) {
+        throw new Error('Connection refused');
       }
-
-      state.devIdx    = parseConnectLines(resp);
-      state.mac       = mac;
-      state.name      = name;
+      
+      state.mac = mac;
       state.connected = true;
       saveLocalState();
-      applyConnectedUI(mac, name);
-      showToast('✅ Đã kết nối: ' + name);
+      
+      // Now discover services
+      logInfo('Connected. Discovering GATT...');
+      return sendCFML('DISCOVER:' + mac, 6000);
+    })
+    .then(function (resp) {
+      logCFMLResponse(resp);
+      parseDiscoverHandles(resp);
+      
+      if (!state.fff1_handle || !state.fff2_handle) {
+        logInfo('Handles not in discovery. Using defaults: FFF1=2, FFF2=3.');
+        state.fff1_handle = 2;
+        state.fff2_handle = 3;
+      }
+      
+      applyConnectedUI();
+      
+      // Subscribe to FFF1 notifications
+      logInfo('Subscribing to FFF1 notifications...');
+      return sendCFML('SUBSCRIBE:' + mac + ':' + state.fff1_uuid, 3000);
+    })
+    .then(function (resp) {
+      logCFMLResponse(resp);
+      logInfo('✓ GATT ready. Listening for notifications and polling counter.');
+      showToast('✅ Connected: ' + name);
+      startNotificationListener();
     })
     .catch(function (e) {
-      logFail('CONNECT fail: ' + (e ? e.message || e : 'timeout'));
+      logFail('Connection error: ' + (e ? e.message || e : 'timeout'));
       state.connected = false;
       state.connecting = false;
       setStatusDot('off');
-      showOverlay('Kết nối thất bại. Thử lại.', false);
+      showOverlay('Connection failed. Try again.', false);
     })
     .finally(function () {
       state.connecting = false;
     });
 }
 
-function applyConnectedUI(mac, name) {
+function parseDiscoverHandles(resp) {
+  var text = typeof resp === 'string' ? resp : (resp && (resp.result || resp.value || '')) || '';
+  var lines = parseLines(text);
+  lines.forEach(function (line) {
+    if (line.toUpperCase().indexOf('FFF1') !== -1) {
+      var m = line.match(/(\d+)/);
+      if (m) state.fff1_handle = parseInt(m[1]);
+    }
+    if (line.toUpperCase().indexOf('FFF2') !== -1) {
+      var m = line.match(/(\d+)/);
+      if (m) state.fff2_handle = parseInt(m[1]);
+    }
+  });
+}
+
+function applyConnectedUI() {
   setStatusDot('connected');
-  document.getElementById('ctrl-device-name').textContent =
-    (name || 'Thiết bị') + ' (' + mac + ')';
+  document.getElementById('ctrl-device-name').textContent = state.mac || 'Connected Device';
   document.getElementById('btn-disconnect').classList.remove('hidden');
   hideOverlay();
-
-  // Restore RGB controls state
-  updatePowerUI(state.power);
-  updateColorUI();
-  updateBrightnessUI(state.brightness);
-
-  renderDeviceList(state.scanResults);   // refresh list to show 'selected' style
+  renderDeviceList(state.scanResults);
+  
+  // Update GATT info display
+  document.getElementById('service-uuid').textContent = state.svc_uuid.substring(0, 8) + '...';
+  document.getElementById('handle-fff1').textContent = state.fff1_handle ? '0x' + state.fff1_handle.toString(16) : '—';
+  document.getElementById('handle-fff2').textContent = state.fff2_handle ? '0x' + state.fff2_handle.toString(16) : '—';
+  updateLEDUI();
 }
 
 function disconnectDevice() {
   if (!state.connected) return;
-  sendCFML('AT+DISCONNECT=' + state.devIdx, 3000)
-    .then(function (resp) { logCFMLResponse(resp); })
-    .catch(function () {})
-    .finally(function () {
-      state.connected = false;
-      state.mac       = null;
-      state.name      = null;
-      state.devIdx    = 0;
-      saveLocalState();
-      setStatusDot('off');
-      document.getElementById('ctrl-device-name').textContent = '—';
-      document.getElementById('btn-disconnect').classList.add('hidden');
-      renderDeviceList(state.scanResults);
-      showOverlay('← Quét và kết nối thiết bị', false);
-      showToast('Đã ngắt kết nối');
-    });
+  
+  state.connected = false;
+  state.mac = null;
+  state.counterVal = 0;
+  state.ledState = false;
+  saveLocalState();
+  
+  setStatusDot('off');
+  document.getElementById('ctrl-device-name').textContent = '—';
+  document.getElementById('btn-disconnect').classList.add('hidden');
+  document.getElementById('counter-value').textContent = '—';
+  document.getElementById('led-icon').classList.remove('on');
+  document.getElementById('led-state').textContent = 'OFF';
+  
+  renderDeviceList(state.scanResults);
+  showOverlay('← Scan and connect device', false);
+  showToast('Disconnected');
 }
 
 /* -------------------------------------------------------------------
-   DISCOVER (AT+DISC + AT+CHARS)
+   NOTIFICATION LISTENER & POLLING
 ------------------------------------------------------------------- */
-function startDiscover() {
-  if (!state.connected) {
-    showToast('Kết nối trước khi Discover');
+function startNotificationListener() {
+  // Poll counter every 2 seconds
+  setInterval(function () {
+    if (state.connected && state.mac) {
+      pollCounterUpdate();
+    }
+  }, 2000);
+}
+
+function pollCounterUpdate() {
+  sendCFML('READ:' + state.mac + ':' + state.fff1_uuid, 3000)
+    .then(function (resp) {
+      var text = typeof resp === 'string' ? resp : (resp && (resp.result || resp.value || '')) || '';
+      
+      // Try to extract hex value from response
+      var m = text.match(/([0-9A-Fa-f]{8})/i);
+      if (m) {
+        var hex = m[1];
+        state.counterVal = hexToUint32LE(hex);
+        document.getElementById('counter-value').textContent = state.counterVal.toString();
+      }
+    })
+    .catch(function () {});  // Silently fail
+}
+
+function hexToUint32LE(hexStr) {
+  if (hexStr.length < 8) return 0;
+  var b0 = parseInt(hexStr.substring(0, 2), 16) || 0;
+  var b1 = parseInt(hexStr.substring(2, 4), 16) || 0;
+  var b2 = parseInt(hexStr.substring(4, 6), 16) || 0;
+  var b3 = parseInt(hexStr.substring(6, 8), 16) || 0;
+  return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
+}
+
+/* -------------------------------------------------------------------
+   LED CONTROL (FFF2 WRITE)
+------------------------------------------------------------------- */
+function sendLedCommand(onOff) {
+  if (!state.connected || !state.mac) {
+    showToast('Device not connected');
     return;
   }
-  logInfo('── Discovering services (AT+DISC=0) ──');
-  sendCFML('AT+DISC=' + state.devIdx, 6000)
+  
+  // FFF2 expects 0x00 (OFF) or 0x01 (ON)
+  var hex = onOff ? '01' : '00';
+  var cmd = 'WRITE:' + state.mac + ':' + state.fff2_uuid + ':' + hex;
+  
+  state.ledState = (onOff !== 0);
+  updateLEDUI();
+  
+  sendCFML(cmd, 3000)
     .then(function (resp) {
+      logOk('LED ' + (state.ledState ? 'ON' : 'OFF'));
       logCFMLResponse(resp);
-      logInfo('── Discovering chars (AT+CHARS=0,1,65535) ──');
-      return sendCFML('AT+CHARS=' + state.devIdx + ',1,65535', 6000);
-    })
-    .then(function (resp) {
-      logCFMLResponse(resp);
-      logInfo('── Discover done — check Console for +CHAR lines ──');
-      showToast('Discover xong — xem Console để lấy handle');
     })
     .catch(function (e) {
-      logFail('Discover error: ' + (e ? e.message || e : 'timeout'));
+      logFail('LED write error: ' + (e ? e.message || e : 'timeout'));
+      state.ledState = !state.ledState;
+      updateLEDUI();
     });
 }
 
-/* -------------------------------------------------------------------
-   RGB CONTROL
-------------------------------------------------------------------- */
-
-/** Build 8-char hex string: PPRRGGGBB */
-function buildWriteHex(power, r, g, b, brightness) {
-  var br = brightness / 100;
-  var pr = Math.min(255, Math.round(r * br));
-  var pg = Math.min(255, Math.round(g * br));
-  var pb = Math.min(255, Math.round(b * br));
-  var p  = power ? 0x01 : 0x00;
-  return toHex2(p) + toHex2(pr) + toHex2(pg) + toHex2(pb);
-}
-
-function toHex2(v) { return ('00' + Math.max(0, Math.min(255, Math.round(v))).toString(16)).slice(-2).toUpperCase(); }
-
-function sendWriteRGB() {
-  if (!state.connected) return;
-  var hex = buildWriteHex(state.power, state.r, state.g, state.b, state.brightness);
-  var atCmd = 'AT+WRITE=' + state.devIdx + ',' + state.handle + ',' + hex;
-  enqueueWrite(atCmd);
-}
-
-/* -------------------------------------------------------------------
-   POWER
-------------------------------------------------------------------- */
-function onPowerToggle(checked) {
-  state.power = checked;
-  updatePowerUI(checked);
-  saveLocalState();
-  sendWriteRGB();
-}
-
-function updatePowerUI(on) {
-  document.getElementById('power-toggle').checked = on;
-  document.getElementById('power-label').textContent = on ? 'BẬT' : 'TẮT';
-  document.getElementById('bulb-preview').className = 'bulb-preview ' + (on ? 'on' : 'off');
-  document.getElementById('section-color').className      = 'ctrl-section' + (on ? '' : ' dimmed');
-  document.getElementById('section-brightness').className = 'ctrl-section' + (on ? '' : ' dimmed');
-  updateBulbGlow();
-}
-
-/* -------------------------------------------------------------------
-   COLOR
-------------------------------------------------------------------- */
-function onColorInput(hexStr) {
-  var rgb = hexToRgb(hexStr);
-  if (!rgb) return;
-  state.r = rgb.r; state.g = rgb.g; state.b = rgb.b;
-  document.getElementById('color-hex-value').textContent = hexStr.toUpperCase();
-  updateBulbGlow();
-}
-
-function onColorChange(hexStr) {
-  var rgb = hexToRgb(hexStr);
-  if (!rgb) return;
-  state.r = rgb.r; state.g = rgb.g; state.b = rgb.b;
-  document.getElementById('color-hex-value').textContent = hexStr.toUpperCase();
-  updateBulbGlow();
-  saveLocalState();
-  if (state.power) sendWriteRGB();
-}
-
-function applyPreset(hexStr) {
-  document.getElementById('color-picker').value = hexStr;
-  onColorChange(hexStr);
-}
-
-function updateColorUI() {
-  var hexStr = '#' + toHex2(state.r) + toHex2(state.g) + toHex2(state.b);
-  document.getElementById('color-picker').value = hexStr.toLowerCase();
-  document.getElementById('color-hex-value').textContent = hexStr.toUpperCase();
-  updateBulbGlow();
-}
-
-/* -------------------------------------------------------------------
-   BRIGHTNESS
-------------------------------------------------------------------- */
-function onBrightnessInput(val) {
-  state.brightness = parseInt(val);
-  updateBrightnessUI(state.brightness);
-}
-
-function onBrightnessChange(val) {
-  state.brightness = parseInt(val);
-  updateBrightnessUI(state.brightness);
-  saveLocalState();
-  if (state.power) sendWriteRGB();
-}
-
-function updateBrightnessUI(pct) {
-  document.getElementById('brightness-value').textContent = pct + '%';
-  var s = document.getElementById('brightness-slider');
-  s.value = pct;
-  s.style.background =
-    'linear-gradient(to right, #e0a000 0%, #e0a000 ' + pct + '%, #21262d ' + pct + '%, #21262d 100%)';
-  updateBulbGlow();
-}
-
-/* -------------------------------------------------------------------
-   BULB GLOW PREVIEW
-------------------------------------------------------------------- */
-function updateBulbGlow() {
-  var ring  = document.getElementById('bulb-ring');
-  var glow  = document.getElementById('bulb-glow');
-  if (!state.power) {
-    ring.style.background = '#30363d';
-    glow.style.opacity = '0';
-    return;
+function updateLEDUI() {
+  var icon = document.getElementById('led-icon');
+  var state_el = document.getElementById('led-state');
+  var btn_on = document.getElementById('btn-led-on');
+  var btn_off = document.getElementById('btn-led-off');
+  
+  if (state.ledState) {
+    icon.classList.add('on');
+    state_el.textContent = 'ON (Green)';
+    if (btn_on) btn_on.classList.add('active');
+    if (btn_off) btn_off.classList.remove('active');
+  } else {
+    icon.classList.remove('on');
+    state_el.textContent = 'OFF';
+    if (btn_on) btn_on.classList.remove('active');
+    if (btn_off) btn_off.classList.add('active');
   }
-  var brt = state.brightness / 100;
-  var pr  = Math.round(state.r * brt);
-  var pg  = Math.round(state.g * brt);
-  var pb  = Math.round(state.b * brt);
-  var hex = '#' + toHex2(pr) + toHex2(pg) + toHex2(pb);
-  ring.style.background = hex;
-  glow.style.background = 'radial-gradient(circle, rgba(' + pr + ',' + pg + ',' + pb + ',0.6) 0%, transparent 70%)';
-  glow.style.opacity = '1';
 }
 
 /* -------------------------------------------------------------------
    OVERLAY / STATUS DOT
 ------------------------------------------------------------------- */
 function showOverlay(msg, withSpinner) {
-  var ov  = document.getElementById('ctrl-overlay');
+  var ov = document.getElementById('ctrl-overlay');
   var msg_el = document.getElementById('overlay-msg');
   var spin = document.getElementById('overlay-spinner');
   ov.classList.remove('hidden');
   msg_el.textContent = msg;
   if (withSpinner) { spin.classList.remove('hidden'); }
-  else             { spin.classList.add('hidden'); }
+  else { spin.classList.add('hidden'); }
 }
 
 function hideOverlay() {
@@ -558,10 +548,10 @@ function logToConsole(cls, text) {
   if (!log) return;
   var line = document.createElement('div');
   line.className = cls;
-  line.textContent = '[' + new Date().toLocaleTimeString('vi-VN', {hour12:false}) + '] ' + text;
+  var time = new Date().toLocaleTimeString();
+  line.textContent = '[' + time + '] ' + text;
   log.appendChild(line);
   log.scrollTop = log.scrollHeight;
-  // Cap to 200 lines
   while (log.childNodes.length > 200) { log.removeChild(log.firstChild); }
 }
 
@@ -575,15 +565,6 @@ function clearLog() { var l = document.getElementById('console-log'); if (l) l.i
 /* -------------------------------------------------------------------
    UTILITIES
 ------------------------------------------------------------------- */
-function hexToRgb(hex) {
-  var result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result ? {
-    r: parseInt(result[1], 16),
-    g: parseInt(result[2], 16),
-    b: parseInt(result[3], 16)
-  } : null;
-}
-
 function escapeHtml(str) {
   return String(str)
     .replace(/&/g, '&amp;')
@@ -599,6 +580,8 @@ function showToast(msg) {
   if (!toast) return;
   toast.textContent = msg;
   toast.classList.remove('hidden');
-  if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(function () { toast.classList.add('hidden'); }, 2500);
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () {
+    toast.classList.add('hidden');
+  }, 2500);
 }
