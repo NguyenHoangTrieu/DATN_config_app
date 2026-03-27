@@ -187,10 +187,11 @@ class ServerTab(ttk.Frame):
         info_frame.pack(fill=tk.X, anchor="nw")
         ttk.Separator(info_frame, orient='horizontal').pack(fill=tk.X, pady=5)
         ttk.Label(info_frame,
-                  text="MQTT: CFSV:0 + CFMQ:BROKER|TOKEN|SUB|PUB|ATTR\n"
-                       "HTTP: CFSV:2 + CFHP:URL|TOKEN|PORT|TLS|VERIFY|TIMEOUT\n"
-                       "CoAP: CFSV:1 + CFCP:HOST|PATH|TOKEN|PORT|DTLS|ACK_TO|MAX_RTX",
-                  foreground="#757575", font=('Consolas', 9)).pack(anchor="w")
+                  text="Server Type Commands (Code → Protocol)\n"
+                       "  0 = MQTT   → CFSV:0 + CFMQ:BROKER|TOKEN|SUB|PUB|ATTR\n"
+                       "  1 = CoAP   → CFSV:1 + CFCP:HOST|PATH|TOKEN|PORT|DTLS|ACK_TO|MAX_RTX\n"
+                       "  2 = HTTP   → CFSV:2 + CFHP:URL|TOKEN|PORT|TLS|VERIFY|TIMEOUT",
+                  foreground="#757575", font=('Consolas', 9), justify=tk.LEFT).pack(anchor="w")
         # Show correct frame on startup
         self._on_type_change()
     
@@ -231,8 +232,12 @@ class ServerTab(ttk.Frame):
         label = self.type_var.get()
         type_code = SERVER_TYPE_FROM_LABEL.get(label, SERVER_TYPE_MQTT)
 
+        # DEBUG: Verify CFSV command value
+        cfsv_cmd = build_server_type_cmd(type_code)
+        self.log(f"[DEBUG] Selected: '{label}' → Code: {type_code} → Command: {cfsv_cmd}", "DEBUG")
+
         # Always send server type first
-        self._send_command(build_server_type_cmd(type_code),
+        self._send_command(cfsv_cmd,
                            f"Set Server Type = {label}")
 
         if label == "MQTT":

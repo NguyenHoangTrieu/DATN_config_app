@@ -13,6 +13,14 @@
   <!-- ── Config Bar ── -->
   <div class="config-bar">
     <div class="cfg-group">
+      <label class="cfg-label">Protocol</label>
+      <select id="cfg-proto" class="cfg-input cfg-select" style="width:68px;" onchange="onProtoChange(this.value)">
+        <option value="http">HTTP</option>
+        <option value="coap">CoAP</option>
+        <option value="mqtt">MQTT</option>
+      </select>
+    </div>
+    <div class="cfg-group">
       <label class="cfg-label">Stack</label>
       <select id="cfg-slot" class="cfg-input cfg-select" onchange="onSlotChange(this.value)">
         <option value="0">BLE S1</option>
@@ -75,6 +83,16 @@
         <div class="tile-label">FFF1 Counter</div>
         <div class="tile-val"  id="counter-val">—</div>
         <div class="tile-sub"  id="counter-raw">raw: —</div>
+      </div>
+
+      <!-- Uplink telemetry tile -->
+      <div class="gatt-tile" id="telem-tile">
+        <div class="tile-label" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>Uplink Telemetry</span>
+          <span id="proto-badge" class="proto-badge" data-proto="http">HTTP</span>
+        </div>
+        <div class="tile-val" style="font-size:12px;word-break:break-all;" id="telem-val">—</div>
+        <div class="tile-sub" id="telem-raw">raw key: —</div>
       </div>
 
       <!-- LED tile (FFF2) -->

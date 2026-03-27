@@ -253,6 +253,17 @@
 .log-info { color: #7d8590; }
 .log-evt  { color: var(--ble-color); }
 
+/* ── Protocol badge ── */
+.proto-badge {
+  font-size: 9px; font-weight: 700;
+  padding: 2px 7px; border-radius: 10px; letter-spacing: 0.5px;
+  border: 1px solid #30363d; background: #30363d; color: var(--text-dim);
+  transition: all 0.3s;
+}
+.proto-badge[data-proto="http"]  { background: rgba(88,166,255,0.15); border-color: var(--accent);  color: var(--accent);  }
+.proto-badge[data-proto="coap"]  { background: rgba(255,159,67,0.15); border-color: var(--warn);    color: var(--warn);    }
+.proto-badge[data-proto="mqtt"]  { background: rgba(63,185,80,0.15);  border-color: var(--accent2); color: var(--accent2); }
+
 /* ── Toast ── */
 .toast {
   position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);

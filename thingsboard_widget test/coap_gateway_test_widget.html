@@ -1,0 +1,125 @@
+<!-- =====================================================================
+     DA2 CoAP Gateway Test Widget — ThingsBoard Control Widget
+     -------------------------------------------------------------------------
+     purpose: verify CoAP gateway connectivity + send/receive test commands
+     - LEFT  : Telemetry viewer (shows data the gateway pushed via CoAP POST)
+     - RIGHT : RPC sender (sends CF commands that gateway receives via Observe)
+     -------------------------------------------------------------------------
+     Paste into "HTML" tab | CSS into "CSS" tab | JS into "JavaScript" tab
+     ThingsBoard v4.x — Data widget (subscribe to device telemetry keys) +
+                        Control widget (sendTwoWayCommand for RPC)
+     ===================================================================== -->
+
+<div id="bg-widget" class="bg-root">
+
+  <!-- ── Header ── -->
+  <div class="header-bar">
+    <span class="header-title">◈ CoAP Gateway Test</span>
+    <span class="header-sub">CoAP ↔ ThingsBoard ↔ RPC</span>
+    <div class="coap-badge" id="coap-badge">CoAP</div>
+  </div>
+
+  <!-- ── Main Layout ── -->
+  <div class="main-layout">
+
+    <!-- LEFT: Telemetry Panel -->
+    <div class="panel-telem">
+      <div class="panel-header">
+        <span class="panel-title">↓ Telemetry (CoAP POST)</span>
+        <span class="telem-count-wrap">Keys: <span id="telem-count">0</span></span>
+      </div>
+      <p class="telem-hint">Values appear here when the gateway publishes telemetry
+        via CoAP POST to ThingsBoard.<br>
+        Add telemetry keys to the widget's data source to subscribe.</p>
+      <div class="telem-table-wrap">
+        <table class="telem-table">
+          <thead>
+            <tr><th>Key</th><th>Value</th><th>Time</th></tr>
+          </thead>
+          <tbody id="telem-body"></tbody>
+        </table>
+      </div>
+    </div><!-- /panel-telem -->
+
+    <!-- RIGHT: Control Panel -->
+    <div class="panel-control">
+
+      <!-- Ping / Connectivity -->
+      <div class="ctrl-section">
+        <div class="section-title">Connectivity Check</div>
+        <p class="section-desc">
+          Sends <code>CFSC</code> via ThingsBoard RPC.<br>
+          Gateway must receive it via CoAP Observe (<code>/api/v1/token/rpc</code>)
+          and respond within the timeout.
+        </p>
+        <div class="ctrl-row" style="gap:10px; align-items:center;">
+          <button class="btn-action btn-ping" onclick="doPing()">⦿ Ping Gateway</button>
+          <span id="ping-status" class="ping-status">—</span>
+        </div>
+      </div>
+
+      <!-- RPC path info -->
+      <div class="ctrl-section">
+        <div class="section-title">CoAP RPC Path</div>
+        <pre class="info-pre">Gateway GETs with Observe option:
+  coap://demo.thingsboard.io:5683
+    /api/v1/{{ '{' }}token{{ '}' }}/rpc
+  (Observe=0 → subscribe for notifications)
+
+ThingsBoard sends Observe notification
+when an RPC command is queued.</pre>
+      </div>
+
+      <!-- Custom command -->
+      <div class="ctrl-section">
+        <div class="section-title">Send CF Command</div>
+        <p class="section-desc">
+          Any valid CF command (e.g. <code>CFSC</code>, <code>CFSV:0</code>).
+          The command is hex-encoded before sending via ThingsBoard RPC.
+        </p>
+        <div class="ctrl-row" style="gap:6px;">
+          <input id="inp-cmd" class="small-input" type="text"
+                 placeholder="e.g. CFSC  or  CFSV:0"
+                 onkeydown="if(event.key==='Enter') sendCustomCmd()"/>
+          <button class="btn-action btn-send" onclick="sendCustomCmd()">Send</button>
+        </div>
+        <div class="cmd-hint">
+          Examples: <code>CFSC</code> • <code>CFSV:0</code> • <code>CFSV:1</code>
+        </div>
+      </div>
+
+      <!-- Quick test buttons -->
+      <div class="ctrl-section">
+        <div class="section-title">Quick Tests</div>
+        <div class="quick-grid">
+          <button class="btn-quick" onclick="(function(){document.getElementById('inp-cmd').value='CFSC'; sendCustomCmd();})()">
+            CFSC<br><span>Config Scan</span>
+          </button>
+          <button class="btn-quick" onclick="(function(){document.getElementById('inp-cmd').value='CFSV:1'; sendCustomCmd();})()">
+            CFSV:1<br><span>→ CoAP mode</span>
+          </button>
+          <button class="btn-quick" onclick="(function(){document.getElementById('inp-cmd').value='CFSV:0'; sendCustomCmd();})()">
+            CFSV:0<br><span>→ MQTT mode</span>
+          </button>
+          <button class="btn-quick" onclick="(function(){document.getElementById('inp-cmd').value='CFSV:2'; sendCustomCmd();})()">
+            CFSV:2<br><span>→ HTTP mode</span>
+          </button>
+        </div>
+      </div>
+
+    </div><!-- /panel-control -->
+  </div><!-- /main-layout -->
+
+  <!-- ── Console ── -->
+  <div class="console-panel">
+    <div class="console-header">
+      <span>Console</span>
+      <button class="btn-clear-log" onclick="clearLog()">&#10005;</button>
+    </div>
+    <div id="console-log" class="console-log"></div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast hidden"></div>
+
+</div><!-- /bg-widget -->

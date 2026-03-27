@@ -10,6 +10,7 @@
 
 var state = {
   slot:      '0',
+  proto:     'http',   /* active protocol under test: http | coap | mqtt */
   h_fff1:    '0009',   /* FFF1 characteristic handle */
   h_cccd:    '000A',   /* CCCD descriptor handle for FFF1 */
   h_fff2:    '000C',   /* FFF2 characteristic handle */
@@ -19,7 +20,7 @@ var state = {
   connected: false,
   scanning:  false,
   scanResults: [],
-  rpcTimeout: 8000,
+  rpcTimeout: 30000,
   notifyEnabled: false,
   ledState:  false,
   counterVal: 0
@@ -36,6 +37,49 @@ self.onInit = function () {
 
 self.onDestroy = function () {};
 
+/* Telemetry uplink — called by ThingsBoard when subscribed datasource updates */
+self.onDataUpdated = function () {
+  try {
+    var data = self.ctx.data;
+    if (!data || !data.length) return;
+    /* Iterate all subscribed keys; look for "data" key (our telemetry format) */
+    for (var ki = 0; ki < data.length; ki++) {
+      var keyCtx = data[ki];
+      var keyName = keyCtx.dataKey && keyCtx.dataKey.name ? keyCtx.dataKey.name : '';
+      if (!keyCtx.data || !keyCtx.data.length) continue;
+      var latest = keyCtx.data[keyCtx.data.length - 1];
+      var rawVal = latest[1];  /* [timestamp, value] */
+      ge('telem-raw').textContent = 'key: ' + keyName + '  ts: ' + new Date(latest[0]).toLocaleTimeString();
+      /* If the value is a JSON object with "data" field (our {"data":"HEX"} format) */
+      var decoded = rawVal;
+      if (typeof rawVal === 'object' && rawVal !== null && rawVal.data !== undefined) {
+        decoded = hexToString(String(rawVal.data));
+      } else if (typeof rawVal === 'string') {
+        /* Try parse as JSON */
+        try {
+          var parsed = JSON.parse(rawVal);
+          if (parsed && parsed.data !== undefined) decoded = hexToString(String(parsed.data));
+        } catch (e) {
+          /* plain string — try hex decode */
+          if (/^[0-9A-Fa-f]+$/.test(rawVal) && rawVal.length % 2 === 0) {
+            decoded = hexToString(rawVal);
+          }
+        }
+      }
+      ge('telem-val').textContent = decoded;
+      /* Check for BLE notifications within decoded string */
+      var lines = decoded.split(/[\n\x1e]/).map(function(s){return s.trim();}).filter(Boolean);
+      lines.forEach(function(line) {
+        if (/^\+NOTIF:|^\+IND:/.test(line)) { logEvt('Uplink: ' + line); handleAsyncEvent(line); }
+        else if (line) { logOk('Uplink: ' + line); }
+      });
+      break; /* process first matching key */
+    }
+  } catch (e) {
+    logFail('onDataUpdated error: ' + e.message);
+  }
+};
+
 /* ────────────────────────────────────────────────────────────────────
    RPC / CFML helpers
    ──────────────────────────────────────────────────────────────────── */
@@ -50,10 +94,29 @@ function sendRPC(method, params, timeoutMs) {
   });
 }
 
+function stringToHex(str) {
+  var hex = '';
+  for (var i = 0; i < str.length; i++) {
+    var code = str.charCodeAt(i).toString(16).toUpperCase();
+    if (code.length === 1) code = '0' + code;
+    hex += code;
+  }
+  return hex;
+}
+
+function hexToString(hex) {
+  var str = '';
+  for (var i = 0; i < hex.length; i += 2) {
+    str += String.fromCharCode(parseInt(hex.substr(i, 2), 16));
+  }
+  return str;
+}
+
 function sendCFML(atCmd, timeoutMs) {
   var cmd = 'CFML:CFBL:' + state.slot + ':' + atCmd;
   logTx(cmd);
-  return sendRPC('sendCommand', cmd, timeoutMs || state.rpcTimeout)
+  var hexCmd = stringToHex(cmd);
+  return sendRPC('sendCommand', hexCmd, timeoutMs || state.rpcTimeout)
     .then(function (resp) {
       if (resp) logCFMLResponse(resp);
       return resp;
@@ -72,20 +135,38 @@ function onSlotChange(v) {
   saveLocalState();
 }
 
+function onProtoChange(v) {
+  state.proto = v;
+  var badge = ge('proto-badge');
+  if (badge) { badge.setAttribute('data-proto', v); badge.textContent = v.toUpperCase(); }
+  logInfo('Protocol under test: ' + v.toUpperCase());
+  saveLocalState();
+}
+
 /* ────────────────────────────────────────────────────────────────────
    Response parsers
    ──────────────────────────────────────────────────────────────────── */
 function splitResp(resp) {
   if (!resp) return [];
   if (typeof resp === 'object' && resp.data !== undefined) resp = resp.data;
-  return String(resp).split(/\x1e|\n/).map(function (s) { return s.trim(); }).filter(Boolean);
+  
+  var strResp = String(resp);
+  if (/^[0-9A-Fa-f]+$/.test(strResp) && strResp.length % 2 === 0) {
+    strResp = hexToString(strResp);
+  }
+  
+  return strResp.split(/\x1e|\n/).map(function (s) { return s.trim(); }).filter(Boolean);
 }
 
 function logCFMLResponse(resp) {
   splitResp(resp).forEach(function (line) {
-    if (/^\+NOTIF:|^\+IND:|^\+DISCONNECTED:|^\+CONNECTED:/.test(line)) {
+    if (/^\+NOTIF:|^\+IND:|^\+DISCONNECTED:|^\+CONNECTED:|^\+CHAR:|^\+CHARS:|^\+SERVICE:/.test(line)) {
       logEvt(line);
       handleAsyncEvent(line);
+      /* Also print discovery logs to the discovery box */
+      if (/^\+CHAR:|^\+CHARS:|^\+SERVICE:/.test(line)) {
+        logOk(line);
+      }
     } else {
       logOk(line);
     }
@@ -122,7 +203,16 @@ function handleAsyncEvent(line) {
 
   /* +IND:<idx>,<handle>,<hex>  — indication variant */
   m = line.match(/^\+IND:\d+,([0-9A-Fa-f]+),([0-9A-Fa-f]*)/);
-  if (m) handleNotification(m[1].toUpperCase(), m[2]);
+  if (m) {
+    handleNotification(m[1].toUpperCase(), m[2]);
+    return;
+  }
+
+  /* Async Discovery Events */
+  if (/^\+CHARS?:/.test(line)) {
+    autoDetectHandles([line]);
+    return;
+  }
 }
 
 function handleNotification(handle, hexData) {
@@ -174,8 +264,19 @@ function startScan() {
   state.scanning = true;
   setScanBadge('scanning');
   renderDeviceList([]);
-  logInfo('Scanning 5 s…');
-  sendCFML('AT+SCAN=5000', 8000)
+  logInfo('Resetting module…');
+  
+  sendCFML('AT+RESET', 3000)
+    .then(function() {
+      return new Promise(function(res) { setTimeout(res, 5000); });
+    })
+    .catch(function() {
+      return new Promise(function(res) { setTimeout(res, 5000); });
+    })
+    .then(function() {
+      logInfo('Scanning 3 s…');
+      return sendCFML('AT+SCAN=3000', 20000);
+    })
     .then(function (r) {
       state.scanResults = parseScanLines(r);
       state.scanning    = false;
@@ -187,20 +288,20 @@ function startScan() {
     .catch(function () { state.scanning = false; setScanBadge('idle'); });
 }
 
-function connectDevice(mac, name) {
+function connectDevice(idx, mac, name) {
   if (state.connected) { showToast('Already connected'); return; }
   state.mac  = mac;
   state.name = name || mac;
   showOverlay(true, 'Connecting to ' + (name || mac) + '…');
-  sendCFML('AT+CONNECT=' + mac, 10000)
+  sendCFML('AT+CONNECT=' + idx, 10000)
     .then(function (r) {
-      var idx = parseConnectIdx(r);
-      if (idx < 0) {
-        /* idx may arrive via async +CONNECTED event; use 0 as fallback */
-        idx = 0;
-        logInfo('Using devIdx=0 (no +CONNECTED in response; may arrive async)');
+      var parsedIdx = parseConnectIdx(r);
+      if (parsedIdx >= 0) {
+        state.devIdx = parsedIdx;
+      } else {
+        /* Keep the originally requested index if not specified in response */
+        state.devIdx = idx;
       }
-      state.devIdx    = idx;
       state.connected = true;
       setConnected(true);
       showOverlay(false);
@@ -224,10 +325,24 @@ function startDiscover() {
   if (!state.connected) { showToast('Connect first'); return; }
   logInfo('Discovering services…');
   var idx = state.devIdx;
+  var start = '0001', end = 'FFFF';
   sendCFML('AT+DISC=' + idx, 6000)
     .then(function (r) {
-      appendDiscResults(splitResp(r));
-      return sendCFML('AT+CHARS=' + idx + ',1,65535', 6000);
+      var lines = splitResp(r);
+      appendDiscResults(lines);
+      
+      /* Look for the FFF0 service range in the discovery results */
+      lines.forEach(function(l) {
+        var m = l.match(/^\+SERVICE:0x([0-9A-Fa-f]{4}),0x([0-9A-Fa-f]{4}),0xFFF0/i);
+        if (m) {
+          start = m[1];
+          end = m[2];
+        }
+      });
+      
+      /* Query only the FFF0 custom service range to avoid STM32 GATT buffer overflows */
+      logInfo('Querying chars in range ' + start + ' to ' + end + '…');
+      return sendCFML('AT+CHARS=' + idx + ',' + start + ',' + end, 6000);
     })
     .then(function (r) {
       appendDiscResults(splitResp(r));
@@ -241,8 +356,12 @@ function startDiscover() {
 function autoDetectHandles(lines) {
   /* Look for FFF1/FFF2 UUID in +CHARS or +CHAR lines */
   lines.forEach(function (l) {
-    /* +CHARS:handle,uuid  or  +CHAR:handle,prop,uuid */
-    var m = l.match(/^\+CHARS?:([0-9A-Fa-f]{4}),.*?FFF1/i);
+    /* Handle formats: 
+       +CHARS:000C,FFF1
+       +CHAR:0x0801,0x08,0x000F,0xFFF1 (ST Firmware format) 
+    */
+    var m = l.match(/([0-9A-Fa-f]{4})[,\s]+(?:0x)?FFF1/i);
+    if (!m) m = l.match(/^\+CHARS?:([0-9A-Fa-f]{4}),.*?FFF1/i);
     if (m) {
       state.h_fff1 = m[1].toUpperCase();
       /* CCCD is typically handle+1 */
@@ -250,7 +369,9 @@ function autoDetectHandles(lines) {
       ge('cfg-fff1').value = state.h_fff1;
       ge('cfg-cccd').value = state.h_cccd;
     }
-    m = l.match(/^\+CHARS?:([0-9A-Fa-f]{4}),.*?FFF2/i);
+
+    m = l.match(/([0-9A-Fa-f]{4})[,\s]+(?:0x)?FFF2/i);
+    if (!m) m = l.match(/^\+CHARS?:([0-9A-Fa-f]{4}),.*?FFF2/i);
     if (m) {
       state.h_fff2 = m[1].toUpperCase();
       ge('cfg-fff2').value = state.h_fff2;
@@ -337,7 +458,7 @@ function renderDeviceList(devices) {
   }
   list.innerHTML = devices.map(function (d, i) {
     var sel = (d.mac === state.mac && state.connected) ? ' selected' : '';
-    return '<div class="device-item' + sel + '" onclick="connectDevice(\'' + escapeJs(d.mac) + '\',\'' + escapeJs(d.name) + '\')">' +
+    return '<div class="device-item' + sel + '" onclick="connectDevice(' + i + ',\'' + escapeJs(d.mac) + '\',\'' + escapeJs(d.name) + '\')">' +
       '<span class="dev-name">' + escapeHtml(d.name || 'Unknown') + '</span>' +
       '<span class="dev-mac">' + escapeHtml(d.mac) + '</span>' +
       '<span class="dev-rssi">' + d.rssi + ' dBm</span>' +
@@ -395,6 +516,10 @@ function syncConfigBar() {
   ge('cfg-fff1').value = state.h_fff1;
   ge('cfg-cccd').value = state.h_cccd;
   ge('cfg-fff2').value = state.h_fff2;
+  if (ge('cfg-proto')) {
+    ge('cfg-proto').value = state.proto;
+    onProtoChange(state.proto);
+  }
   if (!state.connected) setConnected(false);
 }
 
@@ -404,7 +529,8 @@ function syncConfigBar() {
 function saveLocalState() {
   try {
     localStorage.setItem('CFML_bg_slot', JSON.stringify({
-      slot: state.slot, h_fff1: state.h_fff1, h_cccd: state.h_cccd, h_fff2: state.h_fff2
+      slot: state.slot, proto: state.proto,
+      h_fff1: state.h_fff1, h_cccd: state.h_cccd, h_fff2: state.h_fff2
     }));
   } catch (e) {}
 }
@@ -415,6 +541,7 @@ function loadLocalState() {
     if (!raw) return;
     var s = JSON.parse(raw);
     state.slot   = s.slot   || '0';
+    state.proto  = s.proto  || 'http';
     state.h_fff1 = s.h_fff1 || '0009';
     state.h_cccd = s.h_cccd || '000A';
     state.h_fff2 = s.h_fff2 || '000C';
@@ -455,3 +582,20 @@ function showToast(msg) {
 
 function escapeHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escapeJs(s)   { return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+
+/* ────────────────────────────────────────────────────────────────────
+   EXPOSE EXPORTS FOR THINGSBOARD HTML ONCLICK
+   ──────────────────────────────────────────────────────────────────── */
+window.onSlotChange     = onSlotChange;
+window.onProtoChange    = onProtoChange;
+window.startScan        = startScan;
+window.connectDevice    = connectDevice;
+window.disconnectDevice = disconnectDevice;
+window.startDiscover    = startDiscover;
+window.enableNotify     = enableNotify;
+window.disableNotify    = disableNotify;
+window.sendLedOn        = sendLedOn;
+window.sendLedOff       = sendLedOff;
+window.readHandle       = readHandle;
+window.writeHandle      = writeHandle;
+window.clearLog         = clearLog;

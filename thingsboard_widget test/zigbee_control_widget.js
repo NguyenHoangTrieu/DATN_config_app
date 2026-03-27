@@ -12,7 +12,7 @@ var state = {
   networkUp:    false,
   nodes:        {},    /* keyed by shortAddr → {ieee, ep, type} */
   selectedNode: null,  /* shortAddr string */
-  rpcTimeout:   8000,
+  rpcTimeout:   15000,
   onOffState:   false,
   levelVal:     127,
   colorHex:     '#ffcc00'
@@ -46,10 +46,29 @@ function sendRPC(method, params, timeoutMs) {
   });
 }
 
+function stringToHex(str) {
+  var hex = '';
+  for (var i = 0; i < str.length; i++) {
+    var code = str.charCodeAt(i).toString(16).toUpperCase();
+    if (code.length === 1) code = '0' + code;
+    hex += code;
+  }
+  return hex;
+}
+
+function hexToString(hex) {
+  var str = '';
+  for (var i = 0; i < hex.length; i += 2) {
+    str += String.fromCharCode(parseInt(hex.substr(i, 2), 16));
+  }
+  return str;
+}
+
 function sendCFML(zbCmd, timeoutMs) {
   var cmd = 'CFML:CFZB:' + state.slot + ':' + zbCmd;
   logTx(cmd);
-  return sendRPC('sendCommand', cmd, timeoutMs || state.rpcTimeout)
+  var hexCmd = stringToHex(cmd);
+  return sendRPC('sendCommand', hexCmd, timeoutMs || state.rpcTimeout)
     .then(function (resp) {
       if (resp) logCFMLResponse(resp);
       return resp;
@@ -95,7 +114,13 @@ function clusterPreset(cl) {
 function splitResp(resp) {
   if (!resp) return [];
   if (typeof resp === 'object' && resp.data !== undefined) resp = resp.data;
-  return String(resp).split(/\x1e|\n/).map(function (s) { return s.trim(); }).filter(Boolean);
+  
+  var strResp = String(resp);
+  if (/^[0-9A-Fa-f]+$/.test(strResp) && strResp.length % 2 === 0) {
+    strResp = hexToString(strResp);
+  }
+  
+  return strResp.split(/\x1e|\n/).map(function (s) { return s.trim(); }).filter(Boolean);
 }
 
 function logCFMLResponse(resp) {
@@ -519,3 +544,29 @@ function rgbToXY(r, g, b) {
   var sum = X + Y + Z;
   return (sum === 0) ? { x: 0.3127, y: 0.3290 } : { x: X / sum, y: Y / sum };
 }
+
+/* ────────────────────────────────────────────────────────────────────
+   EXPOSE EXPORTS FOR THINGSBOARD HTML ONCLICK
+   ──────────────────────────────────────────────────────────────────── */
+window.onSlotChange       = onSlotChange;
+window.onShortAddrChange  = onShortAddrChange;
+window.onClusterChange    = onClusterChange;
+window.clusterPreset      = clusterPreset;
+window.startNetwork       = startNetwork;
+window.stopNetwork        = stopNetwork;
+window.openPermitJoin     = openPermitJoin;
+window.autoFind           = autoFind;
+window.queryNetStatus     = queryNetStatus;
+window.selectNode         = selectNode;
+window.deleteNode         = deleteNode;
+window.onOnOffToggle      = onOnOffToggle;
+window.onLevelInput       = onLevelInput;
+window.onLevelChange      = onLevelChange;
+window.onColorInput       = onColorInput;
+window.onColorChange      = onColorChange;
+window.applyColorPreset   = applyColorPreset;
+window.readAttribute      = readAttribute;
+window.writeAttribute     = writeAttribute;
+window.sendZclCmd         = sendZclCmd;
+window.clearLog           = clearLog;
+

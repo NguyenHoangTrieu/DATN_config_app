@@ -69,6 +69,14 @@
     }
   },
   "wan_stack_map": {
+    "001": {
+      "type":       "QUECTEL",
+      "label":      "Quectel (AC76001) / LTE",
+      "modem":      "AC76001",
+      "comm_type":  "UART",
+      "pwr_pin":    "WK",
+      "rst_pin":    "PE"
+    },
     "100": {
       "type":       "NONE",
       "label":      "No WAN adapter",

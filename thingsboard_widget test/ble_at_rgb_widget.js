@@ -41,7 +41,7 @@ var state = {
   ledState   : false,                 // false=OFF, true=ON
   scanResults: [],                    // [{ mac, rssi, name }]
   
-  rpcTimeout : 8000,
+  rpcTimeout : 15000,
   cmdBusy    : false,
 };
 
@@ -131,10 +131,29 @@ function sendRPC(method, params, timeoutMs) {
   });
 }
 
+function stringToHex(str) {
+  var hex = '';
+  for (var i = 0; i < str.length; i++) {
+    var code = str.charCodeAt(i).toString(16).toUpperCase();
+    if (code.length === 1) code = '0' + code;
+    hex += code;
+  }
+  return hex;
+}
+
+function hexToString(hex) {
+  var str = '';
+  for (var i = 0; i < hex.length; i += 2) {
+    str += String.fromCharCode(parseInt(hex.substr(i, 2), 16));
+  }
+  return str;
+}
+
 function sendCFML(gattCmd, timeoutMs) {
   var cmd = 'CFML:CFBG:' + gattCmd;
   logTx(cmd);
-  return sendRPC('sendCommand', cmd, timeoutMs || state.rpcTimeout);
+  var hexCmd = stringToHex(cmd);
+  return sendRPC('sendCommand', hexCmd, timeoutMs || state.rpcTimeout);
 }
 
 /* -------------------------------------------------------------------
@@ -143,6 +162,11 @@ function sendCFML(gattCmd, timeoutMs) {
 function parseLines(resp) {
   var text = typeof resp === 'string' ? resp
            : (resp && (resp.result || resp.value || JSON.stringify(resp))) || '';
+           
+  if (/^[0-9A-Fa-f]+$/.test(text) && text.length % 2 === 0) {
+    text = hexToString(text);
+  }
+  
   return text.split(/[\x1E\n]+/).map(function (l) { return l.trim(); })
              .filter(function (l) { return l.length > 0; });
 }
@@ -209,7 +233,7 @@ function startAutoConnect() {
   setScanSpinner(true);
   document.getElementById('scan-status-text').textContent = 'Auto-scanning...';
 
-  sendCFML('SCAN:5000', 8000)
+  sendCFML(state.slot + ':SCAN:5000', 8000)
     .then(function (resp) {
       logCFMLResponse(resp);
       state.scanResults = parseScanLines(resp);
@@ -271,7 +295,7 @@ function startScan() {
   setScanSpinner(true);
   document.getElementById('scan-status-text').textContent = 'Scanning...';
 
-  sendCFML('SCAN:5000', 8000)
+  sendCFML(state.slot + ':SCAN:5000', 15000)
     .then(function (resp) {
       logCFMLResponse(resp);
       state.scanResults = parseScanLines(resp);
@@ -335,7 +359,7 @@ function connectToMAC(mac, name) {
   setStatusDot('connecting');
   showOverlay('Connecting to ' + name + '...', true);
 
-  sendCFML('CONNECT:' + mac, 6000)
+  sendCFML(state.slot + ':CONNECT:' + mac, 6000)
     .then(function (resp) {
       logCFMLResponse(resp);
       
@@ -349,7 +373,7 @@ function connectToMAC(mac, name) {
       
       // Now discover services
       logInfo('Connected. Discovering GATT...');
-      return sendCFML('DISCOVER:' + mac, 6000);
+      return sendCFML(state.slot + ':DISCOVER:' + mac, 6000);
     })
     .then(function (resp) {
       logCFMLResponse(resp);
@@ -365,7 +389,7 @@ function connectToMAC(mac, name) {
       
       // Subscribe to FFF1 notifications
       logInfo('Subscribing to FFF1 notifications...');
-      return sendCFML('SUBSCRIBE:' + mac + ':' + state.fff1_uuid, 3000);
+      return sendCFML(state.slot + ':SUBSCRIBE:' + mac + ':' + state.fff1_uuid, 3000);
     })
     .then(function (resp) {
       logCFMLResponse(resp);
@@ -448,7 +472,7 @@ function startNotificationListener() {
 }
 
 function pollCounterUpdate() {
-  sendCFML('READ:' + state.mac + ':' + state.fff1_uuid, 3000)
+  sendCFML(state.slot + ':READ:' + state.mac + ':' + state.fff1_uuid, 3000)
     .then(function (resp) {
       var text = typeof resp === 'string' ? resp : (resp && (resp.result || resp.value || '')) || '';
       
@@ -483,7 +507,7 @@ function sendLedCommand(onOff) {
   
   // FFF2 expects 0x00 (OFF) or 0x01 (ON)
   var hex = onOff ? '01' : '00';
-  var cmd = 'WRITE:' + state.mac + ':' + state.fff2_uuid + ':' + hex;
+  var cmd = state.slot + ':WRITE:' + state.mac + ':' + state.fff2_uuid + ':' + hex;
   
   state.ledState = (onOff !== 0);
   updateLEDUI();
@@ -585,3 +609,16 @@ function showToast(msg) {
     toast.classList.add('hidden');
   }, 2500);
 }
+
+/* ────────────────────────────────────────────────────────────────────
+   EXPOSE EXPORTS FOR THINGSBOARD HTML ONCLICK
+   ──────────────────────────────────────────────────────────────────── */
+window.onSlotChange       = onSlotChange;
+window.onDeviceNameChange = onDeviceNameChange;
+window.startAutoConnect   = startAutoConnect;
+window.startScan          = startScan;
+window.connectToDevice    = connectToDevice;
+window.disconnectDevice   = disconnectDevice;
+window.sendLedCommand     = sendLedCommand;
+window.clearLog           = clearLog;
+
