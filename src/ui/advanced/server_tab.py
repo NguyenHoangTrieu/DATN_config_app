@@ -70,10 +70,6 @@ class ServerTab(ttk.Frame):
         ttk.Label(row_info, text="", width=15).pack(side=tk.LEFT)
         ttk.Label(row_info, text="ℹ️ Format: mqtt[s]://host:port (e.g., mqtt://broker.example.com:1883)",
                   foreground="#757575").pack(side=tk.LEFT)
-        
-        # ═══════════════════════════════════════════════════════════════════
-        # MQTT Topics Section
-        # ═══════════════════════════════════════════════════════════════════
         self.topics_frame = ttk.LabelFrame(container, text="MQTT Topics", padding=8)
         self.topics_frame.pack(fill=tk.X, pady=5)
         
@@ -97,7 +93,27 @@ class ServerTab(ttk.Frame):
         ttk.Label(row6, text="Attribute Topic:", width=15).pack(side=tk.LEFT)
         self.attr_topic_var = tk.StringVar()
         ttk.Entry(row6, textvariable=self.attr_topic_var).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        
+
+        # ═══════════════════════════════════════════════════════════════════
+        # MQTT Session Parameters Section
+        # ═══════════════════════════════════════════════════════════════════
+        self.mqtt_session_frame = ttk.LabelFrame(container, text="MQTT Session Parameters", padding=8)
+        self.mqtt_session_frame.pack(fill=tk.X, pady=5)
+
+        row_session = ttk.Frame(self.mqtt_session_frame)
+        row_session.pack(fill=tk.X, pady=2)
+        ttk.Label(row_session, text="Keepalive (s):", width=18).pack(side=tk.LEFT)
+        self.mqtt_keepalive_var = tk.StringVar(value="120")
+        ttk.Entry(row_session, textvariable=self.mqtt_keepalive_var, width=8).pack(side=tk.LEFT, padx=5)
+        ttk.Label(row_session, text="  Network Timeout (ms):").pack(side=tk.LEFT)
+        self.mqtt_timeout_var = tk.StringVar(value="10000")
+        ttk.Entry(row_session, textvariable=self.mqtt_timeout_var, width=10).pack(side=tk.LEFT, padx=5)
+
+        ttk.Label(self.mqtt_session_frame,
+                  text="ℹ️ Keepalive: interval between PINGREQ messages (10–3600 s). "
+                       "Timeout: TCP connect/read timeout (ms).",
+                  foreground="#757575").pack(anchor="w", pady=(2, 0))
+
         # ═══════════════════════════════════════════════════════════════════
         # HTTP/HTTPS Settings Section
         # ═══════════════════════════════════════════════════════════════════
@@ -188,8 +204,8 @@ class ServerTab(ttk.Frame):
         ttk.Separator(info_frame, orient='horizontal').pack(fill=tk.X, pady=5)
         ttk.Label(info_frame,
                   text="Server Type Commands (Code → Protocol)\n"
-                       "  0 = MQTT   → CFSV:0 + CFMQ:BROKER|TOKEN|SUB|PUB|ATTR\n"
-                       "  1 = CoAP   → CFSV:1 + CFCP:HOST|PATH|TOKEN|PORT|DTLS|ACK_TO|MAX_RTX\n"
+                       "  0 = MQTT   → CFSV:0 + CFMQ:BROKER|TOKEN|SUB|PUB|ATTR|KEEPALIVE_S|TIMEOUT_MS\n"
+                       "  1 = CoAP   → CFSV:1 + CFCP:HOST|PATH|TOKEN|PORT|DTLS|ACK_TO|MAX_RTX|RPC_POLL_MS\n"
                        "  2 = HTTP   → CFSV:2 + CFHP:URL|TOKEN|PORT|TLS|VERIFY|TIMEOUT",
                   foreground="#757575", font=('Consolas', 9), justify=tk.LEFT).pack(anchor="w")
         # Show correct frame on startup
@@ -198,12 +214,13 @@ class ServerTab(ttk.Frame):
     def _on_type_change(self, event=None):
         """Show the settings frame matching the selected server type"""
         server_type = self.type_var.get()
-        for frame in (self.mqtt_frame, self.topics_frame,
+        for frame in (self.mqtt_frame, self.topics_frame, self.mqtt_session_frame,
                       self.http_frame, self.coap_frame):
             frame.pack_forget()
         if server_type == "MQTT":
             self.mqtt_frame.pack(fill=tk.X, pady=5)
             self.topics_frame.pack(fill=tk.X, pady=5)
+            self.mqtt_session_frame.pack(fill=tk.X, pady=5)
         elif server_type == "HTTP/HTTPS":
             self.http_frame.pack(fill=tk.X, pady=5)
         elif server_type == "CoAP":
@@ -246,7 +263,10 @@ class ServerTab(ttk.Frame):
             sub_topic = self.sub_topic_var.get().strip()
             pub_topic = self.pub_topic_var.get().strip()
             attr      = self.attr_topic_var.get().strip()
-            self._send_command(build_mqtt_cmd(broker, token, sub_topic, pub_topic, attr),
+            keepalive = self._safe_int(self.mqtt_keepalive_var.get(), 0)
+            timeout   = self._safe_int(self.mqtt_timeout_var.get(), 0)
+            self._send_command(build_mqtt_cmd(broker, token, sub_topic, pub_topic, attr,
+                                              keepalive, timeout),
                                "MQTT Config")
 
         elif label == "HTTP/HTTPS":
@@ -282,9 +302,10 @@ class ServerTab(ttk.Frame):
                 max_rtx = int(self.coap_maxrtx_var.get().strip())
             except ValueError:
                 max_rtx = 4
+            rpc_poll = self._safe_int(self.coap_rpc_poll_var.get(), 1500)
             self._send_command(
                 build_coap_cmd(host, resource, token, port,
-                               self.coap_dtls_var.get(), ack_to, max_rtx),
+                               self.coap_dtls_var.get(), ack_to, max_rtx, rpc_poll),
                 "CoAP Config")
     
     def set_config(self, config):
@@ -308,6 +329,8 @@ class ServerTab(ttk.Frame):
         self.sub_topic_var.set(getattr(wan, 'mqtt_sub_topic', '') or '')
         self.pub_topic_var.set(getattr(wan, 'mqtt_pub_topic', '') or '')
         self.attr_topic_var.set(getattr(wan, 'mqtt_attribute_topic', '') or '')
+        self.mqtt_keepalive_var.set(str(getattr(wan, 'mqtt_keepalive_s', 120) or 120))
+        self.mqtt_timeout_var.set(str(getattr(wan, 'mqtt_timeout_ms', 10000) or 10000))
 
         # HTTP
         self.http_url_var.set(getattr(wan, 'http_url', '') or '')
@@ -329,6 +352,7 @@ class ServerTab(ttk.Frame):
         self.coap_dtls_var.set(bool(getattr(wan, 'coap_use_dtls', False)))
         self.coap_ack_var.set(str(getattr(wan, 'coap_ack_timeout_ms', 2000) or 2000))
         self.coap_maxrtx_var.set(str(getattr(wan, 'coap_max_retransmit', 4) or 4))
+        self.coap_rpc_poll_var.set(str(getattr(wan, 'coap_rpc_poll_interval_ms', 1500) or 1500))
     
     def get_config(self) -> dict:
         """Get current config as dict"""
@@ -342,6 +366,8 @@ class ServerTab(ttk.Frame):
             'mqtt_sub_topic':       self.sub_topic_var.get(),
             'mqtt_pub_topic':       self.pub_topic_var.get(),
             'mqtt_attribute_topic': self.attr_topic_var.get(),
+            'mqtt_keepalive_s':     self._safe_int(self.mqtt_keepalive_var.get(), 120),
+            'mqtt_timeout_ms':      self._safe_int(self.mqtt_timeout_var.get(), 10000),
             'http_url':             self.http_url_var.get(),
             'http_auth_token':      self.http_token_var.get(),
             'http_port':            self._safe_int(self.http_port_var.get(), 8080),
@@ -353,8 +379,9 @@ class ServerTab(ttk.Frame):
             'coap_device_token':    self.coap_token_var.get(),
             'coap_port':            self._safe_int(self.coap_port_var.get(), 5683),
             'coap_use_dtls':        self.coap_dtls_var.get(),
-            'coap_ack_timeout_ms':  self._safe_int(self.coap_ack_var.get(), 2000),
-            'coap_max_retransmit':  self._safe_int(self.coap_maxrtx_var.get(), 4),
+            'coap_ack_timeout_ms':      self._safe_int(self.coap_ack_var.get(), 2000),
+            'coap_max_retransmit':      self._safe_int(self.coap_maxrtx_var.get(), 4),
+            'coap_rpc_poll_interval_ms': self._safe_int(self.coap_rpc_poll_var.get(), 1500),
         }
 
     @staticmethod

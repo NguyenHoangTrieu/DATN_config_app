@@ -148,13 +148,21 @@ function onProtoChange(v) {
    ──────────────────────────────────────────────────────────────────── */
 function splitResp(resp) {
   if (!resp) return [];
-  if (typeof resp === 'object' && resp.data !== undefined) resp = resp.data;
-  
+
+  // Unwrap the object formats the gateway / ThingsBoard may deliver:
+  //   { data:   "HEX_OR_TEXT" }  — old telemetry wrapper
+  //   { result: "CFML:0:OK:..." } — new RPC response wrapper (gateway sends this)
+  if (typeof resp === 'object' && resp !== null) {
+    if (resp.result !== undefined)  resp = resp.result;        // ← NEW: RPC response
+    else if (resp.data !== undefined) resp = resp.data;        // old telemetry
+  }
+
   var strResp = String(resp);
+  // Hex-encoded string → decode first
   if (/^[0-9A-Fa-f]+$/.test(strResp) && strResp.length % 2 === 0) {
     strResp = hexToString(strResp);
   }
-  
+
   return strResp.split(/\x1e|\n/).map(function (s) { return s.trim(); }).filter(Boolean);
 }
 
@@ -266,7 +274,7 @@ function startScan() {
   renderDeviceList([]);
   logInfo('Resetting module…');
   
-  sendCFML('AT+RESET', 3000)
+  sendCFML('AT+RESET', 8000)   /* 8 s: BLE module needs ~3-5 s to reset fully */
     .then(function() {
       return new Promise(function(res) { setTimeout(res, 5000); });
     })
