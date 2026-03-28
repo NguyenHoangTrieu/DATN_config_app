@@ -3,31 +3,31 @@
     "module_type": "LORA",
     "module_name": "RAK3172",
     "cmd_prefix": "CFLR",
-    "description": "App command map for RAK3172 LoRaWAN module. 25 functions covering lifecycle, region/class, OTAA provisioning, ABP provisioning, MAC/RF settings, and data transfer.",
+    "description": "App command map for RAK3172 LoRaWAN module. 26 functions covering lifecycle, region/class, OTAA provisioning, ABP provisioning, MAC/RF settings, port and data transfer.",
 
     "button_functions": [
-        { "id": "MODULE_HW_RESET",        "command": "MODULE_HW_RESET",        "label": "HW Reset",      "group": "system" },
-        { "id": "MODULE_SW_RESET",        "command": "MODULE_SW_RESET",        "label": "SW Reset",      "group": "system" },
-        { "id": "MODULE_FACTORY_RESET",   "command": "MODULE_FACTORY_RESET",   "label": "Factory Reset", "group": "system" },
-        { "id": "MODULE_GET_INFO",        "command": "MODULE_GET_INFO",        "label": "Get Info",      "group": "system" },
-        { "id": "MODULE_JOIN",            "command": "MODULE_JOIN",            "label": "Join Network",  "group": "otaa"   },
-        { "id": "MODULE_GET_JOIN_STATUS", "command": "MODULE_GET_JOIN_STATUS", "label": "Join Status",   "group": "otaa"   },
-        { "id": "MODULE_GET_DEVEUI",      "command": "MODULE_GET_DEVEUI",      "label": "Get DevEUI",    "group": "otaa"   },
-        { "id": "MODULE_READ_RECV",       "command": "MODULE_READ_RECV",       "label": "Read RX",       "group": "data"   }
+        { "id": "MODULE_HW_RESET",        "command": "MODULE_HW_RESET",  "label": "HW Reset",      "group": "system" },
+        { "id": "MODULE_SW_RESET",        "command": "ATZ",              "label": "SW Reset",      "group": "system" },
+        { "id": "MODULE_FACTORY_RESET",   "command": "ATR",              "label": "Factory Reset", "group": "system" },
+        { "id": "MODULE_GET_INFO",        "command": "AT+VER=?",         "label": "Get Info",      "group": "system" },
+        { "id": "MODULE_JOIN",            "command": "AT+JOIN=1:0:10:8", "label": "Join Network",  "group": "otaa"   },
+        { "id": "MODULE_GET_JOIN_STATUS", "command": "AT+NJS=?",         "label": "Join Status",   "group": "otaa"   },
+        { "id": "MODULE_GET_DEVEUI",      "command": "AT+DEVEUI=?",      "label": "Get DevEUI",    "group": "otaa"   },
+        { "id": "MODULE_READ_RECV",       "command": "AT+RECV=?",        "label": "Read RX",       "group": "data"   }
     ],
 
     "manual_functions": [
         {
             "id": "MODULE_SET_REGION",
-            "command_prefix": "MODULE_SET_REGION:",
+            "command_prefix": "AT+BAND=",
             "label": "Set Region",
             "group": "region",
-            "param_hint": "AS923|AU915|EU868|IN865|KR920|RU864|US915",
-            "example": "EU868"
+            "param_hint": "0=EU433 1=CN470 2=RU864 3=IN865 4=EU868 5=US915 6=AU915 7=KR920 8=AS923",
+            "example": "4"
         },
         {
             "id": "MODULE_SET_CLASS",
-            "command_prefix": "MODULE_SET_CLASS:",
+            "command_prefix": "AT+CLASS=",
             "label": "Set Class",
             "group": "region",
             "param_hint": "A|B|C",
@@ -35,15 +35,15 @@
         },
         {
             "id": "MODULE_SET_JOIN_MODE",
-            "command_prefix": "MODULE_SET_JOIN_MODE:",
+            "command_prefix": "AT+NJM=",
             "label": "Set Join Mode",
             "group": "otaa",
-            "param_hint": "OTAA|ABP",
-            "example": "OTAA"
+            "param_hint": "0=ABP 1=OTAA",
+            "example": "1"
         },
         {
             "id": "MODULE_SET_DEVEUI",
-            "command_prefix": "MODULE_SET_DEVEUI:",
+            "command_prefix": "AT+DEVEUI=",
             "label": "Set DevEUI",
             "group": "otaa",
             "param_hint": "16 hex chars",
@@ -51,7 +51,7 @@
         },
         {
             "id": "MODULE_SET_APPEUI",
-            "command_prefix": "MODULE_SET_APPEUI:",
+            "command_prefix": "AT+APPEUI=",
             "label": "Set AppEUI",
             "group": "otaa",
             "param_hint": "16 hex chars",
@@ -59,7 +59,7 @@
         },
         {
             "id": "MODULE_SET_APPKEY",
-            "command_prefix": "MODULE_SET_APPKEY:",
+            "command_prefix": "AT+APPKEY=",
             "label": "Set AppKey",
             "group": "otaa",
             "param_hint": "32 hex chars",
@@ -67,7 +67,7 @@
         },
         {
             "id": "MODULE_SET_DEVADDR",
-            "command_prefix": "MODULE_SET_DEVADDR:",
+            "command_prefix": "AT+DEVADDR=",
             "label": "Set DevAddr",
             "group": "abp",
             "param_hint": "8 hex chars",
@@ -75,7 +75,7 @@
         },
         {
             "id": "MODULE_SET_NWKSKEY",
-            "command_prefix": "MODULE_SET_NWKSKEY:",
+            "command_prefix": "AT+NWKSKEY=",
             "label": "Set NwkSKey",
             "group": "abp",
             "param_hint": "32 hex chars",
@@ -83,7 +83,7 @@
         },
         {
             "id": "MODULE_SET_APPSKEY",
-            "command_prefix": "MODULE_SET_APPSKEY:",
+            "command_prefix": "AT+APPSKEY=",
             "label": "Set AppSKey",
             "group": "abp",
             "param_hint": "32 hex chars",
@@ -91,7 +91,7 @@
         },
         {
             "id": "MODULE_SET_DR",
-            "command_prefix": "MODULE_SET_DR:",
+            "command_prefix": "AT+DR=",
             "label": "Set DR",
             "group": "mac_rf",
             "param_hint": "0-5",
@@ -99,15 +99,15 @@
         },
         {
             "id": "MODULE_SET_ADR",
-            "command_prefix": "MODULE_SET_ADR:",
+            "command_prefix": "AT+ADR=",
             "label": "Set ADR",
             "group": "mac_rf",
-            "param_hint": "0=disable 1=enable",
+            "param_hint": "0=off 1=on",
             "example": "1"
         },
         {
             "id": "MODULE_SET_TXP",
-            "command_prefix": "MODULE_SET_TXP:",
+            "command_prefix": "AT+TXP=",
             "label": "Set TX Power",
             "group": "mac_rf",
             "param_hint": "0-7",
@@ -115,42 +115,50 @@
         },
         {
             "id": "MODULE_SET_CHANNEL",
-            "command_prefix": "MODULE_SET_CHANNEL:",
+            "command_prefix": "AT+MASK=",
             "label": "Set Channel Mask",
             "group": "mac_rf",
-            "param_hint": "hex mask e.g. 00FF (US915/AU915)",
-            "example": "00FF"
+            "param_hint": "hex mask e.g. 0002 (US915 sub-band 2)",
+            "example": "0002"
         },
         {
             "id": "MODULE_SET_CONFIRM",
-            "command_prefix": "MODULE_SET_CONFIRM:",
-            "label": "Set Confirm",
+            "command_prefix": "AT+CFM=",
+            "label": "Set Confirm Mode",
             "group": "mac_rf",
             "param_hint": "0=unconfirmed 1=confirmed",
             "example": "0"
         },
         {
             "id": "MODULE_SET_PUBLIC_NET",
-            "command_prefix": "MODULE_SET_PUBLIC_NET:",
+            "command_prefix": "AT+PUBLIC=",
             "label": "Public Network",
             "group": "mac_rf",
             "param_hint": "0=private 1=public",
             "example": "1"
         },
         {
+            "id": "MODULE_SET_PORT",
+            "command_prefix": "AT+APPPORT=",
+            "label": "Set App Port",
+            "group": "mac_rf",
+            "param_hint": "1-223",
+            "example": "2"
+        },
+        {
             "id": "MODULE_SEND_UNCONFIRMED",
-            "command_prefix": "MODULE_SEND_UNCONFIRMED:",
-            "label": "Send Unconfirmed",
+            "command_prefix": "AT+SEND=",
+            "label": "Send (Unconfirmed)",
             "group": "data",
-            "param_hint": "port:hexData",
+            "param_hint": "port:hexData (requires AT+CFM=0)",
             "example": "2:01020304"
         },
         {
             "id": "MODULE_SEND_CONFIRMED",
-            "command_prefix": "MODULE_SEND_CONFIRMED:",
-            "label": "Send Confirmed",
+            "command_prefix": "AT+SEND=",
+            "label": "Send (Confirmed)",
             "group": "data",
-            "param_hint": "port:hexData",
+            "param_hint": "port:hexData (requires AT+CFM=1)",
             "example": "2:01020304"
         }
     ],

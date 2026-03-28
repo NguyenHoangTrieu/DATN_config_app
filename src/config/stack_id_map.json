@@ -48,9 +48,35 @@
       "cmd_prefix":        "CFLR",
       "gateway_json":      "stack_006_config.json",
       "app_commands_json": "stack_006_app_commands.json"
+    },
+    "008": {
+      "type":              "BLE_GATT",
+      "label":             "BLE GATT Central (ESP32-S3 Native)",
+      "cmd_prefix":        "CFBG",
+      "gateway_json":      "stack_008_config.json"
+    },
+    "009": {
+      "type":              "BLE_MESH",
+      "label":             "BLE Mesh Provisioner (ESP32-S3 Native)",
+      "cmd_prefix":        "CFBN",
+      "gateway_json":      "stack_009_config.json"
+    },
+    "010": {
+      "type":              "ZIGBEE",
+      "label":             "Zigbee (E180-ZG120B HEX)",
+      "cmd_prefix":        "CFZB",
+      "gateway_json":      "stack_010_config.json"
     }
   },
   "wan_stack_map": {
+    "001": {
+      "type":       "QUECTEL",
+      "label":      "Quectel (AC76001) / LTE",
+      "modem":      "AC76001",
+      "comm_type":  "UART",
+      "pwr_pin":    "WK",
+      "rst_pin":    "PE"
+    },
     "100": {
       "type":       "NONE",
       "label":      "No WAN adapter",

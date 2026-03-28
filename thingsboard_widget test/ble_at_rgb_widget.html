@@ -1,0 +1,131 @@
+<!-- =====================================================================
+     ESP32-C6 BLE GATT Peripheral — ThingsBoard Control Widget
+     Native BLE GATT (no AT commands) via Gateway BLE handler
+     Service: 0xFFF0 | Char FFF1: READ|NOTIFY (counter) | Char FFF2: WRITE (LED)
+     Paste into "HTML" tab | CSS into "CSS" tab | JS into "JavaScript" tab
+     ThingsBoard v4.x  —  Test & Monitor Widget
+     ===================================================================== -->
+
+<div id="gatt-widget" class="gatt-root">
+
+  <!-- ── Config Bar (Stack slot + Target device) ── -->
+  <div class="config-bar">
+    <div class="cfg-group">
+      <label class="cfg-label">Stack</label>
+      <select id="cfg-slot" class="cfg-input cfg-select" onchange="onSlotChange(this.value)">
+        <option value="0">S1 (slot 0)</option>
+        <option value="1">S2 (slot 1)</option>
+      </select>
+    </div>
+    <div class="cfg-group">
+      <label class="cfg-label">Target Device</label>
+      <input id="cfg-device-name" class="cfg-input" type="text"
+             value="DA2_TEST_GATT" placeholder="e.g. DA2_TEST_GATT"
+             onchange="onDeviceNameChange(this.value)" />
+    </div>
+    <button class="btn-cfg-discover" onclick="startAutoConnect()" title="Auto-scan and connect">
+      &#128269; Auto-Connect
+    </button>
+  </div>
+
+  <!-- ── Main Layout ── -->
+  <div class="main-layout">
+
+    <!-- LEFT: Device Panel -->
+    <div class="panel-devices">
+      <div class="panel-header">
+        <span class="panel-title">Devices</span>
+        <button id="btn-scan" class="btn-scan" onclick="startScan()" title="Scan BLE">
+          <span id="scan-icon" class="scan-icon">&#8635;</span>
+        </button>
+      </div>
+
+      <div class="scan-status">
+        <div id="scan-spinner-mini" class="mini-spinner hidden"></div>
+        <span id="scan-status-text">—</span>
+      </div>
+
+      <!-- Scanned devices list -->
+      <div id="device-list" class="device-list">
+        <div class="no-devices-msg">Click &#8635; to scan</div>
+      </div>
+    </div><!-- /panel-devices -->
+
+    <!-- RIGHT: Control Panel -->
+    <div class="panel-control">
+
+      <!-- Header -->
+      <div class="ctrl-header">
+        <div class="status-dot" id="status-dot" data-state="off"></div>
+        <span id="ctrl-device-name" class="ctrl-title">—</span>
+        <button id="btn-disconnect" class="btn-disc hidden"
+                onclick="disconnectDevice()" title="Disconnect">✕</button>
+      </div>
+
+      <!-- Counter Tile (FFF1) -->
+      <div class="gatt-tiles">
+        <div class="gatt-tile">
+          <div class="tile-label">Counter (FFF1)</div>
+          <div class="tile-val" id="counter-value">—</div>
+          <div class="tile-sub">READ | NOTIFY</div>
+        </div>
+      </div>
+
+      <!-- LED Control (FFF2) -->
+      <div class="ctrl-section" id="section-led">
+        <div class="ctrl-row space-between">
+          <span class="ctrl-label">LED Control</span>
+          <span class="ctrl-value" id="led-state">OFF</span>
+        </div>
+        <div class="led-icon" id="led-icon">⭕</div>
+        <div class="ctrl-row center">
+          <button class="btn-led" id="btn-led-on" onclick="sendLedCommand(1)" title="Turn ON">
+            ◉ ON
+          </button>
+          <button class="btn-led" id="btn-led-off" onclick="sendLedCommand(0)" title="Turn OFF">
+            ○ OFF
+          </button>
+        </div>
+      </div>
+
+      <!-- GATT Info -->
+      <div class="ctrl-section">
+        <div class="ctrl-row space-between">
+          <span class="ctrl-label">Service</span>
+          <span class="ctrl-value" id="service-uuid">—</span>
+        </div>
+        <div class="ctrl-row space-between">
+          <span class="ctrl-label">FFF1 Handle</span>
+          <span class="ctrl-value" id="handle-fff1">—</span>
+        </div>
+        <div class="ctrl-row space-between">
+          <span class="ctrl-label">FFF2 Handle</span>
+          <span class="ctrl-value" id="handle-fff2">—</span>
+        </div>
+      </div>
+
+      <!-- Overlay (no device / connecting / busy) -->
+      <div id="ctrl-overlay" class="ctrl-overlay">
+        <div class="overlay-inner">
+          <div id="overlay-spinner" class="spinner hidden"></div>
+          <p id="overlay-msg" class="overlay-msg">← Scan and connect device</p>
+        </div>
+      </div>
+
+    </div><!-- /panel-control -->
+
+  </div><!-- /main-layout -->
+
+  <!-- ── Console ── -->
+  <div class="console-panel">
+    <div class="console-header">
+      <span>Console</span>
+      <button class="btn-clear-log" onclick="clearLog()">&#10005;</button>
+    </div>
+    <div id="console-log" class="console-log"></div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast hidden"></div>
+
+</div><!-- /at-widget -->

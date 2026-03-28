@@ -440,9 +440,10 @@ class GatewayConfigApp:
         self.basic_panel.set_config(self.current_config)
         self.advanced_panel.set_config(self.current_config)
 
-        # Auto-prompt JSON upload for stacks that have no JSON config yet.
-        # Clear the guard for stacks whose JSON has since been uploaded
-        # (json_len > 0 means the gateway already has the config).
+        # Auto-send JSON file for stacks that have no JSON config yet.
+        # When stack_id != "000" (module present) and json_len == 0 (no config on gateway),
+        # automatically load the corresponding default JSON file and send it.
+        # This happens immediately in both basic and advanced modes without user prompt.
         stack_info = self.current_config.lan.stack_info
         for idx, sid, json_len in [
             (0, stack_info.stack1_id, stack_info.stack1_json_len),
@@ -450,22 +451,16 @@ class GatewayConfigApp:
         ]:
             key = (idx, sid)
             if json_len > 0:
-                # JSON is now present — clear guard so a future removal is noticed
+                # JSON is now present on gateway — clear guard so a future removal is noticed
                 self._prompted_stacks.discard(key)
             elif sid not in ("", "000") and key not in self._prompted_stacks:
+                # Stack has module (sid != "000") but no JSON config (json_len == 0)
+                # Auto-send the default JSON immediately
                 self._prompted_stacks.add(key)
-                if not self.advanced_mode.get():
-                    # Basic mode: auto-send the default JSON silently
-                    self.root.after(
-                        400,
-                        lambda i=idx, s=sid: self._auto_send_stack_json(i, s)
-                    )
-                else:
-                    # Advanced mode: prompt user to open the tab manually
-                    self.root.after(
-                        400,
-                        lambda i=idx, s=sid: self._prompt_json_upload(i, s)
-                    )
+                self.root.after(
+                    400,
+                    lambda i=idx, s=sid: self._auto_send_stack_json(i, s)
+                )
 
     def _auto_send_stack_json(self, stack_idx: int, stack_id: str):
         """Silently load the default JSON for *stack_id* and send it to the

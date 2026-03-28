@@ -104,6 +104,8 @@ class WanConfig:
     mqtt_pub_topic: str = ""
     mqtt_sub_topic: str = ""
     mqtt_attribute_topic: str = ""
+    mqtt_keepalive_s: int = 120   # MQTT keepalive interval in seconds
+    mqtt_timeout_ms: int = 10000  # MQTT network timeout in ms
     # HTTP server fields
     http_url: str = "http://demo.thingsboard.io:8080/api/v1/{token}/telemetry"
     http_auth_token: str = ""
@@ -119,6 +121,7 @@ class WanConfig:
     coap_use_dtls: bool = False
     coap_ack_timeout_ms: int = 2000
     coap_max_retransmit: int = 4
+    coap_rpc_poll_interval_ms: int = 1500  # RPC polling interval in ms
 
 
 @dataclass
@@ -252,6 +255,12 @@ class ConfigParser:
                     config.wan.lte_max_retries = int(value)
                 elif key == "lte_timeout_ms":
                     config.wan.lte_timeout_ms = int(value)
+                elif key == "mqtt_keepalive_s":
+                    config.wan.mqtt_keepalive_s = int(value)
+                elif key == "mqtt_timeout_ms":
+                    config.wan.mqtt_timeout_ms = int(value)
+                elif key == "coap_rpc_poll_interval_ms":
+                    config.wan.coap_rpc_poll_interval_ms = int(value)
                 elif hasattr(config.wan, key):
                     setattr(config.wan, key, value)
             
@@ -387,9 +396,14 @@ def build_server_type_cmd(server_type: int) -> str:
 def build_mqtt_cmd(broker: str, token: str,
                    sub: str = "v1/devices/me/rpc/request/+",
                    pub: str = "v1/devices/me/telemetry",
-                   attr: str = "v1/devices/me/attributes") -> str:
-    """Build CFMQ command: CFMQ:BROKER|TOKEN|SUB|PUB|ATTR"""
-    return f"CFMQ:{broker}|{token}|{sub}|{pub}|{attr}"
+                   attr: str = "v1/devices/me/attributes",
+                   keepalive_s: int = 0,
+                   timeout_ms: int = 0) -> str:
+    """Build CFMQ command: CFMQ:BROKER|TOKEN|SUB|PUB|ATTR|KEEPALIVE_S|TIMEOUT_MS
+
+    keepalive_s and timeout_ms are optional (0 = firmware uses its current default).
+    """
+    return f"CFMQ:{broker}|{token}|{sub}|{pub}|{attr}|{keepalive_s}|{timeout_ms}"
 
 
 def build_http_cmd(url: str, auth_token: str, port: int = 80,
@@ -401,6 +415,7 @@ def build_http_cmd(url: str, auth_token: str, port: int = 80,
 
 def build_coap_cmd(host: str, resource_path: str, token: str,
                    port: int = 5683, use_dtls: bool = False,
-                   ack_timeout_ms: int = 2000, max_retransmit: int = 4) -> str:
-    """Build CFCP command: CFCP:HOST|RESOURCE_PATH|TOKEN|PORT|USE_DTLS|ACK_TIMEOUT|MAX_RTX"""
-    return f"CFCP:{host}|{resource_path}|{token}|{port}|{int(use_dtls)}|{ack_timeout_ms}|{max_retransmit}"
+                   ack_timeout_ms: int = 2000, max_retransmit: int = 4,
+                   rpc_poll_interval_ms: int = 1500) -> str:
+    """Build CFCP command: CFCP:HOST|RESOURCE_PATH|TOKEN|PORT|USE_DTLS|ACK_TIMEOUT|MAX_RTX|RPC_POLL_MS"""
+    return f"CFCP:{host}|{resource_path}|{token}|{port}|{int(use_dtls)}|{ack_timeout_ms}|{max_retransmit}|{rpc_poll_interval_ms}"

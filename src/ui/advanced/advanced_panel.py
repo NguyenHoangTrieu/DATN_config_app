@@ -20,6 +20,7 @@ from src.ui.advanced.lte_tab import LTETab
 from src.ui.advanced.server_tab import ServerTab
 from src.ui.advanced.firmware_tab import FirmwareTab
 from src.ui.advanced.ble_tab import BLETab
+from src.ui.advanced.ble_native_tab import BleNativeTab
 from src.ui.advanced.lora_tab import LoRaTab
 from src.ui.advanced.zigbee_tab import ZigbeeTab
 from src.ui.advanced.rs485_tab import Rs485Tab
@@ -60,6 +61,8 @@ class AdvancedPanel(ttk.Frame):
         # LAN module tabs (always visible)
         self.ble_tab = BLETab(self.notebook, serial_manager=_sm,
                                log_callback=_log)
+        self.ble_native_tab = BleNativeTab(self.notebook, serial_manager=_sm,
+                                            log_callback=_log)
         self.lora_tab = LoRaTab(self.notebook, serial_manager=_sm,
                                  log_callback=_log)
         self.zigbee_tab = ZigbeeTab(self.notebook, serial_manager=_sm,
@@ -74,8 +77,9 @@ class AdvancedPanel(ttk.Frame):
         self.notebook.add(self.wifi_tab,     text="📶 WiFi")
         self.notebook.add(self.lte_tab,      text="📱 LTE")
         self.notebook.add(self.server_tab,   text="☁️ Server")
-        self.notebook.add(self.ble_tab,      text="🔷 BLE")
-        self.notebook.add(self.lora_tab,     text="🟩 LoRa")
+        self.notebook.add(self.ble_tab,        text="🔷 BLE")
+        self.notebook.add(self.ble_native_tab, text="🔵 BLE Native")
+        self.notebook.add(self.lora_tab,       text="🟩 LoRa")
         self.notebook.add(self.zigbee_tab,   text="🔶 Zigbee")
         self.notebook.add(self.rs485_tab,    text="🔌 RS485")
         self.notebook.add(self.firmware_tab, text="🔄 FW")

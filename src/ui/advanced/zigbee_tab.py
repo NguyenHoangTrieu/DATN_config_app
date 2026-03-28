@@ -5,8 +5,8 @@ Uses the shared ConfigForm widget. Layout:
   Header: Stack Slot | Preset | Module ID | Module Name | Reload
   Body:   ConfigForm (Communication + Functions accordion + JSON Preview + Actions)
 
-Zigbee has extra fields: cmd_type, cmd_code, response_format, is_async_event.
-These are handled transparently by ConfigForm when module_type="ZIGBEE".
+Zigbee has an is_async_event badge on async-only functions (node join/leave, ZCL events).
+The is_hex field enables binary HEX frame mode (e.g. E18 HEX protocol) vs ASCII AT mode.
 """
 
 import tkinter as tk
