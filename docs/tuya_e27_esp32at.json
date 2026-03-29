@@ -1,0 +1,294 @@
+{
+    "module_id": "004",
+    "module_type": "BLE",
+    "module_name": "ESP32_AT_BLE_TuyaE27",
+    "module_communication": {
+        "port_type": "uart",
+        "parameters": {
+            "baudrate": 115200,
+            "parity": "none",
+            "stopbit": 1
+        }
+    },
+    "functions": [
+        {
+            "_comment": "=== LIFECYCLE ===",
+            "function_name": "MODULE_HW_RESET",
+            "command": "",
+            "is_prefix": false,
+            "gpio_start_control": [
+                {
+                    "pin": "01",
+                    "state": "LOW"
+                }
+            ],
+            "delay_start": 100,
+            "expect_response": "",
+            "timeout": 0,
+            "gpio_end_control": [
+                {
+                    "pin": "01",
+                    "state": "HIGH"
+                }
+            ],
+            "delay_end": 1000
+        },
+        {
+            "function_name": "MODULE_SW_RESET",
+            "command": "AT+RST\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "ready",
+            "timeout": 3000,
+            "gpio_end_control": [],
+            "delay_end": 2000
+        },
+        {
+            "function_name": "MODULE_GET_INFO",
+            "command": "AT+GMR\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 1000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "MODULE_WAKEUP",
+            "command": "",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "",
+            "timeout": 0,
+            "gpio_end_control": [],
+            "delay_end": 300
+        },
+        {
+            "_comment": "=== BLE SCAN & CONNECT ===",
+            "function_name": "MODULE_BLE_INIT",
+            "command": "AT+BLEINIT=1\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 1000,
+            "gpio_end_control": [],
+            "delay_end": 200
+        },
+        {
+            "_comment": "Param: 1,{duration_sec}  — ví dụ: 1,5 để scan 5 giây",
+            "function_name": "MODULE_START_DISCOVERY",
+            "command": "AT+BLESCAN=",
+            "is_prefix": true,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "+BLESCANDONE",
+            "timeout": 15000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "_comment": "Param: 0,\"{MAC}\"  — ví dụ: 0,\"A4:C1:38:XX:YY:ZZ\"",
+            "function_name": "MODULE_CONNECT",
+            "command": "AT+BLECONN=",
+            "is_prefix": true,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "+BLECONN:",
+            "timeout": 10000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "_comment": "Param: {conn_index}  — ví dụ: 0",
+            "function_name": "MODULE_DISCONNECT",
+            "command": "AT+BLEDISCONN=",
+            "is_prefix": true,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "+BLEDISCONN:",
+            "timeout": 2000,
+            "gpio_end_control": [],
+            "delay_end": 200
+        },
+        {
+            "function_name": "MODULE_GET_CONNECTION_STATUS",
+            "command": "AT+BLECONN?\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 500,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "_comment": "=== GATT DISCOVERY (tìm srv_index của service 1910 và char_index của char 2B11) ===",
+            "_comment2": "Param: {conn_index}  — ví dụ: 0",
+            "function_name": "MODULE_DISCOVER_SERVICES",
+            "command": "AT+BLEGATTCPRIMSRV=",
+            "is_prefix": true,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 5000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "_comment": "Param: {conn_index},{srv_index}  — ví dụ: 0,3 (srv 1910 thường ở index 3 hoặc 4)",
+            "function_name": "MODULE_DISCOVER_CHARACTERISTICS",
+            "command": "AT+BLEGATTCCHAR=",
+            "is_prefix": true,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 5000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "_comment": "=== GATT WRITE — 2 bước: (1) gửi command → đợi '>' → (2) gửi data bytes ===",
+            "_comment2": "Param: {conn},{srv_idx},{char_idx},0,{len}  — ví dụ: 0,3,1,0,14",
+            "function_name": "MODULE_SEND_DATA",
+            "command": "AT+BLEGATTCWR=",
+            "is_prefix": true,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": ">",
+            "timeout": 2000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "_comment": "=== TUYA E27 — LED POWER ===",
+            "_comment2": "TUYA_LED_ON dùng MODULE_SEND_DATA với param: 0,{srv},{char},0,14 → data: 55AA...",
+            "_comment3": "Sau discovery: srv_index của 1910, char_index của 2B11",
+            "_note": "Các function TUYA_* bên dưới là shortcut khi đã biết srv_index và char_index",
+            "function_name": "TUYA_LED_ON",
+            "command": "AT+BLEGATTCWR=0,{srv_idx},{char_idx},0,14\r\n55AA00010006000501010001010F\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 2000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "TUYA_LED_OFF",
+            "command": "AT+BLEGATTCWR=0,{srv_idx},{char_idx},0,14\r\n55AA00020006000501010001000E\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 2000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "_comment": "=== TUYA E27 — BRIGHTNESS ===",
+            "function_name": "TUYA_BRIGHTNESS_100",
+            "command": "AT+BLEGATTCWR=0,{srv_idx},{char_idx},0,17\r\n55AA00030006000803020004000003E819\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 2000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "TUYA_BRIGHTNESS_50",
+            "command": "AT+BLEGATTCWR=0,{srv_idx},{char_idx},0,17\r\n55AA00040006000803020004000001F40C\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 2000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "_comment": "Custom: param = {conn},{srv},{char},0,{len}  rồi data là Tuya bytes đầy đủ",
+            "function_name": "TUYA_BRIGHTNESS_CUSTOM",
+            "command": "AT+BLEGATTCWR=",
+            "is_prefix": true,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": ">",
+            "timeout": 2000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "_comment": "=== TUYA E27 — COLOR TEMPERATURE (White mode) ===",
+            "function_name": "TUYA_COLOR_TEMP_WARM",
+            "command": "AT+BLEGATTCWR=0,{srv_idx},{char_idx},0,18\r\n55AA00060006000804020004000000002400\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 2000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "TUYA_COLOR_TEMP_COOL",
+            "command": "AT+BLEGATTCWR=0,{srv_idx},{char_idx},0,17\r\n55AA00070006000804020004000003E82C\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 2000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "_comment": "=== TUYA E27 — RGB COLOR MODE ===",
+            "function_name": "TUYA_RGB_MODE_ENABLE",
+            "command": "AT+BLEGATTCWR=0,{srv_idx},{char_idx},0,14\r\n55AA00080006000502040001011B\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 2000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "TUYA_COLOR_RED",
+            "command": "AT+BLEGATTCWR=0,{srv_idx},{char_idx},0,22\r\n55AA00090006000C0503000830303030363436343739\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 2000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "_comment": "Custom RGB: param toàn bộ bao gồm indices + len, data gửi tiếp sau '>'",
+            "function_name": "TUYA_COLOR_CUSTOM",
+            "command": "AT+BLEGATTCWR=",
+            "is_prefix": true,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": ">",
+            "timeout": 2000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        }
+    ],
+    "_notes": {
+        "gatt_write_2step": "AT+BLEGATTCWR là lệnh 2 bước — gửi command → đợi '>' → gửi data bytes. Gateway BLE handler phải xử lý flow này.",
+        "discovery_required": "srv_index và char_index chỉ biết sau AT+BLEGATTCPRIMSRV + AT+BLEGATTCCHAR. Tuya E27: service 1910 thường ở srv_index 3-4, char 2B11 ở char_index 1-2.",
+        "tuya_protocol": "55 AA [seq 1B] [cmd 1B] [len 2B] [dpid 1B] [type 1B] [val_len 2B] [value] [checksum]",
+        "ble_init": "ESP32 AT cần AT+BLEINIT=1 trước khi scan/connect",
+        "scan_param_example": "AT+BLESCAN=1,5  (1=enable scan, 5=duration giây)",
+        "connect_param_example": "AT+BLECONN=0,\"A4:C1:38:XX:YY:ZZ\"  (conn_index=0, MAC trong dấu nháy kép)"
+    }
+}

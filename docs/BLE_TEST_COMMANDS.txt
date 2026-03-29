@@ -1,0 +1,240 @@
+# ========================================
+# BLE MODULE TEST COMMANDS - COPY & PASTE
+# ========================================
+# Module: STM32WB_BLE_Gateway (module_id: 002)
+# 19 functions total (all from ble_config.json)
+# ========================================
+
+
+# ====================
+# 1. LOAD FULL JSON CONFIG (Stack 0)
+# ====================
+# Copy ENTIRE line below (1 line, no line breaks):
+
+CFBL:JSON:0:{"module_id":"002","module_type":"BLE","module_name":"STM32WB_BLE_Gateway","module_communication":{"port_type":"uart","parameters":{"baudrate":115200,"parity":"none","stopbit":1}},"functions":[{"function_name":"MODULE_HW_RESET","command":"","is_prefix":false,"gpio_start_control":[{"pin":"04","state":"LOW"}],"delay_start":100,"expect_response":"","timeout":0,"gpio_end_control":[{"pin":"04","state":"HIGH"}],"delay_end":1000},{"function_name":"MODULE_SW_RESET","command":"AT+RESET\r\n","is_prefix":false,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":2000,"gpio_end_control":[],"delay_end":1000},{"function_name":"MODULE_FACTORY_RESET","command":"AT+RESTORE\r\n","is_prefix":false,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":3000,"gpio_end_control":[],"delay_end":2000},{"function_name":"MODULE_GET_INFO","command":"AT+VER\r\n","is_prefix":false,"gpio_start_control":[],"delay_start":0,"expect_response":"+VER:","timeout":500,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_SET_NAME","command":"AT+NAME=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":500,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_SET_COMM_CONFIG","command":"AT+UART=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":500,"gpio_end_control":[],"delay_end":100},{"function_name":"MODULE_SET_RF_PARAMS","command":"AT+RF=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":500,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_ENTER_CMD_MODE","command":"AT+CMDMODE\r\n","is_prefix":false,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":500,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_ENTER_DATA_MODE","command":"AT+DATAMODE=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"+DATAMODE","timeout":500,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_START_BROADCAST","command":"AT+ADV=1\r\n","is_prefix":false,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":500,"gpio_end_control":[],"delay_end":100},{"function_name":"MODULE_CONNECT","command":"AT+CONNECT=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"+CONNECTED:","timeout":5000,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_DISCONNECT","command":"AT+DISCONNECT=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"+DISCONNECTED:","timeout":1000,"gpio_end_control":[],"delay_end":200},{"function_name":"MODULE_GET_CONNECTION_STATUS","command":"AT+LIST\r\n","is_prefix":false,"gpio_start_control":[],"delay_start":0,"expect_response":"+LIST:","timeout":500,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_ENTER_SLEEP","command":"AT+SLEEP\r\n","is_prefix":false,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":500,"gpio_end_control":[],"delay_end":100},{"function_name":"MODULE_WAKEUP","command":"","is_prefix":false,"gpio_start_control":[],"delay_start":0,"expect_response":"","timeout":0,"gpio_end_control":[],"delay_end":300},{"function_name":"MODULE_START_DISCOVERY","command":"AT+SCAN","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"+SCAN:","timeout":10000,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_SEND_DATA","command":"AT+WRITE=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":1000,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_GET_DIAGNOSTICS","command":"AT+INFO=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"+INFO:","timeout":500,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_DISCOVER_SERVICES","command":"AT+DISC=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":5000,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_DISCOVER_CHARACTERISTICS","command":"AT+CHARS=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":5000,"gpio_end_control":[],"delay_end":0}]}
+
+
+# ====================
+# LOAD CONFIG (Stack 1)
+# ====================
+# Same config but for Stack 1:
+
+CFBL:JSON:1:{"module_id":"002","module_type":"BLE","module_name":"STM32WB_BLE_Gateway","module_communication":{"port_type":"uart","parameters":{"baudrate":115200,"parity":"none","stopbit":1}},"functions":[{"function_name":"MODULE_HW_RESET","command":"","is_prefix":false,"gpio_start_control":[{"pin":"11","state":"LOW"}],"delay_start":100,"expect_response":"","timeout":0,"gpio_end_control":[{"pin":"11","state":"HIGH"}],"delay_end":1000},{"function_name":"MODULE_SW_RESET","command":"AT+RESET\r\n","is_prefix":false,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":2000,"gpio_end_control":[],"delay_end":1000},{"function_name":"MODULE_FACTORY_RESET","command":"AT+RESTORE\r\n","is_prefix":false,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":3000,"gpio_end_control":[],"delay_end":2000},{"function_name":"MODULE_GET_INFO","command":"AT+VER\r\n","is_prefix":false,"gpio_start_control":[],"delay_start":0,"expect_response":"+VER:","timeout":500,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_SET_NAME","command":"AT+NAME=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":500,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_SET_COMM_CONFIG","command":"AT+UART=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":500,"gpio_end_control":[],"delay_end":100},{"function_name":"MODULE_SET_RF_PARAMS","command":"AT+RF=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":500,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_ENTER_CMD_MODE","command":"AT+CMDMODE\r\n","is_prefix":false,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":500,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_ENTER_DATA_MODE","command":"AT+DATAMODE=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"+DATAMODE","timeout":500,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_START_BROADCAST","command":"AT+ADV=1\r\n","is_prefix":false,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":500,"gpio_end_control":[],"delay_end":100},{"function_name":"MODULE_CONNECT","command":"AT+CONNECT=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"+CONNECTED:","timeout":5000,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_DISCONNECT","command":"AT+DISCONNECT=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"+DISCONNECTED:","timeout":1000,"gpio_end_control":[],"delay_end":200},{"function_name":"MODULE_GET_CONNECTION_STATUS","command":"AT+LIST\r\n","is_prefix":false,"gpio_start_control":[],"delay_start":0,"expect_response":"+LIST:","timeout":500,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_ENTER_SLEEP","command":"AT+SLEEP\r\n","is_prefix":false,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":500,"gpio_end_control":[],"delay_end":100},{"function_name":"MODULE_WAKEUP","command":"","is_prefix":false,"gpio_start_control":[],"delay_start":0,"expect_response":"","timeout":0,"gpio_end_control":[],"delay_end":300},{"function_name":"MODULE_START_DISCOVERY","command":"AT+SCAN","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"+SCAN:","timeout":10000,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_SEND_DATA","command":"AT+WRITE=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":1000,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_GET_DIAGNOSTICS","command":"AT+INFO=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"+INFO:","timeout":500,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_DISCOVER_SERVICES","command":"AT+DISC=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":5000,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_DISCOVER_CHARACTERISTICS","command":"AT+CHARS=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":5000,"gpio_end_control":[],"delay_end":0}]}
+
+
+# ====================
+# 2. RESET COMMANDS
+# ====================
+
+# Hardware Reset (GPIO toggle: pin 01 LOW→HIGH, delay 1s)
+CFBL:0:MODULE_HW_RESET
+
+# Software Reset via AT command (AT+RESET, expect OK, timeout 2s)
+CFBL:0:MODULE_SW_RESET
+
+# Factory Reset (AT+RESTORE, expect OK, timeout 3s)
+CFBL:0:MODULE_FACTORY_RESET
+
+# Wakeup (no command, just delay 300ms)
+CFBL:0:MODULE_WAKEUP
+
+
+# ====================
+# 3. INFO & STATUS
+# ====================
+
+# Get firmware version (AT+VER, expect +VER:)
+CFBL:0:MODULE_GET_INFO
+
+# Get connection list (AT+LIST, expect +LIST:)
+CFBL:0:MODULE_GET_CONNECTION_STATUS
+
+# Get diagnostics for all connections
+CFBL:0:MODULE_GET_DIAGNOSTICS:all
+
+# Get diagnostics for connection 0
+CFBL:0:MODULE_GET_DIAGNOSTICS:0
+
+
+# ====================
+# 4. MODULE CONFIGURATION
+# ====================
+
+# Set BLE device name
+CFBL:0:MODULE_SET_NAME:MyBLEDevice
+
+# Set UART config (baudrate,parity,stopbit)
+CFBL:0:MODULE_SET_COMM_CONFIG:115200,0,1
+
+# Set RF parameters (txpower,channel)
+CFBL:0:MODULE_SET_RF_PARAMS:7,37
+
+
+# ====================
+# 5. COMMAND MODE
+# ====================
+
+# Enter command mode (AT+CMDMODE)
+CFBL:0:MODULE_ENTER_CMD_MODE
+
+# Enter data mode for connection handle 0
+CFBL:0:MODULE_ENTER_DATA_MODE:0
+
+# Enter sleep mode
+CFBL:0:MODULE_ENTER_SLEEP
+
+
+# ====================
+# 6. ADVERTISING / BROADCAST
+# ====================
+
+# Start advertising (AT+ADV=1, expect OK)
+CFBL:0:MODULE_START_BROADCAST
+
+
+# ====================
+# 7. SCAN & CONNECT
+# ====================
+
+# Start BLE scan (AT+SCAN=<duration_ms>)
+CFBL:0:MODULE_START_DISCOVERY:5000
+
+# Connect to device by MAC address
+CFBL:0:MODULE_CONNECT:AA:BB:CC:DD:EE:FF
+
+# Disconnect from connection handle 0
+CFBL:0:MODULE_DISCONNECT:0
+
+
+# ====================
+# 8. SERVICE DISCOVERY
+# ====================
+
+# Discover all services on connection handle 0
+CFBL:0:MODULE_DISCOVER_SERVICES:0
+
+# Discover characteristics of service on handle 0
+CFBL:0:MODULE_DISCOVER_CHARACTERISTICS:0
+
+
+# ====================
+# 9. DATA TRANSFER
+# ====================
+
+# Write data to characteristic (handle, char_handle, hex_data)
+# "Hello" = 48656C6C6F
+CFBL:0:MODULE_SEND_DATA:0,0001,48656C6C6F
+
+# Write "HelloWorld" to characteristic 0x0018
+CFBL:0:MODULE_SEND_DATA:0,0018,48656C6C6F576F726C64
+
+# Write custom data to characteristic 0x0025
+CFBL:0:MODULE_SEND_DATA:0,0025,DEADBEEF
+
+
+# ====================
+# 10. SYSTEM COMMANDS
+# ====================
+
+# Scan all configs (WAN + LAN)
+CFSC
+
+# Set RS485 baudrate
+CFRS:BR:115200
+
+
+# ========================================
+# COMPLETE TEST SEQUENCE (RUN IN ORDER)
+# ========================================
+
+# Step 1: Load full config
+CFBL:JSON:0:{"module_id":"002","module_type":"BLE","module_name":"STM32WB_BLE_Gateway","module_communication":{"port_type":"uart","parameters":{"baudrate":115200,"parity":"none","stopbit":1}},"functions":[{"function_name":"MODULE_HW_RESET","command":"","is_prefix":false,"gpio_start_control":[{"pin":"01","state":"LOW"}],"delay_start":100,"expect_response":"","timeout":0,"gpio_end_control":[{"pin":"01","state":"HIGH"}],"delay_end":1000},{"function_name":"MODULE_SW_RESET","command":"AT+RESET\r\n","is_prefix":false,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":2000,"gpio_end_control":[],"delay_end":1000},{"function_name":"MODULE_FACTORY_RESET","command":"AT+RESTORE\r\n","is_prefix":false,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":3000,"gpio_end_control":[],"delay_end":2000},{"function_name":"MODULE_GET_INFO","command":"AT+VER\r\n","is_prefix":false,"gpio_start_control":[],"delay_start":0,"expect_response":"+VER:","timeout":500,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_SET_NAME","command":"AT+NAME=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":500,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_SET_COMM_CONFIG","command":"AT+UART=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":500,"gpio_end_control":[],"delay_end":100},{"function_name":"MODULE_SET_RF_PARAMS","command":"AT+RF=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":500,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_ENTER_CMD_MODE","command":"AT+CMDMODE\r\n","is_prefix":false,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":500,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_ENTER_DATA_MODE","command":"AT+DATAMODE=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"+DATAMODE","timeout":500,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_START_BROADCAST","command":"AT+ADV=1\r\n","is_prefix":false,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":500,"gpio_end_control":[],"delay_end":100},{"function_name":"MODULE_CONNECT","command":"AT+CONNECT=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"+CONNECTED:","timeout":5000,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_DISCONNECT","command":"AT+DISCONNECT=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"+DISCONNECTED:","timeout":1000,"gpio_end_control":[],"delay_end":200},{"function_name":"MODULE_GET_CONNECTION_STATUS","command":"AT+LIST\r\n","is_prefix":false,"gpio_start_control":[],"delay_start":0,"expect_response":"+LIST:","timeout":500,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_ENTER_SLEEP","command":"AT+SLEEP\r\n","is_prefix":false,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":500,"gpio_end_control":[],"delay_end":100},{"function_name":"MODULE_WAKEUP","command":"","is_prefix":false,"gpio_start_control":[],"delay_start":0,"expect_response":"","timeout":0,"gpio_end_control":[],"delay_end":300},{"function_name":"MODULE_START_DISCOVERY","command":"AT+SCAN","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"+SCAN:","timeout":10000,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_SEND_DATA","command":"AT+WRITE=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":1000,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_GET_DIAGNOSTICS","command":"AT+INFO=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"+INFO:","timeout":500,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_DISCOVER_SERVICES","command":"AT+DISC=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":5000,"gpio_end_control":[],"delay_end":0},{"function_name":"MODULE_DISCOVER_CHARACTERISTICS","command":"AT+CHARS=","is_prefix":true,"gpio_start_control":[],"delay_start":0,"expect_response":"OK","timeout":5000,"gpio_end_control":[],"delay_end":0}]}
+
+# Step 2: Hardware reset (wait ~1.1s for GPIO sequence)
+CFBL:0:MODULE_HW_RESET
+
+# Step 3: Enter command mode
+CFBL:0:MODULE_ENTER_CMD_MODE
+
+# Step 4: Check firmware version
+CFBL:0:MODULE_GET_INFO
+
+# Step 5: Start advertising
+CFBL:0:MODULE_START_BROADCAST
+
+# Step 6: Scan for nearby BLE devices (5 second scan)
+CFBL:0:MODULE_START_DISCOVERY:5000
+
+# Step 7: Connect (replace MAC)
+CFBL:0:MODULE_CONNECT:AA:BB:CC:DD:EE:FF
+
+# Step 8: Discover services
+CFBL:0:MODULE_DISCOVER_SERVICES:0
+
+# Step 9: Discover characteristics
+CFBL:0:MODULE_DISCOVER_CHARACTERISTICS:0
+
+# Step 10: Check connection status
+CFBL:0:MODULE_GET_CONNECTION_STATUS
+
+# Step 11: Send test data ("Hello" = 0x48656C6C6F)
+CFBL:0:MODULE_SEND_DATA:0,0001,48656C6C6F
+
+# Step 12: Disconnect
+CFBL:0:MODULE_DISCONNECT:0
+
+
+# ========================================
+# FUNCTION REFERENCE TABLE
+# ========================================
+# Function Name                | AT Command        | is_prefix | Expect
+# -----------------------------|-------------------|-----------|------------------
+# MODULE_HW_RESET              | (GPIO only)       | false     | (none, 1.1s)
+# MODULE_SW_RESET              | AT+RESET\r\n      | false     | OK
+# MODULE_FACTORY_RESET         | AT+RESTORE\r\n    | false     | OK
+# MODULE_GET_INFO              | AT+VER\r\n        | false     | +VER:
+# MODULE_SET_NAME              | AT+NAME=          | true      | OK
+# MODULE_SET_COMM_CONFIG       | AT+UART=          | true      | OK
+# MODULE_SET_RF_PARAMS         | AT+RF=            | true      | OK
+# MODULE_ENTER_CMD_MODE        | AT+CMDMODE\r\n    | false     | OK
+# MODULE_ENTER_DATA_MODE       | AT+DATAMODE=      | true      | +DATAMODE
+# MODULE_START_BROADCAST       | AT+ADV=1\r\n      | false     | OK
+# MODULE_CONNECT               | AT+CONNECT=       | true      | +CONNECTED:
+# MODULE_DISCONNECT            | AT+DISCONNECT=    | true      | +DISCONNECTED:
+# MODULE_GET_CONNECTION_STATUS | AT+LIST\r\n       | false     | +LIST:
+# MODULE_ENTER_SLEEP           | AT+SLEEP\r\n      | false     | OK
+# MODULE_WAKEUP                | (delay only)      | false     | (none, 300ms)
+# MODULE_START_DISCOVERY       | AT+SCAN           | true      | +SCAN:
+# MODULE_SEND_DATA             | AT+WRITE=         | true      | OK
+# MODULE_GET_DIAGNOSTICS       | AT+INFO=          | true      | +INFO:
+# MODULE_DISCOVER_SERVICES     | AT+DISC=          | true      | OK
+# MODULE_DISCOVER_CHARACTERISTICS | AT+CHARS=      | true      | OK
+
+
+# ========================================
+# EXPECTED RESPONSES
+# ========================================
+
+# Command queued successfully:
+OK:CMD_QUEUED
+
+# Errors:
+ERROR:CONFIG_TOO_LARGE    # Config > 4KB
+ERROR:QUEUE_FULL          # Handler busy
+ERROR:NO_HANDLER          # Config handler not running
+ERROR:UNKNOWN_CMD         # Invalid command type
+
+
+# ========================================
+# NOTES
+# ========================================
+
+# - Stack IDs: 0 or 1 (two independent BLE stacks)
+# - GPIO pins: "XY" format (X=stack, Y=pin number)
+#   Stack 0: "01", "02"...  Stack 1: "11", "12"...
+# - RST pin mapped to "01" (Stack 0) / "11" (Stack 1) in config above
+# - Max config size: 4096 bytes
+# - is_prefix=true: command needs parameter appended (e.g. AT+SCAN=5000)
+# - is_prefix=false: command sent as-is (e.g. AT+VER\r\n)
+# - Timeouts in milliseconds
+# - MODULE_WAKEUP and MODULE_HW_RESET are GPIO/delay-only (no UART command)

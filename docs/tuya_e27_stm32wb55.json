@@ -1,0 +1,262 @@
+{
+    "module_id": "002",
+    "module_type": "BLE",
+    "module_name": "STM32WB55_BLE_TuyaE27",
+    "module_communication": {
+        "port_type": "uart",
+        "parameters": {
+            "baudrate": 115200,
+            "parity": "none",
+            "stopbit": 1
+        }
+    },
+    "functions": [
+        {
+            "_comment": "=== LIFECYCLE ===",
+            "function_name": "MODULE_HW_RESET",
+            "command": "",
+            "is_prefix": false,
+            "gpio_start_control": [
+                {
+                    "pin": "01",
+                    "state": "LOW"
+                }
+            ],
+            "delay_start": 100,
+            "expect_response": "",
+            "timeout": 0,
+            "gpio_end_control": [
+                {
+                    "pin": "01",
+                    "state": "HIGH"
+                }
+            ],
+            "delay_end": 1000
+        },
+        {
+            "function_name": "MODULE_SW_RESET",
+            "command": "AT+RESET\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 2000,
+            "gpio_end_control": [],
+            "delay_end": 1000
+        },
+        {
+            "function_name": "MODULE_GET_INFO",
+            "command": "AT+GETINFO\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 1000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "MODULE_WAKEUP",
+            "command": "",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "",
+            "timeout": 0,
+            "gpio_end_control": [],
+            "delay_end": 300
+        },
+        {
+            "_comment": "=== BLE SCAN & CONNECT ===",
+            "function_name": "MODULE_START_DISCOVERY",
+            "command": "AT+SCAN=5000\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 7000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "MODULE_CONNECT",
+            "command": "AT+CONNECT=",
+            "is_prefix": true,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "+CONNECTED",
+            "timeout": 5000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "MODULE_DISCONNECT",
+            "command": "AT+DISCONNECT=",
+            "is_prefix": true,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 2000,
+            "gpio_end_control": [],
+            "delay_end": 200
+        },
+        {
+            "function_name": "MODULE_GET_CONNECTION_STATUS",
+            "command": "AT+LIST\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 500,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "_comment": "=== GATT DISCOVERY (tìm handle của service 1910 / char 2B11) ===",
+            "function_name": "MODULE_DISCOVER_SERVICES",
+            "command": "AT+DISC=",
+            "is_prefix": true,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 5000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "_comment": "Enable notify từ char 2B10 (desc handle = char_handle + 1 sau discovery)",
+            "function_name": "MODULE_NOTIFY_ENABLE",
+            "command": "AT+NOTIFY=",
+            "is_prefix": true,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 1000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "_comment": "=== TUYA E27 — LED POWER ===",
+            "function_name": "TUYA_LED_ON",
+            "command": "AT+WRITE=0,0x000E,55AA00010006000501010001010F\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 1000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "TUYA_LED_OFF",
+            "command": "AT+WRITE=0,0x000E,55AA00020006000501010001000E\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 1000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "_comment": "=== TUYA E27 — BRIGHTNESS ===",
+            "function_name": "TUYA_BRIGHTNESS_100",
+            "command": "AT+WRITE=0,0x000E,55AA00030006000803020004000003E819\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 1000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "TUYA_BRIGHTNESS_50",
+            "command": "AT+WRITE=0,0x000E,55AA00040006000803020004000001F40C\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 1000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "_comment": "Custom brightness: append conn_handle,char_handle,55AA00{seq}0006000803020004{0000-03E8 BE hex} + checksum",
+            "function_name": "TUYA_BRIGHTNESS_CUSTOM",
+            "command": "AT+WRITE=",
+            "is_prefix": true,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 1000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "_comment": "=== TUYA E27 — COLOR TEMPERATURE (White mode) ===",
+            "function_name": "TUYA_COLOR_TEMP_WARM",
+            "command": "AT+WRITE=0,0x000E,55AA00060006000804020004000000002400\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 1000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "TUYA_COLOR_TEMP_COOL",
+            "command": "AT+WRITE=0,0x000E,55AA00070006000804020004000003E82C\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 1000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "_comment": "=== TUYA E27 — RGB COLOR MODE ===",
+            "function_name": "TUYA_RGB_MODE_ENABLE",
+            "command": "AT+WRITE=0,0x000E,55AA00080006000502040001011B\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 1000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "TUYA_COLOR_RED",
+            "command": "AT+WRITE=0,0x000E,55AA00090006000C0503000830303030363436343739\r\n",
+            "is_prefix": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 1000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "_comment": "Custom RGB/HSV: append conn_handle,char_handle, full Tuya bytes với HSV value",
+            "function_name": "TUYA_COLOR_CUSTOM",
+            "command": "AT+WRITE=",
+            "is_prefix": true,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 1000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        }
+    ],
+    "_notes": {
+        "char_handle": "0x000E — handle của Write Characteristic 2B11 (verify lại sau AT+DISC=0)",
+        "notify_enable_example": "AT+NOTIFY=0,0x000F,1  (0x000F = CCCD handle = char 2B10 handle + 1)",
+        "tuya_protocol": "55 AA [seq 1B] [cmd 1B] [len 2B] [dpid 1B] [type 1B] [val_len 2B] [value] [checksum]",
+        "brightness_range": "0x0000 (0%) đến 0x03E8 (1000 = 100%)",
+        "color_temp_range": "0x0000 (warm) đến 0x03E8 (1000 = cool)"
+    }
+}

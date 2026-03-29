@@ -22,7 +22,7 @@ Nếu nhập sai mật khẩu, gateway sẽ thử lại nhiều lần rồi tự
 ### 1.2 Kiểm tra trạng thái hoạt động
 
 Người dùng truy cập trang cấu hình qua địa chỉ IP trên OLED (ví dụ `http://192.168.1.100`) hoặc `http://gateway.local` nếu mạng hỗ trợ mDNS. Thanh trạng thái đầu trang hiển thị trạng thái kết nối Internet (chấm xanh = Online). Nhấn **Read Config** để tải thông tin chi tiết gồm phiên bản firmware, uptime, tín hiệu WiFi và trạng thái server.
-+ Tạo QR cho web config page để người dùng dễ truy cập lần sau, tránh phải nhớ IP.
+
 ### 1.3 Đổi mật khẩu WiFi hoặc chuyển router
 
 Truy cập trang cấu hình, vào tab WiFi, nhập SSID và mật khẩu mới, nhấn **Set WiFi Config** rồi **Reboot**. Nếu mạng WiFi cũ không còn truy cập được, kết nối máy tính với gateway qua cáp USB, mở Gateway Config Tool, chọn cổng COM và cập nhật WiFi từ đó. Sau khi vượt số lần retry tối đa, gateway cũng tự chuyển về chế độ AP.
