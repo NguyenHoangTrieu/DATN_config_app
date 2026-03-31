@@ -34,7 +34,7 @@ FUNCTION_GROUPS: dict[str, list[dict]] = {
             "MODULE_SET_NAME", "MODULE_SET_COMM_CONFIG", "MODULE_SET_RF_PARAMS"]},
         {"emoji": "🔍", "title": "Discovery", "functions": [
             "MODULE_START_DISCOVERY", "MODULE_DISCOVER_SERVICES",
-            "MODULE_DISCOVER_CHARACTERISTICS"]},
+            "MODULE_DISCOVER_CHARACTERISTICS", "MODULE_NOTIFY"]},
         {"emoji": "🔗", "title": "Connection", "functions": [
             "MODULE_CONNECT", "MODULE_DISCONNECT", "MODULE_ENTER_DATA_MODE"]},
         {"emoji": "📨", "title": "Data", "functions": [

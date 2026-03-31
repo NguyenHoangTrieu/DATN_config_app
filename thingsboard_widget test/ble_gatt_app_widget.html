@@ -1,9 +1,12 @@
 <!-- =====================================================================
-     ESP32-C6 BLE GATT Peripheral — ThingsBoard Control Widget
-     Native BLE GATT (no AT commands) via Gateway BLE handler
-     Service: 0xFFF0 | Char FFF1: READ|NOTIFY (counter) | Char FFF2: WRITE (LED)
-     Paste into "HTML" tab | CSS into "CSS" tab | JS into "JavaScript" tab
-     ThingsBoard v4.x  —  Modern Control Widget
+     DA2 BLE GATT App Widget — ThingsBoard Control Widget (End-User)
+     Protocol: CFML:CFBL:<slot>:<AT_command>
+     Target: ESP32-C6 "DA2_TEST_GATT" — GATT Service 0xFFF0
+       FFF1 (read/notify) = counter
+       FFF2 (write)       = LED GPIO8 (0x00=OFF, 0x01=ON, 0xRRGGBB=color)
+
+     Paste: HTML → "HTML" tab | CSS → "CSS" tab | JS → "JavaScript" tab
+     ThingsBoard v4.x — Control widget
      ===================================================================== -->
 
 <div id="app-root" class="app-root">
@@ -18,7 +21,7 @@
       </div>
       <div>
         <div class="app-title">BLE Controller</div>
-        <div class="app-subtitle">GATT Device</div>
+        <div class="app-subtitle">DA2 GATT Device</div>
       </div>
     </div>
     <div class="header-status">
@@ -101,6 +104,49 @@
               <label for="led-toggle" class="toggle-label"></label>
             </div>
           </div>
+        </div>
+
+        <!-- Color Picker Card -->
+        <div class="control-card color-card" id="color-card">
+          <div class="color-card-header">
+            <span class="card-title">LED Color</span>
+            <div class="color-preview-wrap">
+              <div class="color-preview" id="color-preview"></div>
+              <span class="color-hex-label" id="color-hex-label">#FF8000</span>
+            </div>
+          </div>
+
+          <!-- Hue gradient strip -->
+          <div class="hue-track-wrap">
+            <input type="range" id="hue-slider" class="hue-slider" min="0" max="359" value="30"
+                   oninput="onHueChange(this.value)" onchange="onHueCommit(this.value)">
+          </div>
+
+          <!-- Brightness strip -->
+          <div class="bright-row">
+            <span class="bright-icon">🌑</span>
+            <input type="range" id="bright-slider" class="bright-slider" min="10" max="100" value="80"
+                   oninput="onBrightChange(this.value)" onchange="onBrightCommit(this.value)">
+            <span class="bright-icon">☀️</span>
+          </div>
+
+          <!-- Quick color swatches -->
+          <div class="swatches">
+            <button class="swatch" data-h="0"   data-b="90"  style="background:#FF1A1A" onclick="applySwatch(0,90)"   title="Red"></button>
+            <button class="swatch" data-h="30"  data-b="90"  style="background:#FF8000" onclick="applySwatch(30,90)"  title="Orange"></button>
+            <button class="swatch" data-h="60"  data-b="90"  style="background:#FFFF00" onclick="applySwatch(60,90)"  title="Yellow"></button>
+            <button class="swatch" data-h="120" data-b="90"  style="background:#00FF00" onclick="applySwatch(120,90)" title="Green"></button>
+            <button class="swatch" data-h="180" data-b="85"  style="background:#00CCCC" onclick="applySwatch(180,85)" title="Cyan"></button>
+            <button class="swatch" data-h="210" data-b="90"  style="background:#0080FF" onclick="applySwatch(210,90)" title="Blue"></button>
+            <button class="swatch" data-h="270" data-b="90"  style="background:#8000FF" onclick="applySwatch(270,90)" title="Violet"></button>
+            <button class="swatch" data-h="300" data-b="90"  style="background:#FF00CC" onclick="applySwatch(300,90)" title="Pink"></button>
+            <button class="swatch swatch-white"              style="background:#FFFFFF" onclick="applySwatch(-1,100)"  title="White"></button>
+          </div>
+
+          <button class="btn-send-color" id="btn-send-color" onclick="sendCurrentColor()">
+            <span>Send Color</span>
+            <span class="send-arrow">→</span>
+          </button>
         </div>
 
       </div><!-- /controls-area -->

@@ -6,13 +6,14 @@
      - Char FFF1 (READ|NOTIFY): Counter value (4-byte uint32-LE)
      - Char FFF2 (WRITE): LED control (0x00=OFF, 0x01=ON)
    
-   Gateway GATT commands:
-     CFML:CFBG:SCAN:<duration_ms>        → scan for devices
-     CFML:CFBG:CONNECT:<mac>             → connect to device
-     CFML:CFBG:DISCOVER:<mac>            → discover services
-     CFML:CFBG:READ:<mac>:<uuid>         → read characteristic
-     CFML:CFBG:WRITE:<mac>:<uuid>:<hex>  → write characteristic
-     CFML:CFBG:SUBSCRIBE:<mac>:<uuid>    → enable notifications
+   Gateway GATT commands (all use device table index obtained from SCAN_RESULT):
+     CFML:CFBG:<slot>:SCAN:<duration_ms>          → scan for devices
+     CFML:CFBG:<slot>:CONNECT:<mac>               → connect (returns CONNECTED:<idx>:...)
+     CFML:CFBG:<slot>:DISC:<idx>                  → discover services (returns DISC_DONE batch)
+     CFML:CFBG:<slot>:READ:<idx>:<handle>         → read characteristic
+     CFML:CFBG:<slot>:WRITE:<idx>:<handle>:<hex>  → write characteristic
+     CFML:CFBG:<slot>:NOTIFY:<idx>:<cccd_h>:1     → enable notifications
+     CFML:CFBG:<slot>:DISCONNECT:<idx>            → disconnect device
    
    ===================================================================== */
 
@@ -23,23 +24,19 @@ var state = {
   slot       : 0,                     // Gateway stack slot
   targetName : 'DA2_TEST_GATT',       // Target device name
   mac        : null,                  // Connected device MAC
+  devIdx     : null,                  // Device table index (from SCAN_RESULT)
   connected  : false,
   scanning   : false,
   connecting : false,
   
-  // GATT characteristic UUIDs (lowercase for comparison)
-  svc_uuid   : '0000fff0-0000-1000-8000-00805f9b34fb',  // Service
-  fff1_uuid  : '0000fff1-0000-1000-8000-00805f9b34fb',  // Counter (RD|NT)
-  fff2_uuid  : '0000fff2-0000-1000-8000-00805f9b34fb',  // LED (WR)
-  
-  // Discovered handles
+  // Discovered handles (integer, from DISC_DONE batch)
   fff1_handle: null,
   fff2_handle: null,
   
   // GATT data
   counterVal : 0,
   ledState   : false,                 // false=OFF, true=ON
-  scanResults: [],                    // [{ mac, rssi, name }]
+  scanResults: [],                    // [{ idx, mac, rssi, name }]
   
   rpcTimeout : 15000,
   cmdBusy    : false,
@@ -73,6 +70,7 @@ function saveLocalState() {
       slot       : state.slot,
       targetName : state.targetName,
       mac        : state.mac,
+      devIdx     : state.devIdx,
       connected  : state.connected,
       counterVal : state.counterVal,
       ledState   : state.ledState,
@@ -91,30 +89,37 @@ function loadLocalState() {
     state.slot        = d.slot        !== undefined ? d.slot        : state.slot;
     state.targetName  = d.targetName  || state.targetName;
     state.mac         = d.mac         || null;
+    state.devIdx      = d.devIdx      !== undefined ? d.devIdx      : null;
     state.connected   = d.connected   || false;
     state.counterVal  = d.counterVal  || 0;
     state.ledState    = d.ledState    || false;
     state.fff1_handle = d.fff1_handle || null;
     state.fff2_handle = d.fff2_handle || null;
-    
-    document.getElementById('cfg-slot').value       = state.slot;
-    document.getElementById('cfg-device-name').value= state.targetName;
   } catch (e) {}
 }
 
 /* -------------------------------------------------------------------
    CONFIG CALLBACKS
 ------------------------------------------------------------------- */
-function onSlotChange(val) {
-  state.slot = parseInt(val);
-  loadLocalState();
-  logInfo('Slot → S' + (state.slot + 1));
-}
+/* These have been removed - config is now fixed, no UI for changing slot/target */
 
-function onDeviceNameChange(val) {
-  state.targetName = val.trim();
-  saveLocalState();
-  logInfo('Target device → ' + state.targetName);
+/* -------------------------------------------------------------------
+   STATUS DOT HELPER
+------------------------------------------------------------------- */
+function setStatusDot(st) {
+  var pill = document.getElementById('status-pill');
+  var dot  = document.getElementById('status-dot');
+  var txt  = document.getElementById('status-text');
+  if (pill) pill.setAttribute('data-state', st);
+  if (dot)  dot.setAttribute('data-state', st);
+  var labels = {
+    connected  : 'Connected',
+    connecting : 'Connecting...',
+    scanning   : 'Scanning',
+    idle       : 'Disconnected',
+    off        : 'Disconnected'
+  };
+  if (txt) txt.textContent = labels[st] || 'Disconnected';
 }
 
 /* -------------------------------------------------------------------
@@ -161,7 +166,7 @@ function sendCFML(gattCmd, timeoutMs) {
 ------------------------------------------------------------------- */
 function parseLines(resp) {
   var text = typeof resp === 'string' ? resp
-           : (resp && (resp.result || resp.value || JSON.stringify(resp))) || '';
+           : (resp && (resp.data || resp.result || resp.value || JSON.stringify(resp))) || '';
            
   if (/^[0-9A-Fa-f]+$/.test(text) && text.length % 2 === 0) {
     text = hexToString(text);
@@ -175,13 +180,14 @@ function parseScanLines(resp) {
   var devices = [];
   var lines = parseLines(resp);
   lines.forEach(function (line) {
-    // Match +SCAN: line
-    var m = line.match(/\+SCAN:([0-9A-Fa-f:]{17}),(-?\d+),(.*)$/);
+    // Match SCAN_RESULT line: SCAN_RESULT:<idx>,<mac>,<rssi>,<name>
+    var m = line.match(/SCAN_RESULT:(\d+),([0-9A-Fa-f:]{17}),(-?\d+),(.*)/);
     if (m) {
       devices.push({
-        mac  : m[1].toUpperCase(),
-        rssi : parseInt(m[2]),
-        name : m[3].trim() || 'Unknown',
+        idx  : parseInt(m[1]),
+        mac  : m[2].toUpperCase(),
+        rssi : parseInt(m[3]),
+        name : m[4].trim() || 'Unknown',
       });
     }
   });
@@ -189,21 +195,22 @@ function parseScanLines(resp) {
 }
 
 function parseConnectResult(resp) {
-  var text = typeof resp === 'string' ? resp : (resp && (resp.result || resp.value || '')) || '';
+  var lines = parseLines(resp);
+  var text = lines.join(' ');
   if (text.indexOf('FAIL') !== -1 || text.indexOf('ERROR') !== -1) {
     return false;
   }
   if (text.indexOf('CONNECTED') !== -1 || text.indexOf('OK') !== -1) {
     return true;
   }
-  return true;  // assume OK if response received
+  return true;  // assume OK if any response received
 }
 
 function parseDiscoverResult(resp) {
-  var text = typeof resp === 'string' ? resp : (resp && (resp.result || resp.value || '')) || '';
-  if (text.indexOf('OK') !== -1 || text.indexOf('DISCOVER') !== -1) {
-    return true;
-  }
+  var lines = parseLines(resp);
+  var text = lines.join(' ');
+  if (text.indexOf('DISC_DONE') !== -1) return true;
+  if (text.indexOf('FAIL') !== -1) return false;
   return false;
 }
 
@@ -224,65 +231,17 @@ function logCFMLResponse(resp) {
 }
 
 /* -------------------------------------------------------------------
-   AUTO-CONNECT
-------------------------------------------------------------------- */
-function startAutoConnect() {
-  if (state.connected) return;
-  
-  state.scanning = true;
-  setScanSpinner(true);
-  document.getElementById('scan-status-text').textContent = 'Auto-scanning...';
-
-  sendCFML(state.slot + ':SCAN:5000', 8000)
-    .then(function (resp) {
-      logCFMLResponse(resp);
-      state.scanResults = parseScanLines(resp);
-      
-      // Find device matching targetName
-      var found = null;
-      for (var i = 0; i < state.scanResults.length; i++) {
-        if (state.scanResults[i].name === state.targetName) {
-          found = state.scanResults[i];
-          break;
-        }
-      }
-      
-      if (!found) {
-        throw new Error('Device "' + state.targetName + '" not found in scan');
-      }
-      
-      return connectToMAC(found.mac);
-    })
-    .catch(function (e) {
-      logFail('Auto-connect error: ' + (e ? e.message || e : 'timeout'));
-      state.connected = false;
-      setStatusDot('off');
-      showOverlay('Connection failed. Try manual scan.', false);
-    })
-    .finally(function () {
-      state.scanning = false;
-      setScanSpinner(false);
-      var count = state.scanResults.length;
-      document.getElementById('scan-status-text').textContent =
-        count > 0 ? count + ' devices' : 'No devices';
-      renderDeviceList(state.scanResults);
-    });
-}
-
-/* -------------------------------------------------------------------
-   SCAN
+   SCAN (Removed auto-connect, now manual scan only)
 ------------------------------------------------------------------- */
 function setScanSpinner(on) {
-  var btn  = document.getElementById('btn-scan');
-  var mini = document.getElementById('scan-spinner-mini');
+  var btn = document.getElementById('btn-scan');
+  if (!btn) return;
   if (on) {
-    mini.classList.remove('hidden');
-    btn.classList.add('spinning');
     btn.disabled = true;
+    btn.style.opacity = '0.5';
   } else {
-    mini.classList.add('hidden');
-    btn.classList.remove('spinning');
     btn.disabled = false;
+    btn.style.opacity = '1';
   }
 }
 
@@ -291,9 +250,11 @@ function startScan() {
   
   state.scanning = true;
   state.scanResults = [];
-  renderDeviceList([]);
   setScanSpinner(true);
-  document.getElementById('scan-status-text').textContent = 'Scanning...';
+  var list = document.getElementById('device-list');
+  if (list) {
+    list.innerHTML = '<div class="empty-state"><div class="empty-icon">📡</div><div class="empty-msg">Scanning...</div></div>';
+  }
 
   sendCFML(state.slot + ':SCAN:5000', 15000)
     .then(function (resp) {
@@ -307,8 +268,8 @@ function startScan() {
       state.scanning = false;
       setScanSpinner(false);
       var count = state.scanResults.length;
-      document.getElementById('scan-status-text').textContent =
-        count > 0 ? count + ' devices' : 'No devices';
+      var badge = document.getElementById('scan-count');
+      if (badge) badge.textContent = String(count);
       renderDeviceList(state.scanResults);
     });
 }
@@ -318,48 +279,47 @@ function startScan() {
 ------------------------------------------------------------------- */
 function renderDeviceList(devices) {
   var list = document.getElementById('device-list');
-  list.innerHTML = '';
-
+  if (!list) return;
+  
   if (devices.length === 0) {
-    list.innerHTML = '<div class="no-devices-msg">Click &#8635; to scan for BLE devices</div>';
+    list.innerHTML = '<div class="empty-state"><div class="empty-icon">📡</div><div class="empty-msg">Press Scan to find<br>BLE devices</div></div>';
     return;
   }
 
-  devices.forEach(function (dev) {
-    var isConnected = state.connected && state.mac === dev.mac;
-    var item = document.createElement('div');
-    item.className = 'device-item' + (isConnected ? ' selected' : '');
-    item.innerHTML =
-      '<span class="device-icon">&#128246;</span>' +
-      '<div class="device-info">' +
-        '<span class="device-name">' + escapeHtml(dev.name) + '</span>' +
-        '<span class="device-addr">' + escapeHtml(dev.mac) + '</span>' +
-      '</div>' +
-      '<span class="device-rssi">' + dev.rssi + 'dBm</span>' +
-      (isConnected
-        ? ''
-        : '<button class="btn-connect" onclick="connectToDevice(\'' + dev.mac + '\',\'' +
-          escapeHtml(dev.name).replace(/'/g, "\\'") + '\')">⚡</button>');
-    list.appendChild(item);
-  });
+  var html = devices.map(function (d, i) {
+    var sel = (d.mac === state.mac && state.connected) ? ' selected' : '';
+    var rssiPct = Math.max(0, Math.min(100, ((d.rssi + 110) / 70) * 100)).toFixed(0);
+    return '<div class="device-item' + sel + '" onclick="connectToDevice(\'' +
+      escapeJs(d.mac) + '\',\'' + escapeJs(d.name) + '\',' + d.idx + ')">' +
+      '<span class="dev-name">' + escapeHtml(d.name || 'Unknown') + '</span>' +
+      '<span class="dev-mac">' + escapeHtml(d.mac) + '</span>' +
+      '<div class="dev-rssi-row">' +
+        '<div class="rssi-bar-wrap"><div class="rssi-bar" style="width:' + rssiPct + '%"></div></div>' +
+        '<span class="dev-rssi-val">' + d.rssi + ' dBm</span>' +
+      '</div></div>';
+  }).join('');
+  
+  list.innerHTML = html;
 }
 
 /* -------------------------------------------------------------------
    CONNECT / DISCONNECT  
 ------------------------------------------------------------------- */
-function connectToDevice(mac, name) {
-  connectToMAC(mac, name);
+function connectToDevice(mac, name, idx) {
+  connectToMAC(mac, name, idx);
 }
 
-function connectToMAC(mac, name) {
+function connectToMAC(mac, name, idx) {
   if (state.connected || state.connecting) return;
   
   state.connecting = true;
+  state.devIdx = (idx !== undefined && idx !== null) ? idx : null;
   name = name || 'Device';
   setStatusDot('connecting');
   showOverlay('Connecting to ' + name + '...', true);
 
-  sendCFML(state.slot + ':CONNECT:' + mac, 6000)
+  // CONNECT blocks until OPEN_EVT fires (up to 15s) — returns CONNECTED:<idx>:0x<id>:<mac>
+  sendCFML(state.slot + ':CONNECT:' + mac, 15000)
     .then(function (resp) {
       logCFMLResponse(resp);
       
@@ -371,29 +331,31 @@ function connectToMAC(mac, name) {
       state.connected = true;
       saveLocalState();
       
-      // Now discover services
-      logInfo('Connected. Discovering GATT...');
-      return sendCFML(state.slot + ':DISCOVER:' + mac, 6000);
+      // Discover services — DISC blocks until SEARCH_CMPL_EVT sends batched DISC_DONE
+      logInfo('Connected. Discovering GATT (idx=' + state.devIdx + ')...');
+      return sendCFML(state.slot + ':DISC:' + state.devIdx, 15000);
     })
     .then(function (resp) {
       logCFMLResponse(resp);
       parseDiscoverHandles(resp);
       
       if (!state.fff1_handle || !state.fff2_handle) {
-        logInfo('Handles not in discovery. Using defaults: FFF1=2, FFF2=3.');
-        state.fff1_handle = 2;
-        state.fff2_handle = 3;
+        logInfo('Handles not in discovery. Using defaults: FFF1=3, FFF2=6.');
+        state.fff1_handle = 3;
+        state.fff2_handle = 6;
       }
+      saveLocalState();
       
       applyConnectedUI();
       
-      // Subscribe to FFF1 notifications
-      logInfo('Subscribing to FFF1 notifications...');
-      return sendCFML(state.slot + ':SUBSCRIBE:' + mac + ':' + state.fff1_uuid, 3000);
+      // Subscribe to FFF1 notifications via CCCD (handle = fff1_handle + 1)
+      var cccdHandle = state.fff1_handle + 1;
+      logInfo('Subscribing to FFF1 notifications (CCCD handle=' + cccdHandle + ')...');
+      return sendCFML(state.slot + ':NOTIFY:' + state.devIdx + ':' + cccdHandle + ':1', 5000);
     })
     .then(function (resp) {
       logCFMLResponse(resp);
-      logInfo('✓ GATT ready. Listening for notifications and polling counter.');
+      logInfo('✓ GATT ready. Polling counter and listening for notifications.');
       showToast('✅ Connected: ' + name);
       startNotificationListener();
     })
@@ -410,53 +372,89 @@ function connectToMAC(mac, name) {
 }
 
 function parseDiscoverHandles(resp) {
-  var text = typeof resp === 'string' ? resp : (resp && (resp.result || resp.value || '')) || '';
-  var lines = parseLines(text);
+  // Firmware DISC_DONE batch format (\x1E-separated):
+  //   DISC_DONE:<idx>:<N>_CHARS\x1ECHAR:<idx>:0xFFF1:0x<handle>:0x<prop>\x1E...
+  var lines = parseLines(resp);
   lines.forEach(function (line) {
-    if (line.toUpperCase().indexOf('FFF1') !== -1) {
-      var m = line.match(/(\d+)/);
-      if (m) state.fff1_handle = parseInt(m[1]);
-    }
-    if (line.toUpperCase().indexOf('FFF2') !== -1) {
-      var m = line.match(/(\d+)/);
-      if (m) state.fff2_handle = parseInt(m[1]);
-    }
+    var upper = line.toUpperCase();
+    if (upper.indexOf('CHAR:') !== 0) return;
+    var parts = line.split(':');
+    // parts: ['CHAR', '<idx>', '0xFFF1', '0x<handle>', '0x<prop>']
+    if (parts.length < 5) return;
+    var uuidField   = parts[2].toUpperCase().replace(/^0X/, '');
+    var handleField = parts[3].replace(/^0[xX]/, '');
+    var handle = parseInt(handleField, 16);
+    if (isNaN(handle)) return;
+    if (uuidField === 'FFF1') state.fff1_handle = handle;
+    if (uuidField === 'FFF2') state.fff2_handle = handle;
   });
 }
 
 function applyConnectedUI() {
-  setStatusDot('connected');
-  document.getElementById('ctrl-device-name').textContent = state.mac || 'Connected Device';
-  document.getElementById('btn-disconnect').classList.remove('hidden');
-  hideOverlay();
-  renderDeviceList(state.scanResults);
+  var pill = document.getElementById('status-pill');
+  var dot = document.getElementById('status-dot');
+  if (pill) pill.setAttribute('data-state', 'connected');
+  if (dot) {
+    dot.setAttribute('data-state', 'connected');
+  }
   
-  // Update GATT info display
-  document.getElementById('service-uuid').textContent = state.svc_uuid.substring(0, 8) + '...';
-  document.getElementById('handle-fff1').textContent = state.fff1_handle ? '0x' + state.fff1_handle.toString(16) : '—';
-  document.getElementById('handle-fff2').textContent = state.fff2_handle ? '0x' + state.fff2_handle.toString(16) : '—';
+  var heroName = document.getElementById('hero-name');
+  var heroMac = document.getElementById('hero-mac');
+  var heroIcon = document.getElementById('hero-icon');
+  if (heroName) heroName.textContent = state.mac || 'Connected';
+  if (heroMac) heroMac.textContent = state.mac || '—';
+  if (heroIcon) heroIcon.classList.add('connected');
+  
+  var btn = document.getElementById('btn-disconnect');
+  if (btn) btn.classList.remove('hidden');
+  
+  var overlay = document.getElementById('ctrl-overlay');
+  if (overlay) overlay.classList.add('hidden');
+  
+  renderDeviceList(state.scanResults);
   updateLEDUI();
 }
 
 function disconnectDevice() {
   if (!state.connected) return;
   
+  // Send DISCONNECT to firmware first
+  if (state.devIdx !== null) {
+    sendCFML(state.slot + ':DISCONNECT:' + state.devIdx, 3000)
+      .catch(function () {}); // best-effort, proceed regardless
+  }
+  
   state.connected = false;
   state.mac = null;
+  state.devIdx = null;
   state.counterVal = 0;
   state.ledState = false;
   saveLocalState();
   
-  setStatusDot('off');
-  document.getElementById('ctrl-device-name').textContent = '—';
-  document.getElementById('btn-disconnect').classList.add('hidden');
-  document.getElementById('counter-value').textContent = '—';
-  document.getElementById('led-icon').classList.remove('on');
-  document.getElementById('led-state').textContent = 'OFF';
+  var pill = document.getElementById('status-pill');
+  var dot = document.getElementById('status-dot');
+  if (pill) pill.setAttribute('data-state', 'idle');
+  if (dot) dot.setAttribute('data-state', 'off');
   
-  renderDeviceList(state.scanResults);
-  showOverlay('← Scan and connect device', false);
-  showToast('Disconnected');
+  var heroName = document.getElementById('hero-name');
+  var heroMac = document.getElementById('hero-mac');
+  var heroIcon = document.getElementById('hero-icon');
+  if (heroName) heroName.textContent = 'Not Connected';
+  if (heroMac) heroMac.textContent = '—';
+  if (heroIcon) heroIcon.classList.remove('connected');
+  
+  var counterVal = document.getElementById('counter-val');
+  if (counterVal) counterVal.textContent = '—';
+  
+  var btn = document.getElementById('btn-disconnect');
+  if (btn) btn.classList.add('hidden');
+  
+  var overlay = document.getElementById('ctrl-overlay');
+  if (overlay) overlay.classList.remove('hidden');
+  
+  renderDeviceList([]);
+  updateLEDUI();
+  showToast('Disconnected — press Scan to reconnect');
 }
 
 /* -------------------------------------------------------------------
@@ -472,16 +470,21 @@ function startNotificationListener() {
 }
 
 function pollCounterUpdate() {
-  sendCFML(state.slot + ':READ:' + state.mac + ':' + state.fff1_uuid, 3000)
+  if (state.devIdx === null || !state.fff1_handle) return;
+  sendCFML(state.slot + ':READ:' + state.devIdx + ':' + state.fff1_handle, 3000)
     .then(function (resp) {
-      var text = typeof resp === 'string' ? resp : (resp && (resp.result || resp.value || '')) || '';
+      var lines = parseLines(resp);
+      var text = lines.join(' ');
       
-      // Try to extract hex value from response
-      var m = text.match(/([0-9A-Fa-f]{8})/i);
+      // Response: READ:<idx>:0x<handle>:<hex>
+      var m = text.match(/READ:\d+:0x[0-9A-Fa-f]+:([0-9A-Fa-f]{2,})/i);
       if (m) {
         var hex = m[1];
-        state.counterVal = hexToUint32LE(hex);
-        document.getElementById('counter-value').textContent = state.counterVal.toString();
+        if (hex.length >= 8) {
+          state.counterVal = hexToUint32LE(hex.substring(0, 8));
+          var el = document.getElementById('counter-value');
+          if (el) el.textContent = state.counterVal.toString();
+        }
       }
     })
     .catch(function () {});  // Silently fail
@@ -500,14 +503,18 @@ function hexToUint32LE(hexStr) {
    LED CONTROL (FFF2 WRITE)
 ------------------------------------------------------------------- */
 function sendLedCommand(onOff) {
-  if (!state.connected || !state.mac) {
+  if (!state.connected || state.devIdx === null) {
     showToast('Device not connected');
+    return;
+  }
+  if (!state.fff2_handle) {
+    showToast('FFF2 handle unknown — reconnect to discover');
     return;
   }
   
   // FFF2 expects 0x00 (OFF) or 0x01 (ON)
   var hex = onOff ? '01' : '00';
-  var cmd = state.slot + ':WRITE:' + state.mac + ':' + state.fff2_uuid + ':' + hex;
+  var cmd = state.slot + ':WRITE:' + state.devIdx + ':' + state.fff2_handle + ':' + hex;
   
   state.ledState = (onOff !== 0);
   updateLEDUI();
@@ -525,43 +532,46 @@ function sendLedCommand(onOff) {
 }
 
 function updateLEDUI() {
+  var toggle = document.getElementById('led-toggle');
+  var wrap = document.getElementById('led-icon-wrap');
   var icon = document.getElementById('led-icon');
-  var state_el = document.getElementById('led-state');
-  var btn_on = document.getElementById('btn-led-on');
-  var btn_off = document.getElementById('btn-led-off');
+  var status = document.getElementById('led-status-text');
   
-  if (state.ledState) {
-    icon.classList.add('on');
-    state_el.textContent = 'ON (Green)';
-    if (btn_on) btn_on.classList.add('active');
-    if (btn_off) btn_off.classList.remove('active');
-  } else {
-    icon.classList.remove('on');
-    state_el.textContent = 'OFF';
-    if (btn_on) btn_on.classList.remove('active');
-    if (btn_off) btn_off.classList.add('active');
-  }
+  if (toggle) toggle.checked = state.ledState;
+  if (wrap) wrap.setAttribute('data-on', state.ledState ? 'true' : 'false');
+  if (icon) icon.textContent = state.ledState ? '💡' : '🔦';
+  if (status) status.textContent = state.ledState ? 'LED is ON' : 'LED is OFF';
 }
 
 /* -------------------------------------------------------------------
-   OVERLAY / STATUS DOT
+   OVERLAY / STATUS
 ------------------------------------------------------------------- */
 function showOverlay(msg, withSpinner) {
   var ov = document.getElementById('ctrl-overlay');
+  if (!ov) return;
+  ov.classList.remove('hidden');
   var msg_el = document.getElementById('overlay-msg');
   var spin = document.getElementById('overlay-spinner');
-  ov.classList.remove('hidden');
-  msg_el.textContent = msg;
-  if (withSpinner) { spin.classList.remove('hidden'); }
-  else { spin.classList.add('hidden'); }
+  if (msg_el) msg_el.textContent = msg;
+  if (spin) {
+    if (withSpinner) { spin.classList.remove('hidden'); }
+    else { spin.classList.add('hidden'); }
+  }
 }
 
 function hideOverlay() {
-  document.getElementById('ctrl-overlay').classList.add('hidden');
+  var ov = document.getElementById('ctrl-overlay');
+  if (ov) ov.classList.add('hidden');
 }
 
-function setStatusDot(st) {
-  document.getElementById('status-dot').setAttribute('data-state', st);
+function onLedToggle(checked) {
+  if (!state.connected) {
+    var tog = document.getElementById('led-toggle');
+    if (tog) tog.checked = !checked;
+    showToast('Connect a device first');
+    return;
+  }
+  sendLedCommand(checked ? 1 : 0);
 }
 
 /* -------------------------------------------------------------------
@@ -598,6 +608,15 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
+function escapeJs(str) {
+  return String(str)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r');
+}
+
 var toastTimer = null;
 function showToast(msg) {
   var toast = document.getElementById('toast');
@@ -613,12 +632,10 @@ function showToast(msg) {
 /* ────────────────────────────────────────────────────────────────────
    EXPOSE EXPORTS FOR THINGSBOARD HTML ONCLICK
    ──────────────────────────────────────────────────────────────────── */
-window.onSlotChange       = onSlotChange;
-window.onDeviceNameChange = onDeviceNameChange;
-window.startAutoConnect   = startAutoConnect;
 window.startScan          = startScan;
 window.connectToDevice    = connectToDevice;
 window.disconnectDevice   = disconnectDevice;
+window.onLedToggle        = onLedToggle;
 window.sendLedCommand     = sendLedCommand;
 window.clearLog           = clearLog;
 
