@@ -40,6 +40,11 @@ var state = {
   
   rpcTimeout : 15000,
   cmdBusy    : false,
+
+  // Color picker
+  hue        : 30,
+  brightness : 80,
+  isWhite    : false,
 };
 
 /* -------------------------------------------------------------------
@@ -47,56 +52,36 @@ var state = {
 ------------------------------------------------------------------- */
 self.onInit = function () {
   self.ctx.ngZone.run(function () {
-    loadLocalState();
-    renderDeviceList([]);
-    if (state.connected) {
-      applyConnectedUI();
-    } else {
-      showOverlay('← Scan and connect device', false);
+    // Clear any stale state from previous widget instance (widget reload / hot update)
+    if (state._pollInterval) {
+      clearInterval(state._pollInterval);
+      state._pollInterval = null;
     }
+    // Reset all state to initial (no localStorage — always fresh on reload)
+    state.connected = false;
+    state.mac = null;
+    state.devIdx = null;
+    state.fff1_handle = null;
+    state.fff2_handle = null;
+    state.counterVal = 0;
+    state.ledState = false;
+    state.scanResults = [];
+    state._pollFailCount = 0;
+
+    renderDeviceList([]);
+    showOverlay('← Scan and connect device', false);
+    updateColorUI();
   });
 };
 
-self.onDestroy = function () {};
+self.onDestroy = function () {
+  if (state._pollInterval) {
+    clearInterval(state._pollInterval);
+    state._pollInterval = null;
+  }
+};
 
-/* -------------------------------------------------------------------
-   PERSISTENCE (localStorage)
-------------------------------------------------------------------- */
-function storageKey() { return 'GATT_widget_' + state.slot; }
-
-function saveLocalState() {
-  try {
-    var data = {
-      slot       : state.slot,
-      targetName : state.targetName,
-      mac        : state.mac,
-      devIdx     : state.devIdx,
-      connected  : state.connected,
-      counterVal : state.counterVal,
-      ledState   : state.ledState,
-      fff1_handle: state.fff1_handle,
-      fff2_handle: state.fff2_handle,
-    };
-    localStorage.setItem(storageKey(), JSON.stringify(data));
-  } catch (e) {}
-}
-
-function loadLocalState() {
-  try {
-    var raw = localStorage.getItem(storageKey());
-    if (!raw) return;
-    var d = JSON.parse(raw);
-    state.slot        = d.slot        !== undefined ? d.slot        : state.slot;
-    state.targetName  = d.targetName  || state.targetName;
-    state.mac         = d.mac         || null;
-    state.devIdx      = d.devIdx      !== undefined ? d.devIdx      : null;
-    state.connected   = d.connected   || false;
-    state.counterVal  = d.counterVal  || 0;
-    state.ledState    = d.ledState    || false;
-    state.fff1_handle = d.fff1_handle || null;
-    state.fff2_handle = d.fff2_handle || null;
-  } catch (e) {}
-}
+/* localStorage persistence removed — widget state resets on every page load */
 
 /* -------------------------------------------------------------------
    CONFIG CALLBACKS
@@ -329,8 +314,10 @@ function connectToMAC(mac, name, idx) {
       
       state.mac = mac;
       state.connected = true;
-      saveLocalState();
-      
+      // Reset handles so discovery check forces a fresh DISC
+      state.fff1_handle = null;
+      state.fff2_handle = null;
+
       // Discover services — DISC blocks until SEARCH_CMPL_EVT sends batched DISC_DONE
       logInfo('Connected. Discovering GATT (idx=' + state.devIdx + ')...');
       return sendCFML(state.slot + ':DISC:' + state.devIdx, 15000);
@@ -340,24 +327,32 @@ function connectToMAC(mac, name, idx) {
       parseDiscoverHandles(resp);
       
       if (!state.fff1_handle || !state.fff2_handle) {
-        logInfo('Handles not in discovery. Using defaults: FFF1=3, FFF2=6.');
-        state.fff1_handle = 3;
-        state.fff2_handle = 6;
+        // Confirmed handles from live AT+DISC on DA2_TEST_GATT (FFF0 service @ 0x000E)
+        logInfo('Handles not in discovery. Using defaults: FFF1=0x10, FFF2=0x13.');
+        state.fff1_handle = 0x10;   // 16 decimal — FFF1 value
+        state.fff2_handle = 0x13;   // 19 decimal — FFF2 value (LED write)
       }
-      saveLocalState();
-      
-      applyConnectedUI();
+
+      // Do NOT call applyConnectedUI() here — keep overlay while NOTIFY is in-flight.
+      // This prevents the user from sending LED commands concurrently with NOTIFY,
+      // which would cause g_last_rpc_id to be overwritten → wrong RPC response topic → 504.
       
       // Subscribe to FFF1 notifications via CCCD (handle = fff1_handle + 1)
       var cccdHandle = state.fff1_handle + 1;
       logInfo('Subscribing to FFF1 notifications (CCCD handle=' + cccdHandle + ')...');
-      return sendCFML(state.slot + ':NOTIFY:' + state.devIdx + ':' + cccdHandle + ':1', 5000);
+      return sendCFML(state.slot + ':NOTIFY:' + state.devIdx + ':' + cccdHandle.toString(16) + ':1', 10000);
     })
     .then(function (resp) {
       logCFMLResponse(resp);
-      logInfo('✓ GATT ready. Polling counter and listening for notifications.');
+      // DISC_DONE batch often arrives in the NOTIFY response (gateway sends it late) — re-parse
+      parseDiscoverHandles(resp);
+      if (!state.fff1_handle) state.fff1_handle = 0x10;
+      if (!state.fff2_handle) state.fff2_handle = 0x13;
+      logInfo('✓ GATT ready. FFF1=0x' + state.fff1_handle.toString(16) + ' FFF2=0x' + state.fff2_handle.toString(16));
+      // Full connection complete — now safe to show controls
+      applyConnectedUI();
       showToast('✅ Connected: ' + name);
-      startNotificationListener();
+      /* Poll for counter removed — widget receives FFF1 NOTIFY updates only if device sends them */
     })
     .catch(function (e) {
       logFail('Connection error: ' + (e ? e.message || e : 'timeout'));
@@ -373,16 +368,23 @@ function connectToMAC(mac, name, idx) {
 
 function parseDiscoverHandles(resp) {
   // Firmware DISC_DONE batch format (\x1E-separated):
-  //   DISC_DONE:<idx>:<N>_CHARS\x1ECHAR:<idx>:0xFFF1:0x<handle>:0x<prop>\x1E...
+  //   CFBG:OK:CHAR:<idx>:0xFFF1:0x<handle>:0x<prop>\x1E...
+  // Note: older docs show "CHAR:" at line start, but actual firmware
+  //       prefixes with "CFBG:OK:" — search for 'CHAR' anywhere in parts.
   var lines = parseLines(resp);
   lines.forEach(function (line) {
     var upper = line.toUpperCase();
-    if (upper.indexOf('CHAR:') !== 0) return;
+    if (upper.indexOf('CHAR') === -1) return;
     var parts = line.split(':');
-    // parts: ['CHAR', '<idx>', '0xFFF1', '0x<handle>', '0x<prop>']
-    if (parts.length < 5) return;
-    var uuidField   = parts[2].toUpperCase().replace(/^0X/, '');
-    var handleField = parts[3].replace(/^0[xX]/, '');
+    // Find the 'CHAR' token position (handles both "CHAR:idx:uuid:..." and "CFBG:OK:CHAR:idx:uuid:...")
+    var ci = -1;
+    for (var i = 0; i < parts.length; i++) {
+      if (parts[i].toUpperCase() === 'CHAR') { ci = i; break; }
+    }
+    // After CHAR: [idx, uuid, handle, props]  → ci+1, ci+2, ci+3, ci+4
+    if (ci === -1 || ci + 3 >= parts.length) return;
+    var uuidField   = parts[ci + 2].toUpperCase().replace(/^0X/, '');
+    var handleField = parts[ci + 3].replace(/^0[xX]/, '');
     var handle = parseInt(handleField, 16);
     if (isNaN(handle)) return;
     if (uuidField === 'FFF1') state.fff1_handle = handle;
@@ -415,80 +417,68 @@ function applyConnectedUI() {
   updateLEDUI();
 }
 
-function disconnectDevice() {
+/* -------------------------------------------------------------------
+   FIRMWARE-SIDE DISCONNECT HANDLER
+   Called when firmware reports NOT_CONNECTED or on manual disconnect.
+------------------------------------------------------------------- */
+function handleBleDisconnect(reason) {
   if (!state.connected) return;
-  
-  // Send DISCONNECT to firmware first
-  if (state.devIdx !== null) {
-    sendCFML(state.slot + ':DISCONNECT:' + state.devIdx, 3000)
-      .catch(function () {}); // best-effort, proceed regardless
-  }
-  
+  logFail(reason || 'BLE connection lost');
+
   state.connected = false;
   state.mac = null;
   state.devIdx = null;
   state.counterVal = 0;
   state.ledState = false;
-  saveLocalState();
-  
+  state.fff1_handle = null;
+  state.fff2_handle = null;
+  state._pollFailCount = 0;
+  if (state._pollInterval) {
+    clearInterval(state._pollInterval);
+    state._pollInterval = null;
+  }
+
   var pill = document.getElementById('status-pill');
-  var dot = document.getElementById('status-dot');
+  var dot  = document.getElementById('status-dot');
   if (pill) pill.setAttribute('data-state', 'idle');
-  if (dot) dot.setAttribute('data-state', 'off');
-  
+  if (dot)  dot.setAttribute('data-state', 'off');
+
   var heroName = document.getElementById('hero-name');
-  var heroMac = document.getElementById('hero-mac');
+  var heroMac  = document.getElementById('hero-mac');
   var heroIcon = document.getElementById('hero-icon');
   if (heroName) heroName.textContent = 'Not Connected';
-  if (heroMac) heroMac.textContent = '—';
+  if (heroMac)  heroMac.textContent  = '—';
   if (heroIcon) heroIcon.classList.remove('connected');
-  
+
   var counterVal = document.getElementById('counter-val');
   if (counterVal) counterVal.textContent = '—';
-  
+
   var btn = document.getElementById('btn-disconnect');
   if (btn) btn.classList.add('hidden');
-  
+
   var overlay = document.getElementById('ctrl-overlay');
   if (overlay) overlay.classList.remove('hidden');
-  
+
   renderDeviceList([]);
   updateLEDUI();
-  showToast('Disconnected — press Scan to reconnect');
+  showToast('BLE disconnected — press Scan to reconnect');
+}
+
+function disconnectDevice() {
+  if (!state.connected) return;
+  // Send DISCONNECT to firmware first (best-effort)
+  if (state.devIdx !== null) {
+    sendCFML(state.slot + ':DISCONNECT:' + state.devIdx, 10000)
+      .catch(function () {});
+  }
+  handleBleDisconnect('Disconnected by user');
 }
 
 /* -------------------------------------------------------------------
-   NOTIFICATION LISTENER & POLLING
-------------------------------------------------------------------- */
-function startNotificationListener() {
-  // Poll counter every 2 seconds
-  setInterval(function () {
-    if (state.connected && state.mac) {
-      pollCounterUpdate();
-    }
-  }, 2000);
-}
-
-function pollCounterUpdate() {
-  if (state.devIdx === null || !state.fff1_handle) return;
-  sendCFML(state.slot + ':READ:' + state.devIdx + ':' + state.fff1_handle, 3000)
-    .then(function (resp) {
-      var lines = parseLines(resp);
-      var text = lines.join(' ');
-      
-      // Response: READ:<idx>:0x<handle>:<hex>
-      var m = text.match(/READ:\d+:0x[0-9A-Fa-f]+:([0-9A-Fa-f]{2,})/i);
-      if (m) {
-        var hex = m[1];
-        if (hex.length >= 8) {
-          state.counterVal = hexToUint32LE(hex.substring(0, 8));
-          var el = document.getElementById('counter-value');
-          if (el) el.textContent = state.counterVal.toString();
-        }
-      }
-    })
-    .catch(function () {});  // Silently fail
-}
+   COUNTER POLLING REMOVED — Widget only sends WRITE commands for LED control.
+   Passive device notifications (NOTIFY) are handled by the gateway if needed.
+   No active READ polling to avoid timeout spam.
+   ─────────────────────────────────────────────────────────────────────
 
 function hexToUint32LE(hexStr) {
   if (hexStr.length < 8) return 0;
@@ -511,15 +501,20 @@ function sendLedCommand(onOff) {
     showToast('FFF2 handle unknown — reconnect to discover');
     return;
   }
+  if (state.cmdBusy) {
+    showToast('Command in progress, please wait...');
+    return;
+  }
   
   // FFF2 expects 0x00 (OFF) or 0x01 (ON)
   var hex = onOff ? '01' : '00';
-  var cmd = state.slot + ':WRITE:' + state.devIdx + ':' + state.fff2_handle + ':' + hex;
+  var cmd = state.slot + ':WRITE:' + state.devIdx + ':' + state.fff2_handle.toString(16) + ':' + hex;
   
   state.ledState = (onOff !== 0);
+  state.cmdBusy = true;
   updateLEDUI();
   
-  sendCFML(cmd, 3000)
+  sendCFML(cmd, 10000)
     .then(function (resp) {
       logOk('LED ' + (state.ledState ? 'ON' : 'OFF'));
       logCFMLResponse(resp);
@@ -528,6 +523,9 @@ function sendLedCommand(onOff) {
       logFail('LED write error: ' + (e ? e.message || e : 'timeout'));
       state.ledState = !state.ledState;
       updateLEDUI();
+    })
+    .finally(function () {
+      state.cmdBusy = false;
     });
 }
 
@@ -541,6 +539,126 @@ function updateLEDUI() {
   if (wrap) wrap.setAttribute('data-on', state.ledState ? 'true' : 'false');
   if (icon) icon.textContent = state.ledState ? '💡' : '🔦';
   if (status) status.textContent = state.ledState ? 'LED is ON' : 'LED is OFF';
+}
+
+/* -------------------------------------------------------------------
+   COLOR CONTROL (FFF2 WRITE — 3-byte RGB)
+------------------------------------------------------------------- */
+function onHueChange(val) {
+  state.hue = parseInt(val, 10);
+  state.isWhite = false;
+  clearSwatchActive();
+  updateColorUI();
+}
+
+function onHueCommit(val) {
+  state.hue = parseInt(val, 10);
+  state.isWhite = false;
+  updateColorUI();
+}
+
+function onBrightChange(val) {
+  state.brightness = parseInt(val, 10);
+  updateColorUI();
+}
+
+function onBrightCommit(val) {
+  state.brightness = parseInt(val, 10);
+  updateColorUI();
+}
+
+function applySwatch(hue, brightness) {
+  if (hue === -1) {
+    state.isWhite = true;
+    state.brightness = brightness;
+  } else {
+    state.isWhite = false;
+    state.hue = hue;
+    state.brightness = brightness;
+    var hs = document.getElementById('hue-slider');
+    if (hs) hs.value = String(hue);
+  }
+  var bs = document.getElementById('bright-slider');
+  if (bs) bs.value = String(brightness);
+  clearSwatchActive();
+  var swatches = document.querySelectorAll('.swatch');
+  for (var i = 0; i < swatches.length; i++) {
+    var s = swatches[i];
+    if (parseInt(s.getAttribute('data-h'), 10) === hue &&
+        parseInt(s.getAttribute('data-b'), 10) === brightness) {
+      s.classList.add('active');
+    }
+  }
+  updateColorUI();
+}
+
+function clearSwatchActive() {
+  var swatches = document.querySelectorAll('.swatch');
+  for (var i = 0; i < swatches.length; i++) {
+    swatches[i].classList.remove('active');
+  }
+}
+
+function sendCurrentColor() {
+  if (!state.connected || state.devIdx === null) {
+    showToast('Connect a device first');
+    return;
+  }
+  if (!state.fff2_handle) {
+    showToast('FFF2 handle unknown — reconnect');
+    return;
+  }
+  if (state.cmdBusy) {
+    showToast('Command in progress, please wait...');
+    return;
+  }
+  var rgb = getCurrentRgb();
+  var hexColor = toHex2(rgb[0]) + toHex2(rgb[1]) + toHex2(rgb[2]);
+  logInfo('Sending color #' + hexColor.toUpperCase());
+  var cmd = state.slot + ':WRITE:' + state.devIdx + ':' + state.fff2_handle.toString(16) + ':' + hexColor;
+  state.cmdBusy = true;
+  sendCFML(cmd, 10000)
+    .then(function () { showToast('Color sent ✓'); logOk('COLOR:#' + hexColor); })
+    .catch(function (e) { logFail('Color write error: ' + (e ? e.message || e : 'timeout')); })
+    .finally(function () { state.cmdBusy = false; });
+}
+
+function toHex2(n) {
+  return ('0' + Math.min(255, Math.max(0, Math.round(n))).toString(16)).slice(-2).toUpperCase();
+}
+
+function getCurrentRgb() {
+  if (state.isWhite) {
+    var w = Math.round(state.brightness * 2.55);
+    return [w, w, w];
+  }
+  var h = state.hue, s = 1.0, v = state.brightness / 100.0;
+  var c = v * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = v - c;
+  var r1, g1, b1;
+  if      (h <  60) { r1 = c; g1 = x; b1 = 0; }
+  else if (h < 120) { r1 = x; g1 = c; b1 = 0; }
+  else if (h < 180) { r1 = 0; g1 = c; b1 = x; }
+  else if (h < 240) { r1 = 0; g1 = x; b1 = c; }
+  else if (h < 300) { r1 = x; g1 = 0; b1 = c; }
+  else              { r1 = c; g1 = 0; b1 = x; }
+  return [(r1 + m) * 255, (g1 + m) * 255, (b1 + m) * 255];
+}
+
+function updateColorUI() {
+  try {
+    var rgb = getCurrentRgb();
+    var hex = '#' + toHex2(rgb[0]) + toHex2(rgb[1]) + toHex2(rgb[2]);
+    var colorPrev = document.getElementById('color-preview');
+    if (colorPrev) {
+      colorPrev.style.background = hex;
+      colorPrev.style.boxShadow  = '0 0 14px ' + hex + '88';
+    }
+    var colorLabel = document.getElementById('color-hex-label');
+    if (colorLabel) colorLabel.textContent = hex.toUpperCase();
+    var baseColor = state.isWhite ? '#FFFFFF' : ('hsl(' + state.hue + ',100%,50%)');
+    var bs = document.getElementById('bright-slider');
+    if (bs) bs.style.background = 'linear-gradient(to right, #111 0%, ' + baseColor + ' 100%)';
+  } catch (e) {}
 }
 
 /* -------------------------------------------------------------------
@@ -637,5 +755,10 @@ window.connectToDevice    = connectToDevice;
 window.disconnectDevice   = disconnectDevice;
 window.onLedToggle        = onLedToggle;
 window.sendLedCommand     = sendLedCommand;
+window.onHueChange        = onHueChange;
+window.onHueCommit        = onHueCommit;
+window.onBrightChange     = onBrightChange;
+window.onBrightCommit     = onBrightCommit;
+window.applySwatch        = applySwatch;
+window.sendCurrentColor   = sendCurrentColor;
 window.clearLog           = clearLog;
-
