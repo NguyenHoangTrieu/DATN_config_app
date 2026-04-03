@@ -101,9 +101,34 @@ Looks up `function_name` in the stored function table and sends the AT command t
 
 Native ESP32-S3 BLE GATT Central using Bluedroid (`esp_gattc` / `esp_gap_ble`).  
 Supports scan, connect, service/characteristic discovery, read, write, notify/indicate.  
-Up to **8 simultaneous connected-device slots** (internal table index `<idx>`; not in the command prefix).
+Up to **32 simultaneous scanned/connected-device slots** (PSRAM-allocated, indexed by `<idx>`).
 
-> **Note:** CFBG: is native to the LAN MCU — there is only one instance, so **no slot number** is used in commands or responses.
+> **Slot prefix:** All commands use `CFBG:<slot>:<verb>:<params>` where `<slot>` is always `0` for the current single GATT Central instance.
+
+### Quick-Reference Command Table
+
+| Command | Format | Blocking Response | Description |
+|---------|--------|-------------------|-------------|
+| Config  | `CFBG:0:JSON:<json>` | `CONFIG_LOADED` / `FAIL:INVALID_JSON` | Load scan/connection parameters |
+| Scan    | `CFBG:0:SCAN:<ms>` | `SCAN_DONE:<n>\x1ESCAN_RESULT:<idx>,<mac>,<rssi>,<name>...` | Scan BLE devices |
+| Stop    | `CFBG:0:STOP` | `SCAN_STOPPED` | Abort active scan |
+| List    | `CFBG:0:LIST` | `LIST:<count>` + async `DEV:...` lines | List device table |
+| Clear   | `CFBG:0:CLEAR` | `CLEARED` | Free unconnected slots |
+| Info    | `CFBG:0:INFO:<idx>` | `INFO:<idx>:<mac>:...` | Get one device's info |
+| Connect | `CFBG:0:CONNECT:<mac>` | `CONNECTED:<idx>:0x<conn_id>:<mac>` | Connect and wait for link-up |
+| Disconnect | `CFBG:0:DISCONNECT:<idx>` | `DISCONNECTING:<idx>` | Disconnect device |
+| Discover | `CFBG:0:DISC:<idx>` | `DISC_DONE:<idx>:<n>_CHARS\x1ECHAR:<idx>:0x<UUID>:0x<handle>:0x<prop>...` | Discover services + chars |
+| Read    | `CFBG:0:READ:<idx>:<handle>` | `READ_STARTED:...` then async `READ:<idx>:0x<handle>:<hex>` | Read a characteristic |
+| Write (RSP) | `CFBG:0:WRITE:<idx>:<handle>:<hex>` | async `WRITE_OK:<idx>:0x<handle>` | Write with ATT response |
+| Write (NR) | `CFBG:0:WRITENR:<idx>:<handle>:<hex>` | `WRITE_NR_OK:<idx>:0x<handle>` | Write, no response |
+| Notify enable | `CFBG:0:NOTIFY:<idx>:<cccd_handle>:1` | async `DESCR_WRITE_OK:<idx>:0x<cccd_h>` | Enable notifications |
+| Notify disable | `CFBG:0:NOTIFY:<idx>:<cccd_handle>:0` | async `DESCR_WRITE_OK:<idx>:0x<cccd_h>` | Disable notifications |
+| Indicate enable | `CFBG:0:INDICATE:<idx>:<cccd_handle>:1` | async `DESCR_WRITE_OK` | Enable indications |
+
+> `<idx>` = device table index from `SCAN_RESULT:<idx>,...` or `CONNECTED:<idx>:...`  
+> `<cccd_handle>` = CCCD descriptor handle, typically `<char_value_handle> + 1`  
+> `<handle>` = characteristic value handle (hex `0xXXXX` or decimal)  
+> All response lines are prefixed with `CFBG:OK:` (success) or `CFBG:FAIL:` (error)
 
 ### Configuration
 
@@ -141,20 +166,20 @@ CFBG:JSON:<json>
 
 #### Start Scan
 ```
-CFBG:SCAN:<duration_ms>
+CFBG:0:SCAN:<duration_ms>
 ```
 Starts a BLE scan for the specified duration in milliseconds. Active or passive mode depends on the loaded config.
 
-**Responses (async, one per device found):**
+**Consolidated response (single RPC reply after scan completes):**
 ```
-CFBG:OK:SCAN_STARTED:<duration_ms>
-CFBG:OK:SCAN_RESULT:<idx>,<AA:BB:CC:DD:EE:FF>,<RSSI>,<device_name>
-CFBG:OK:SCAN_DONE
+CFBG:OK:SCAN_DONE:<count>\x1ESCAN_RESULT:<idx>,<AA:BB:CC:DD:EE:FF>,<RSSI>,<name>\x1ESCAN_RESULT:...
 ```
+All records are concatenated with `\x1E` (ASCII Record Separator) in one uplink message.  
+The `<idx>` field is the device table slot to use in subsequent `DISC`, `READ`, `WRITE`, `NOTIFY`, `DISCONNECT` commands.
 
 #### Stop Scan
 ```
-CFBG:STOP
+CFBG:0:STOP
 ```
 **Response:** `CFBG:OK:SCAN_STOPPED`
 
@@ -164,9 +189,9 @@ CFBG:STOP
 
 #### List Devices
 ```
-CFBG:LIST
+CFBG:0:LIST
 ```
-Lists all devices in the 8-slot table (from scan results and connections).
+Lists all devices in the 32-slot table (from scan results and connections).
 
 **Response:**
 ```
@@ -177,7 +202,7 @@ CFBG:OK:DEV:<idx>,<AA:BB:CC:DD:EE:FF>,<RSSI>,0x<conn_id>,<name>
 
 #### Clear Device Table
 ```
-CFBG:CLEAR
+CFBG:0:CLEAR
 ```
 Frees all slots that are not currently connected.
 
@@ -185,7 +210,7 @@ Frees all slots that are not currently connected.
 
 #### Get Device Info
 ```
-CFBG:INFO:<idx>
+CFBG:0:INFO:<idx>
 ```
 **Response:**
 ```
@@ -198,25 +223,34 @@ CFBG:OK:INFO:<idx>:<AA:BB:CC:DD:EE:FF>:RSSI=<n>:CONN=0x<conn_id>:NAME=<name>
 
 #### Connect
 ```
-CFBG:CONNECT:<AA:BB:CC:DD:EE:FF>
+CFBG:0:CONNECT:<AA:BB:CC:DD:EE:FF>
 ```
-Opens a GATT connection to the specified device. The device must be in the scan table or will be assigned a new slot.
+Opens a GATT connection to the specified device. The device must be in the scan table or will be assigned a new slot.  
+**Blocks until the BLE link is established** (or fails). The RPC call returns a single response once `OPEN_EVT` fires.
 
-**Responses (async):**
+**Response when link established:**
 ```
-CFBG:OK:CONNECTING:<idx>:<AA:BB:CC:DD:EE:FF>
 CFBG:OK:CONNECTED:<idx>:0x<conn_id>:<AA:BB:CC:DD:EE:FF>
 ```
-On failure: `CFBG:FAIL:CONNECT_FAILED:<idx>:<reason>`
+**Response on failure:**
+```
+CFBG:FAIL:CONNECT:FAILED:<status_code>
+```
+**Response if `gattc_open` call fails immediately:**
+```
+CFBG:FAIL:CONNECT:OPEN_FAILED
+```
+
+> `<idx>` is the device table slot and must be used for all subsequent operations on this device.
 
 #### Disconnect
 ```
-CFBG:DISCONNECT:<idx>
+CFBG:0:DISCONNECT:<idx>
 ```
-**Responses (async):**
+**Response (immediate + async):**
 ```
 CFBG:OK:DISCONNECTING:<idx>
-CFBG:OK:DISCONNECTED:<idx>:0x<conn_id>
+CFBG:OK:DISCONNECTED:<idx>:0x<conn_id>    (async, from DISCONNECT_EVT)
 ```
 
 ---
@@ -225,17 +259,22 @@ CFBG:OK:DISCONNECTED:<idx>:0x<conn_id>
 
 #### Discover Services and Characteristics
 ```
-CFBG:DISC:<idx>
+CFBG:0:DISC:<idx>
 ```
-Discovers all services and characteristics on the connected device at table index `<idx>`.
+Discoveries all services and characteristics on the connected device at table index `<idx>`.  
+**Blocks until discovery completes.** Returns a single batched response with all results.
 
-**Responses (async):**
+**Consolidated response (single RPC reply, `\x1E`-separated):**
 ```
-CFBG:OK:DISC_STARTED:<idx>
-CFBG:OK:SERVICE:<idx>:0x<UUID>:0x<start_handle>:0x<end_handle>
-CFBG:OK:CHAR:<idx>:0x<UUID>:0x<handle>:0x<properties>
-CFBG:OK:DISC_DONE:<idx>:<n>_CHARS
+CFBG:OK:DISC_DONE:<idx>:<n>_CHARS\x1ECHAR:<idx>:0x<UUID16>:0x<handle>:0x<prop>\x1ECHAR:...
 ```
+
+Example (4 characteristics found):
+```
+CFBG:OK:DISC_DONE:0:4_CHARS\x1ECHAR:0:0xFFF1:0x0003:0x12\x1ECHAR:0:0xFFF2:0x0006:0x08
+```
+
+> 128-bit UUID characteristics appear as `CHAR:<idx>:128-BIT:0x<handle>:0x<prop>`  
 
 **Properties bitmask** (standard BLE):
 | Bit | Meaning      |
@@ -255,30 +294,30 @@ CFBG:OK:DISC_DONE:<idx>:<n>_CHARS
 
 #### Read Characteristic
 ```
-CFBG:READ:<idx>:<handle>
+CFBG:0:READ:<idx>:<handle>
 ```
-`<handle>` is the characteristic handle from discovery (hex: `0xXXXX` or decimal).
+`<handle>` is the characteristic value handle from discovery (hex `0xXXXX` or decimal).
 
-**Responses (async):**
+**Responses:**
 ```
-CFBG:OK:READ_STARTED:<idx>:0x<handle>
-CFBG:OK:READ:<idx>:0x<handle>:<hex_data>
+CFBG:OK:READ_STARTED:<idx>:0x<handle>      (immediate, gattc call accepted)
+CFBG:OK:READ:<idx>:0x<handle>:<hex_data>   (async, from READ_CHAR_EVT)
 ```
 
 #### Write Characteristic (with response)
 ```
-CFBG:WRITE:<idx>:<handle>:<hex_data>
+CFBG:0:WRITE:<idx>:<handle>:<hex_data>
 ```
 Writes with ATT Write Request (waits for ATT Write Response).
 
-**Response (async):**
+**Response (async, from WRITE_CHAR_EVT):**
 ```
 CFBG:OK:WRITE_OK:<idx>:0x<handle>
 ```
 
 #### Write Characteristic (no response)
 ```
-CFBG:WRITENR:<idx>:<handle>:<hex_data>
+CFBG:0:WRITENR:<idx>:<handle>:<hex_data>
 ```
 Writes with ATT Write Command (fire-and-forget).
 
@@ -289,25 +328,25 @@ CFBG:OK:WRITE_NR_OK:<idx>:0x<handle>
 
 #### Enable / Disable Notifications
 ```
-CFBG:NOTIFY:<idx>:<cccd_handle>:1
-CFBG:NOTIFY:<idx>:<cccd_handle>:0
+CFBG:0:NOTIFY:<idx>:<cccd_handle>:1
+CFBG:0:NOTIFY:<idx>:<cccd_handle>:0
 ```
-Writes `0x0001` / `0x0000` to the CCCD descriptor. `<cccd_handle>` is the CCCD descriptor handle (usually `<char_handle> + 1`).
+Writes `0x0001` / `0x0000` to the CCCD descriptor. `<cccd_handle>` is typically `<char_value_handle> + 1`.
 
-**Response (async):**
+**Response (async, from WRITE_DESCR_EVT):**
 ```
 CFBG:OK:DESCR_WRITE_OK:<idx>:0x<cccd_handle>
 ```
 
-Notification data arrives asynchronously:
+Notification data arrives asynchronously as unsolicited uplinks:
 ```
 CFBG:OK:NOTIFY:<idx>:0x<char_handle>:<hex_data>
 ```
 
 #### Enable / Disable Indications
 ```
-CFBG:INDICATE:<idx>:<cccd_handle>:1
-CFBG:INDICATE:<idx>:<cccd_handle>:0
+CFBG:0:INDICATE:<idx>:<cccd_handle>:1
+CFBG:0:INDICATE:<idx>:<cccd_handle>:0
 ```
 Writes `0x0002` / `0x0000` to the CCCD descriptor.
 
@@ -329,6 +368,17 @@ Native ESP32-S3 BLE Mesh Provisioner using `esp_ble_mesh` stack.
 Supports provisioning unprovisioned devices, sending model control messages (Generic OnOff, Light Lightness, Light CTL, Scene, vendor), and full node configuration.
 
 > **Note:** CFBN: is native to the LAN MCU — there is only one provisioner instance, so **no slot number** is used in commands or responses.
+
+### Quick-Reference Command Table (CFBN:)
+
+| Command | Format | Response | Description |
+|---------|--------|----------|-------------|
+| Config | `CFBN:JSON:<json>` | `OK:CONFIG_LOADED` | Load mesh key / app key / provisioner config |
+| Scan | `CFBN:SCAN:<ms>` | async `UNPROV_DEV:...` + `SCAN_DONE` | Scan for unprovisioned devices |
+| Provision | `CFBN:PROVISION:<uuid_hex32>` | async `PROVISIONED:0x<addr>:...` | Provision device |
+| Node list | `CFBN:NODE_LIST` | `OK:NODE_LIST:...` per-node | List provisioned nodes |
+| Control | `CFBN:CONTROL:<json>` | `OK:CONTROL:SENT:...` + async ACK | Send model message |
+| Get status | `CFBN:GET_STATUS:<json>` | async status response | Query node state |
 
 ### Configuration
 
