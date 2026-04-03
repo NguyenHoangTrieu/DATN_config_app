@@ -259,6 +259,22 @@ class ConfigParser:
                     config.wan.mqtt_keepalive_s = int(value)
                 elif key == "mqtt_timeout_ms":
                     config.wan.mqtt_timeout_ms = int(value)
+                elif key == "http_port":
+                    config.wan.http_port = int(value)
+                elif key == "http_use_tls":
+                    config.wan.http_use_tls = value.strip() in ("1", "true", "True")
+                elif key == "http_verify_server":
+                    config.wan.http_verify_server = value.strip() in ("1", "true", "True")
+                elif key == "http_timeout_ms":
+                    config.wan.http_timeout_ms = int(value)
+                elif key == "coap_port":
+                    config.wan.coap_port = int(value)
+                elif key == "coap_use_dtls":
+                    config.wan.coap_use_dtls = value.strip() in ("1", "true", "True")
+                elif key == "coap_ack_timeout_ms":
+                    config.wan.coap_ack_timeout_ms = int(value)
+                elif key == "coap_max_retransmit":
+                    config.wan.coap_max_retransmit = int(value)
                 elif key == "coap_rpc_poll_interval_ms":
                     config.wan.coap_rpc_poll_interval_ms = int(value)
                 elif hasattr(config.wan, key):

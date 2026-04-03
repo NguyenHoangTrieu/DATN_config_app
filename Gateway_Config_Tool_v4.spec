@@ -4,6 +4,7 @@ import shutil, os
 
 # JSON config files — bundled inside the EXE as fallback,
 # AND copied to dist/config/ so users can edit without rebuilding.
+# (Removed stack_XXX_app_commands.json files — no longer needed, functionality now in stack_XXX_config.json)
 _CONFIG_FILES = [
     'src/config/stack_id_map.json',
     'src/config/stack_001_config.json',
@@ -12,12 +13,6 @@ _CONFIG_FILES = [
     'src/config/stack_004_config.json',
     'src/config/stack_005_config.json',
     'src/config/stack_006_config.json',
-    'src/config/stack_001_app_commands.json',
-    'src/config/stack_002_app_commands.json',
-    'src/config/stack_003_app_commands.json',
-    'src/config/stack_004_app_commands.json',
-    'src/config/stack_005_app_commands.json',
-    'src/config/stack_006_app_commands.json',
 ]
 
 a = Analysis(

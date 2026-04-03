@@ -459,9 +459,13 @@ function handleBleDisconnect(reason) {
   var overlay = document.getElementById('ctrl-overlay');
   if (overlay) overlay.classList.remove('hidden');
 
+  // IMPORTANT: Do NOT render device list — user must press Scan to reconnect
+  // This prevents accidental reconnections and gives user full control
   renderDeviceList([]);
   updateLEDUI();
-  showToast('BLE disconnected — press Scan to reconnect');
+  
+  // Show initial "Scan and connect" message instead of auto-reconnecting
+  showOverlay('← Scan and connect device', false);
 }
 
 function disconnectDevice() {
@@ -632,16 +636,26 @@ function getCurrentRgb() {
     var w = Math.round(state.brightness * 2.55);
     return [w, w, w];
   }
-  var h = state.hue, s = 1.0, v = state.brightness / 100.0;
-  var c = v * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = v - c;
-  var r1, g1, b1;
-  if      (h <  60) { r1 = c; g1 = x; b1 = 0; }
-  else if (h < 120) { r1 = x; g1 = c; b1 = 0; }
-  else if (h < 180) { r1 = 0; g1 = c; b1 = x; }
-  else if (h < 240) { r1 = 0; g1 = x; b1 = c; }
-  else if (h < 300) { r1 = x; g1 = 0; b1 = c; }
-  else              { r1 = c; g1 = 0; b1 = x; }
-  return [(r1 + m) * 255, (g1 + m) * 255, (b1 + m) * 255];
+  // HSV to RGB conversion (proper algorithm)
+  var h = state.hue % 360;
+  if (h < 0) h += 360;
+  var s = 100;  // Always full saturation for color picker
+  var v = state.brightness;
+  
+  var c = (v / 100.0) * (s / 100.0);
+  var hp = h / 60.0;
+  var x = c * (1 - Math.abs((hp % 2) - 1));
+  var m = (v / 100.0) - c;
+  
+  var r, g, b;
+  if (hp >= 0 && hp < 1) { r = c; g = x; b = 0; }
+  else if (hp >= 1 && hp < 2) { r = x; g = c; b = 0; }
+  else if (hp >= 2 && hp < 3) { r = 0; g = c; b = x; }
+  else if (hp >= 3 && hp < 4) { r = 0; g = x; b = c; }
+  else if (hp >= 4 && hp < 5) { r = x; g = 0; b = c; }
+  else { r = c; g = 0; b = x; }
+  
+  return [(r + m) * 255, (g + m) * 255, (b + m) * 255];
 }
 
 function updateColorUI() {
