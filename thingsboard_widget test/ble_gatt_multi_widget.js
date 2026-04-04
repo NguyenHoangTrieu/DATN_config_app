@@ -36,7 +36,8 @@ var state = {
   cmdQueue:    [],    /* FIFO command queue */
   cmdPending:  false,
   rpcTimeout:  12000,
-  savedDevices: []    /* from localStorage */
+  savedDevices:    [],  /* from localStorage */
+  pendingConnects: {}   /* mac → {name,type}: fallback if RPC response is lost over WAN */
 };
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -70,7 +71,7 @@ self.onDataUpdated = function () {
       splitLines(decoded).forEach(function (line) {
         handleAsyncLine(line);
       });
-      break;
+      /* no break — process all subscribed data keys */
     }
   } catch (e) {
     logFail('onDataUpdated: ' + e);
@@ -258,13 +259,22 @@ function connectDevice(scanIdx, mac, name) {
   }
   var type = detectType(name);
   logInfo('Connecting to ' + name + ' (' + mac + ')…');
+  /* Record for async fallback — if WAN MCU drops the RPC response,
+     the async CONNECTED telemetry event in handleAsyncLine completes setup */
+  state.pendingConnects[mac] = { name: name, type: type };
 
   enqueue(function () {
     return sendCFBG('CONNECT', mac, 15000)
       .then(function (resp) {
+        delete state.pendingConnects[mac];
         var info = parseConnected(resp);
         if (!info) { logFail('Connect response parse failed for ' + name); return; }
         var devIdx = info.idx;
+        /* Guard: async telemetry path may have already set this up */
+        if (state.connected[devIdx]) {
+          logInfo('Already set up by async path (idx=' + devIdx + '), skipping DISC');
+          return;
+        }
         state.connected[devIdx] = {
           idx: devIdx, mac: mac, name: name, type: type,
           connId: info.connId, chars: {}, aa11Handle: null, cccdHandle: null, fff2Handle: null
@@ -278,7 +288,10 @@ function connectDevice(scanIdx, mac, name) {
         return autoDiscover(devIdx);
       })
       .catch(function (err) {
-        logFail('Connect failed: ' + (err && err.message ? err.message : err));
+        /* WAN MCU likely dropped the CONNECTED RPC response.
+           pendingConnects[mac] stays — handleAsyncLine CONNECTED handler
+           will complete setup when telemetry event arrives. */
+        logFail('Connect RPC lost (' + (err && err.message ? err.message : err) + ') — awaiting async CONNECTED…');
       });
   });
 }
@@ -306,8 +319,9 @@ function initDeviceData(devIdx, type) {
 /* ═══════════════════════════════════════════════════════════════════
    Auto-Discover + Enable Notify
    ═══════════════════════════════════════════════════════════════════ */
-function autoDiscover(devIdx) {
-  logInfo('Discovering services/chars for idx=' + devIdx + '…');
+function autoDiscover(devIdx, _retry) {
+  var retry = _retry || 0;
+  logInfo('Discovering services/chars for idx=' + devIdx + (retry ? ' (retry ' + retry + '/2)' : '') + '…');
   /* NOTE: Called from inside an enqueued task — do NOT enqueue again or deadlock occurs */
   return sendCFBG('DISC', String(devIdx), 15000)
     .then(function (resp) {
@@ -321,6 +335,14 @@ function autoDiscover(devIdx) {
       if (dev.cccdHandle) {
         return enableNotify(devIdx);
       }
+      /* No handles found — firmware returned wrong uplink (e.g. CONNECTED instead of DISC_DONE).
+         Retry up to 2 times after a short delay to let the QSPI path settle. */
+      if (retry < 2) {
+        logInfo('DISC returned no handles — waiting 2s then retrying…');
+        return new Promise(function (res) { setTimeout(res, 2000); })
+          .then(function () { return autoDiscover(devIdx, retry + 1); });
+      }
+      logFail('DISC failed after ' + (retry + 1) + ' attempts — no handles found for idx=' + devIdx);
     })
     .catch(function (e) {
       logFail('DISC failed for idx=' + devIdx + ': ' + e);
@@ -478,14 +500,50 @@ function handleAsyncLine(line) {
   var m = l.match(/^DISCONNECTED:(\d+)/);
   if (m) { handleDisconnected(parseInt(m[1], 10)); return; }
 
-  /* CONNECTED:<idx>:0x<conn_id>:<MAC>  (can arrive async too) */
-  m = l.match(/^CONNECTED:(\d+)/);
-  if (m) { logEvt('Async CONNECTED idx=' + m[1]); return; }
+  /* CONNECTED:<idx>:0x<conn_id>:<MAC>  (can arrive async via telemetry if RPC response was lost) */
+  m = l.match(/^CONNECTED:(\d+):0x([0-9A-Fa-f]+):([0-9a-fA-F:]{17})/i);
+  if (m) {
+    var asyncDevIdx = parseInt(m[1], 10);
+    var asyncMac    = m[3].toLowerCase();
+    logEvt('Async CONNECTED idx=' + asyncDevIdx + ' ' + asyncMac);
+    /* If RPC path hasn't set up the device yet, complete it now */
+    if (!state.connected[asyncDevIdx]) {
+      var asyncPending = state.pendingConnects[asyncMac];
+      if (asyncPending) {
+        delete state.pendingConnects[asyncMac];
+        var asyncName = asyncPending.name;
+        var asyncType = asyncPending.type;
+        state.connected[asyncDevIdx] = {
+          idx: asyncDevIdx, mac: asyncMac, name: asyncName, type: asyncType,
+          connId: parseInt(m[2], 16), chars: {}, aa11Handle: null, cccdHandle: null, fff2Handle: null
+        };
+        initDeviceData(asyncDevIdx, asyncType);
+        setConnectedCount();
+        renderGrid();
+        markScanItemConnected(asyncMac);
+        logInfo('Connected (async recovery): ' + asyncName + ' idx=' + asyncDevIdx);
+        var capturedAsyncIdx = asyncDevIdx;
+        enqueue(function () { return autoDiscover(capturedAsyncIdx); });
+      }
+    }
+    return;
+  }
 
   /* NOTIFY:<idx>:0x<handle>:<hex_data>  — sensor data */
   m = l.match(/^NOTIFY:(\d+):0x([0-9A-Fa-f]+):([0-9A-Fa-f]*)/i);
   if (m) {
     handleNotifyData(parseInt(m[1], 10), parseInt(m[2], 16), m[3]);
+    return;
+  }
+
+  /* DESCR_WRITE_OK:<idx>:0x<handle> — async CCCD write confirmation */
+  m = l.match(/^DESCR_WRITE_OK:(\d+):0x([0-9A-Fa-f]+)/i);
+  if (m) {
+    var dwoIdx = parseInt(m[1], 10);
+    var dwoHandle = parseInt(m[2], 16);
+    var dwoDev = state.connected[dwoIdx];
+    logEvt('CCCD write confirmed' + (dwoDev ? ' for ' + dwoDev.name : '') +
+           ' handle=0x' + dwoHandle.toString(16).toUpperCase());
     return;
   }
 
