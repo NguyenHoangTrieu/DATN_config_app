@@ -40,7 +40,6 @@ self.onInit = function () {
     _root = document.getElementById('zb-app-root');
     loadLocalState();
     syncSlotSelect();
-    updateColorUI();
     renderNodeList();
     updateControlPanel();
     updateClusterTabs();
@@ -261,14 +260,14 @@ function parseNodeList(lines) {
    Network Commands
    ──────────────────────────────────────────────────────────────────── */
 function queryNetStatus() {
-  sendCFML('AT+NWINFO', 5000)
+  sendCFML('AT+NWINFO', 15000)
     .then(function (r) { parseNetStatus(splitResp(r)); })
     .catch(function () {});
 }
 
 function startNetwork() {
   setNetState('starting');
-  sendCFML('AT+CREATENW', 12000)
+  sendCFML('AT+CREATENW', 15000)
     .then(function (r) {
       var lines = splitResp(r);
       var ok    = lines.some(function (l) { return /\+CREATENW:0|NETWORK UP/i.test(l); });
@@ -281,7 +280,7 @@ function startNetwork() {
 }
 
 function stopNetwork() {
-  sendCFML('AT+QUITNW', 5000)
+  sendCFML('AT+QUITNW', 15000)
     .then(function () {
       state.networkUp = false;
       setNetState('off');
@@ -292,14 +291,14 @@ function stopNetwork() {
 }
 
 function openPermitJoin() {
-  sendCFML('AT+OPENWNET=60', 5000)
+  sendCFML('AT+OPENWNET=60', 15000)
     .then(function () { showToast('Permit join: 60 s — waiting for nodes…'); })
     .catch(function () {});
 }
 
 function autoFind() {
   logInfo('Auto-finding nodes…');
-  sendCFML('AT+FIND', 8000)
+  sendCFML('AT+FIND', 15000)
     .then(function (r) {
       var lines = splitResp(r);
       parseNodeList(lines);   /* handles FIND:<short>,<ieee> */
@@ -356,7 +355,7 @@ function deleteNode() {
   var ov = ge('ctrl-overlay');
   if (ov) ov.classList.remove('hidden');
 
-  sendCFML('AT+ENTDEL=' + addr, 5000)
+  sendCFML('AT+ENTDEL=' + addr, 15000)
     .then(function () {
       delete state.nodes[addr];
       state.selectedNode = null;
@@ -409,7 +408,7 @@ function onOnOffToggle(checked) {
   setEl('onoff-icon', checked ? '💡' : '🔦');
   var t = getTarget();
   /* ZCL On/Off cmd: 01=ON, 00=OFF */
-  sendCFML('AT+ZCL=' + t.s + ',' + t.ep + ',0006,' + (checked ? '01' : '00'), 5000)
+  sendCFML('AT+ZCL=' + t.s + ',' + t.ep + ',0006,' + (checked ? '01' : '00'), 15000)
     .catch(function () {});
 }
 
@@ -430,7 +429,7 @@ function onLevelChange(v) {
      params: level (1 byte), transition time in 100ms units (2 bytes LE) */
   var lvlHex  = pad2(state.levelVal);
   /* AT+ZCL=<short>,<ep>,0008,04,<level>,0001  (ZCL Move to Level with On/Off) */
-  sendCFML('AT+ZCL=' + t.s + ',' + t.ep + ',0008,04,' + lvlHex + ',0001', 5000)
+  sendCFML('AT+ZCL=' + t.s + ',' + t.ep + ',0008,04,' + lvlHex + ',0001', 15000)
     .catch(function () {});
 }
 
@@ -446,74 +445,11 @@ function refreshLevelSlider() {
 }
 
 /* ────────────────────────────────────────────────────────────────────
-   ZCL Color Control (cluster 0300)
+   ZCL Color Control (cluster 0300) — 5 fixed colors
    ──────────────────────────────────────────────────────────────────── */
-function onHueChange(v) {
-  state.hue = parseInt(v, 10);
-  state.isWhite = false;
-  clearSwatchActive();
-  updateColorUI();
-}
-
-function onHueCommit(v) {
-  state.hue = parseInt(v, 10);
-  state.isWhite = false;
-  updateColorUI();
-}
-
-function onBrightChange(v) {
-  state.brightness = parseInt(v, 10);
-  updateColorUI();
-}
-
-function onBrightCommit(v) {
-  state.brightness = parseInt(v, 10);
-  updateColorUI();
-}
-
-function applySwatch(hue, brightness) {
-  if (hue === -1) {
-    state.isWhite   = true;
-    state.brightness = brightness;
-  } else {
-    state.isWhite    = false;
-    state.hue        = hue;
-    state.brightness = brightness;
-    var hs = ge('hue-slider');
-    if (hs) hs.value = String(hue);
-  }
-  var bs = ge('bright-slider');
-  if (bs) bs.value = String(brightness);
-  clearSwatchActive();
-  if (_root) {
-    var swatches = _root.querySelectorAll('.swatch');
-    for (var i = 0; i < swatches.length; i++) {
-      var s = swatches[i];
-      if (parseInt(s.getAttribute('data-h'), 10) === hue &&
-          parseInt(s.getAttribute('data-b'), 10) === brightness) {
-        s.classList.add('active');
-      }
-    }
-  }
-  updateColorUI();
-}
-
-function clearSwatchActive() {
-  if (!_root) return;
-  var swatches = _root.querySelectorAll('.swatch');
-  for (var i = 0; i < swatches.length; i++) swatches[i].classList.remove('active');
-}
-
-function sendCurrentColor() {
+function sendFixedColor(hexStr, btnEl) {
   if (!state.selectedNode) { showToast('Select a node first'); return; }
-  var rgb = getCurrentRgb();
-  var hex = '#' + toHex2(rgb[0]) + toHex2(rgb[1]) + toHex2(rgb[2]);
-  logInfo('Sending color ' + hex.toUpperCase());
-  doSendColor(hex);
-}
-
-function doSendColor(hex) {
-  var rgb = hexToRgb(hex);
+  var rgb = hexToRgb('#' + hexStr);
   if (!rgb) return;
   var t  = getTarget();
   /* Convert sRGB → CIE 1931 XY for ZCL Color Control cluster */
@@ -522,40 +458,19 @@ function doSendColor(hex) {
   var yH = Math.round(xy.y * 65535).toString(16).toUpperCase();
   while (xH.length < 4) xH = '0' + xH;
   while (yH.length < 4) yH = '0' + yH;
-  /* ZCL cmd 0x08 = Move to Color, params: colorX(2B), colorY(2B), transition(2B) */
-  sendCFML('AT+ZCL=' + t.s + ',' + t.ep + ',0300,08,' + xH + ',' + yH + ',0001', 5000)
+  /* Update preview */
+  var cp = ge('color-preview');
+  if (cp) { cp.style.background = '#' + hexStr; cp.style.boxShadow = '0 0 14px #' + hexStr + '88'; }
+  setEl('color-hex-label', '#' + hexStr.toUpperCase());
+  /* Mark active button */
+  var btns = document.querySelectorAll('.btn-color');
+  for (var i = 0; i < btns.length; i++) btns[i].classList.remove('active');
+  if (btnEl) btnEl.classList.add('active');
+  logInfo('Sending color #' + hexStr.toUpperCase());
+  /* ZCL cmd 0x08 = Move to Color XY, params: colorX(2B), colorY(2B), transition(2B) */
+  sendCFML('AT+ZCL=' + t.s + ',' + t.ep + ',0300,08,' + xH + ',' + yH + ',000A', 15000)
     .then(function () { showToast('Color sent ✓'); })
     .catch(function () {});
-}
-
-function updateColorUI() {
-  try {
-    var rgb = getCurrentRgb();
-    var hex = '#' + toHex2(rgb[0]) + toHex2(rgb[1]) + toHex2(rgb[2]);
-    var cp  = ge('color-preview');
-    if (cp) { cp.style.background = hex; cp.style.boxShadow = '0 0 14px ' + hex + '88'; }
-    setEl('color-hex-label', hex.toUpperCase());
-    var baseColor = state.isWhite ? '#FFFFFF' : ('hsl(' + state.hue + ',100%,50%)');
-    var bs = ge('bright-slider');
-    if (bs) bs.style.background = 'linear-gradient(to right, #111 0%, ' + baseColor + ' 100%)';
-  } catch (e) {}
-}
-
-function getCurrentRgb() {
-  if (state.isWhite) {
-    var w = Math.round(state.brightness * 2.55);
-    return [w, w, w];
-  }
-  var h = state.hue, s = 1.0, v = state.brightness / 100.0;
-  var c = v * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = v - c;
-  var r1, g1, b1;
-  if      (h <  60) { r1 = c; g1 = x; b1 = 0; }
-  else if (h < 120) { r1 = x; g1 = c; b1 = 0; }
-  else if (h < 180) { r1 = 0; g1 = c; b1 = x; }
-  else if (h < 240) { r1 = 0; g1 = x; b1 = c; }
-  else if (h < 300) { r1 = x; g1 = 0; b1 = c; }
-  else              { r1 = c; g1 = 0; b1 = x; }
-  return [(r1 + m) * 255, (g1 + m) * 255, (b1 + m) * 255];
 }
 
 /* ────────────────────────────────────────────────────────────────────
@@ -565,7 +480,7 @@ function readTempAttr() {
   if (!state.selectedNode) { showToast('Select a node first'); return; }
   var t = getTarget();
   /* AT+ATTRREAD=<short>,<ep>,0402,0000  — ZCL Measured Temperature */
-  sendCFML('AT+ATTRREAD=' + t.s + ',' + t.ep + ',0402,0000', 5000)
+  sendCFML('AT+ATTRREAD=' + t.s + ',' + t.ep + ',0402,0000', 15000)
     .then(function (r) {
       var lines = splitResp(r);
       for (var i = 0; i < lines.length; i++) {
@@ -587,7 +502,7 @@ function readTempAttr() {
 function readAttribute() {
   var attrId = (ge('inp-attr-id') ? ge('inp-attr-id').value.trim().toUpperCase() : '') || '0000';
   var t = getTarget();
-  sendCFML('AT+ATTRREAD=' + t.s + ',' + t.ep + ',' + t.cl + ',' + attrId, 5000)
+  sendCFML('AT+ATTRREAD=' + t.s + ',' + t.ep + ',' + t.cl + ',' + attrId, 15000)
     .then(function (r) {
       var lines = splitResp(r);
       for (var i = 0; i < lines.length; i++) {
@@ -604,7 +519,7 @@ function writeAttribute() {
   var v   = inp ? inp.value.trim() : '';
   if (!v) { showToast('Format: AttrID,Type,Value'); return; }
   var t = getTarget();
-  sendCFML('AT+ATTRWRITE=' + t.s + ',' + t.ep + ',' + t.cl + ',' + v, 5000)
+  sendCFML('AT+ATTRWRITE=' + t.s + ',' + t.ep + ',' + t.cl + ',' + v, 15000)
     .then(function () { showToast('Write sent ✓'); })
     .catch(function () {});
 }
@@ -614,7 +529,7 @@ function sendZclCmd() {
   var v   = inp ? inp.value.trim() : '';
   if (!v) { showToast('Format: CmdID[,data]'); return; }
   var t = getTarget();
-  sendCFML('AT+ZCL=' + t.s + ',' + t.ep + ',' + t.cl + ',' + v, 5000)
+  sendCFML('AT+ZCL=' + t.s + ',' + t.ep + ',' + t.cl + ',' + v, 15000)
     .then(function () { showToast('Cmd sent ✓'); })
     .catch(function () {});
 }
@@ -693,7 +608,6 @@ function updateControlPanel() {
   setEl('onoff-icon', state.onOffState ? '💡' : '🔦');
 
   refreshLevelSlider();
-  updateColorUI();
 }
 
 function updateClusterTabs() {
@@ -830,12 +744,7 @@ window.selectCluster  = selectCluster;
 window.onOnOffToggle  = onOnOffToggle;
 window.onLevelInput   = onLevelInput;
 window.onLevelChange  = onLevelChange;
-window.onHueChange    = onHueChange;
-window.onHueCommit    = onHueCommit;
-window.onBrightChange = onBrightChange;
-window.onBrightCommit = onBrightCommit;
-window.applySwatch    = applySwatch;
-window.sendCurrentColor = sendCurrentColor;
+window.sendFixedColor = sendFixedColor;
 window.readTempAttr   = readTempAttr;
 window.readAttribute  = readAttribute;
 window.writeAttribute = writeAttribute;

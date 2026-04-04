@@ -40,7 +40,6 @@ var state = {
 self.onInit = function () {
   try {
     loadLocalState();
-    updateColorUI();
     renderDeviceList([]);
     setConnected(false);
     logInfo('Widget ready — slot ' + state.slot);
@@ -270,7 +269,7 @@ function startScan() {
   renderDeviceList([]);
   logInfo('Resetting BLE module…');
 
-  sendCFML('AT+RESET', 8000)
+  sendCFML('AT+RESET', 15000)
     .then(function () { return new Promise(function (res) { setTimeout(res, 5000); }); })
     .catch(function () { return new Promise(function (res) { setTimeout(res, 5000); }); })
     .then(function () {
@@ -298,7 +297,7 @@ function connectDevice(idx, mac, name) {
   showOverlay(true, 'Connecting to ' + (name || mac) + '…');
   setStatusPill('connecting');
 
-  sendCFML('AT+CONNECT=' + idx, 10000)
+  sendCFML('AT+CONNECT=' + idx, 15000)
     .then(function (r) {
       var pidx = parseConnectIdx(r);
       state.devIdx    = pidx >= 0 ? pidx : idx;
@@ -334,7 +333,7 @@ function _discoverAndNotify() {
     .then(function (r) {
       autoDetectHandles(splitResp(r));
       /* Enable FFF1 notify with the (now correct) h_cccd */
-      return sendCFML('AT+NOTIFY=' + idx + ',' + state.h_cccd + ',1', 5000);
+      return sendCFML('AT+NOTIFY=' + idx + ',' + state.h_cccd + ',1', 15000);
     })
     .then(function () {
       state.notifyEnabled = true;
@@ -349,7 +348,7 @@ function _discoverAndNotify() {
 
 function disconnectDevice() {
   if (!state.connected || state.devIdx < 0) return;
-  sendCFML('AT+DISCONNECT=' + state.devIdx, 5000)
+  sendCFML('AT+DISCONNECT=' + state.devIdx, 15000)
     .then(function () {
       state.connected = false;
       state.notifyEnabled = false;
@@ -362,7 +361,7 @@ function disconnectDevice() {
 }
 
 function _enableNotify() {
-  sendCFML('AT+NOTIFY=' + state.devIdx + ',' + state.h_cccd + ',1', 5000)
+  sendCFML('AT+NOTIFY=' + state.devIdx + ',' + state.h_cccd + ',1', 15000)
     .then(function () { state.notifyEnabled = true; logInfo('Notifications enabled (FFF1)'); })
     .catch(function () {});
 }
@@ -380,125 +379,40 @@ function onLedToggle(checked) {
   state.ledOn = checked;
   updateLedUI();
   var hexByte = checked ? '01' : '00';
-  sendCFML('AT+WRITE=' + state.devIdx + ',' + state.h_fff2 + ',' + hexByte, 5000)
+  sendCFML('AT+WRITE=' + state.devIdx + ',' + state.h_fff2 + ',' + hexByte, 15000)
     .catch(function () {});
 }
 
 /* ────────────────────────────────────────────────────────────────────
-   Color Picker
+   Color Control — 5 fixed colors (01RRGGBB = ON + color)
    ──────────────────────────────────────────────────────────────────── */
-function onHueChange(val) {
-  state.hue = parseInt(val, 10);
-  state.isWhite = false;
-  clearSwatchActive();
-  updateColorUI();
-}
-
-function onHueCommit(val) {
-  state.hue = parseInt(val, 10);
-  state.isWhite = false;
-  updateColorUI();
-}
-
-function onBrightChange(val) {
-  state.brightness = parseInt(val, 10);
-  updateColorUI();
-}
-
-function onBrightCommit(val) {
-  state.brightness = parseInt(val, 10);
-  updateColorUI();
-}
-
-function applySwatch(hue, brightness) {
-  if (hue === -1) {
-    state.isWhite   = true;
-    state.brightness = brightness;
-  } else {
-    state.isWhite = false;
-    state.hue     = hue;
-    state.brightness = brightness;
-    var hs = ge('hue-slider');
-    if (hs) hs.value = String(hue);
-  }
-  var bs = ge('bright-slider');
-  if (bs) bs.value = String(brightness);
-  clearSwatchActive();
-  /* Mark active swatch — scoped to widget root */
-  var root = _root || document;
-  var swatches = root.querySelectorAll('.swatch');
-  for (var i = 0; i < swatches.length; i++) {
-    var s = swatches[i];
-    if (parseInt(s.getAttribute('data-h'), 10) === hue &&
-        parseInt(s.getAttribute('data-b'), 10) === brightness) {
-      s.classList.add('active');
-    }
-  }
-  updateColorUI();
-}
-
-function clearSwatchActive() {
-  if (!_root) return;
-  var swatches = _root.querySelectorAll('.swatch');
-  for (var i = 0; i < swatches.length; i++) {
-    swatches[i].classList.remove('active');
-  }
-}
-
-function sendCurrentColor() {
+function sendFixedColor(hexStr, btnEl) {
   if (!state.connected) { showToast('Connect a device first'); return; }
-  var rgb = getCurrentRgb();
-  var hexColor = toHex2(rgb[0]) + toHex2(rgb[1]) + toHex2(rgb[2]);
-  logInfo('Sending color #' + hexColor.toUpperCase());
-  sendCFML('AT+WRITE=' + state.devIdx + ',' + state.h_fff2 + ',' + hexColor, 5000)
+  if (!state.h_fff2)    { showToast('FFF2 handle unknown — reconnect'); return; }
+  /* Update preview */
+  var colorPrev = ge('color-preview');
+  if (colorPrev) {
+    colorPrev.style.background = '#' + hexStr;
+    colorPrev.style.boxShadow  = '0 0 14px #' + hexStr + '88';
+  }
+  setEl('color-hex-label', '#' + hexStr.toUpperCase());
+  /* Mark active button */
+  var btns = document.querySelectorAll('.btn-color');
+  for (var i = 0; i < btns.length; i++) btns[i].classList.remove('active');
+  if (btnEl) btnEl.classList.add('active');
+  /* Ensure LED is shown as on */
+  state.ledOn = true;
+  updateLedUI();
+  /* Write 01RRGGBB — byte 01 = ON, then 3 bytes RGB */
+  var payload = '01' + hexStr.toUpperCase();
+  logInfo('Sending color #' + hexStr.toUpperCase());
+  sendCFML('AT+WRITE=' + state.devIdx + ',' + state.h_fff2 + ',' + payload, 15000)
     .then(function () { showToast('Color sent ✓'); })
     .catch(function () {});
 }
 
 function toHex2(n) {
   return ('0' + Math.min(255, Math.max(0, Math.round(n))).toString(16)).slice(-2).toUpperCase();
-}
-
-function getCurrentRgb() {
-  if (state.isWhite) {
-    var w = Math.round(state.brightness * 2.55);
-    return [w, w, w];
-  }
-  var h = state.hue, s = 1.0, v = state.brightness / 100.0;
-  var c = v * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = v - c;
-  var r1, g1, b1;
-  if      (h <  60) { r1 = c; g1 = x; b1 = 0; }
-  else if (h < 120) { r1 = x; g1 = c; b1 = 0; }
-  else if (h < 180) { r1 = 0; g1 = c; b1 = x; }
-  else if (h < 240) { r1 = 0; g1 = x; b1 = c; }
-  else if (h < 300) { r1 = x; g1 = 0; b1 = c; }
-  else              { r1 = c; g1 = 0; b1 = x; }
-  return [(r1 + m) * 255, (g1 + m) * 255, (b1 + m) * 255];
-}
-
-function updateColorUI() {
-  try {
-    var rgb = getCurrentRgb();
-    var hex = '#' + toHex2(rgb[0]) + toHex2(rgb[1]) + toHex2(rgb[2]);
-
-    var colorPrev = ge('color-preview');
-    if (colorPrev) {
-      colorPrev.style.background = hex;
-      colorPrev.style.boxShadow  = '0 0 14px ' + hex + '88';
-    }
-    setEl('color-hex-label', hex.toUpperCase());
-
-    /* Brightness track gradient */
-    var baseColor = state.isWhite
-      ? '#FFFFFF'
-      : ('hsl(' + state.hue + ',100%,50%)');
-    var bs = ge('bright-slider');
-    if (bs) {
-      bs.style.background = 'linear-gradient(to right, #111 0%, ' + baseColor + ' 100%)';
-    }
-  } catch (e) {
-    console.error('[DA2 Widget] updateColorUI:', e);
-  }
 }
 
 /* ────────────────────────────────────────────────────────────────────
@@ -680,10 +594,5 @@ window.startScan        = startScan;
 window.connectDevice    = connectDevice;
 window.disconnectDevice = disconnectDevice;
 window.onLedToggle      = onLedToggle;
-window.onHueChange      = onHueChange;
-window.onHueCommit      = onHueCommit;
-window.onBrightChange   = onBrightChange;
-window.onBrightCommit   = onBrightCommit;
-window.applySwatch      = applySwatch;
-window.sendCurrentColor = sendCurrentColor;
+window.sendFixedColor   = sendFixedColor;
 window.clearLog         = clearLog;

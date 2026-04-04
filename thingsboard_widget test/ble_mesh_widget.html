@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BLE Native Mesh Widget</title>
+  <link rel="stylesheet" href="ble_mesh_widget.css">
+</head>
+<body>
+<div class="mesh-root" id="mesh-root">
+
+  <!-- ══════════════════════════════════════════
+       HEADER
+       ══════════════════════════════════════════ -->
+  <div class="widget-header">
+    <div class="header-left">
+      <div class="ble-badge mesh">MESH</div>
+      <div>
+        <div class="widget-title">BLE Native Mesh</div>
+        <div class="widget-subtitle" id="status-text">Sẵn sàng</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="slot-wrap">
+        <label class="slot-label">Slot:</label>
+        <select id="slot-select" class="slot-select" onchange="onSlotChange(this.value)">
+          <option value="0">0</option>
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════
+       LEFT PANEL: PROVISIONING + NODE LIST
+       ══════════════════════════════════════════ -->
+  <div class="main-body">
+    <div class="left-panel">
+
+      <!-- Scan unprovisioned -->
+      <div class="panel-section">
+        <div class="section-header">
+          <span class="section-title">Thiết bị chưa cấu hình</span>
+          <button class="btn-scan" id="btn-scan" onclick="startScan()">
+            <span id="scan-icon">⟳</span> Scan
+          </button>
+        </div>
+        <div class="device-list" id="unprov-list">
+          <div class="empty-hint">Nhấn Scan để tìm thiết bị...</div>
+        </div>
+      </div>
+
+      <!-- Provisioned node list -->
+      <div class="panel-section">
+        <div class="section-header">
+          <span class="section-title">Nodes (<span id="node-count">0</span>)</span>
+          <button class="btn-adv" onclick="refreshNodeList()">↻</button>
+        </div>
+        <div class="device-list" id="node-list">
+          <div class="empty-hint">Chưa có node nào được cấu hình</div>
+        </div>
+      </div>
+
+    </div><!-- /left-panel -->
+
+    <!-- ══════════════════════════════════════════
+         RIGHT PANEL: CONTROL
+         ══════════════════════════════════════════ -->
+    <div class="right-panel">
+
+      <!-- No-selection overlay -->
+      <div class="ctrl-overlay" id="ctrl-overlay">
+        <div class="overlay-inner">
+          <div class="overlay-icon">⬡</div>
+          <div class="overlay-msg">Chọn một node từ danh sách bên trái để điều khiển</div>
+        </div>
+      </div>
+
+      <!-- Node header -->
+      <div class="node-header-card" id="node-header-card">
+        <div class="node-type-badge" id="node-type-badge">LED</div>
+        <div class="node-info">
+          <div class="node-name" id="node-name">—</div>
+          <div class="node-addr" id="node-addr">addr: —</div>
+        </div>
+        <button class="btn-danger-sm" onclick="resetNode()" title="Reset/remove node">✕</button>
+      </div>
+
+      <!-- ── LED CONTROL (shown for LED nodes) ── -->
+      <div class="ctrl-section" id="section-led">
+
+        <!-- ON/OFF toggle card -->
+        <div class="control-card">
+          <div class="card-row">
+            <div class="card-label-wrap">
+              <span class="led-icon" id="led-icon">🔦</span>
+              <div>
+                <div class="card-label">LED Control</div>
+                <div class="card-sublabel" id="led-status-text">LED is OFF</div>
+              </div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="led-toggle" onchange="onLedToggle(this.checked)">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Color card -->
+        <div class="control-card color-card">
+          <div class="color-card-header">
+            <span class="card-title">LED Color</span>
+            <div class="color-preview-wrap">
+              <div class="color-preview" id="color-preview"></div>
+              <span class="color-hex-label" id="color-hex-label">—</span>
+            </div>
+          </div>
+          <!-- 5 Fixed Color Buttons -->
+          <div class="color-buttons">
+            <button class="btn-color btn-color-red"    id="btn-c-red"    onclick="sendFixedColor('FF0000',this)">Đỏ</button>
+            <button class="btn-color btn-color-green"  id="btn-c-green"  onclick="sendFixedColor('00FF00',this)">Xanh lá</button>
+            <button class="btn-color btn-color-blue"   id="btn-c-blue"   onclick="sendFixedColor('0000FF',this)">Xanh dương</button>
+            <button class="btn-color btn-color-yellow" id="btn-c-yellow" onclick="sendFixedColor('FFFF00',this)">Vàng</button>
+            <button class="btn-color btn-color-white"  id="btn-c-white"  onclick="sendFixedColor('FFFFFF',this)">Trắng</button>
+          </div>
+        </div>
+      </div><!-- /section-led -->
+
+      <!-- ── SENSOR DISPLAY (shown for sensor nodes) ── -->
+      <div class="ctrl-section hidden" id="section-sensor">
+
+        <div class="control-card sensor-card">
+          <div class="sensor-row">
+            <span class="card-title">Nhiệt độ</span>
+            <button class="btn-adv" onclick="readSensor()">↻ Đọc</button>
+          </div>
+          <div class="sensor-value-large"><span id="sensor-temp">—</span><span class="sensor-unit"> °C</span></div>
+        </div>
+
+        <div class="control-card sensor-card">
+          <div class="sensor-row">
+            <span class="card-title">Độ ẩm</span>
+          </div>
+          <div class="sensor-value-large"><span id="sensor-humi">—</span><span class="sensor-unit"> %</span></div>
+        </div>
+
+      </div><!-- /section-sensor -->
+
+      <!-- Command queue indicator -->
+      <div class="queue-bar" id="queue-bar">
+        <span class="queue-icon spinning" id="queue-icon">⟳</span>
+        <span id="queue-text">Đang xử lý lệnh...</span>
+      </div>
+
+    </div><!-- /right-panel -->
+  </div><!-- /main-body -->
+
+  <!-- ══════════════════════════════════════════
+       LOG
+       ══════════════════════════════════════════ -->
+  <div class="log-section">
+    <div class="log-header">
+      <span class="log-title">Log</span>
+      <button class="btn-adv" onclick="clearLog()">Xoá</button>
+    </div>
+    <div class="log-body" id="log-body"></div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast hidden" id="toast"></div>
+
+</div><!-- /mesh-root -->
+
+<script src="ble_mesh_widget.js"></script>
+</body>
+</html>

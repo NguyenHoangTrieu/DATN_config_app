@@ -70,7 +70,6 @@ self.onInit = function () {
 
     renderDeviceList([]);
     showOverlay('← Scan and connect device', false);
-    updateColorUI();
   });
 };
 
@@ -115,8 +114,16 @@ function sendRPC(method, params, timeoutMs) {
     self.ctx.controlApi
       .sendTwoWayCommand(method, params, timeoutMs || state.rpcTimeout)
       .subscribe(
-        function (resp) { resolve(resp); },
-        function (err)  { reject(err); }
+        function (resp) {
+          var text = typeof resp === 'string' ? resp
+                   : (resp && (resp.data || resp.result || resp.value || JSON.stringify(resp))) || '';
+          console.log('[BLE-GATT][RX]', text);
+          resolve(resp);
+        },
+        function (err)  {
+          console.error('[BLE-GATT][RPC ERROR]', err);
+          reject(err);
+        }
       );
   });
 }
@@ -142,6 +149,7 @@ function hexToString(hex) {
 function sendCFML(gattCmd, timeoutMs) {
   var cmd = 'CFML:CFBG:' + gattCmd;
   logTx(cmd);
+  console.log('[BLE-GATT][TX]', cmd);
   var hexCmd = stringToHex(cmd);
   return sendRPC('sendCommand', hexCmd, timeoutMs || state.rpcTimeout);
 }
@@ -340,7 +348,7 @@ function connectToMAC(mac, name, idx) {
       // Subscribe to FFF1 notifications via CCCD (handle = fff1_handle + 1)
       var cccdHandle = state.fff1_handle + 1;
       logInfo('Subscribing to FFF1 notifications (CCCD handle=' + cccdHandle + ')...');
-      return sendCFML(state.slot + ':NOTIFY:' + state.devIdx + ':' + cccdHandle.toString(16) + ':1', 10000);
+      return sendCFML(state.slot + ':NOTIFY:' + state.devIdx + ':' + cccdHandle.toString(16) + ':1', 15000);
     })
     .then(function (resp) {
       logCFMLResponse(resp);
@@ -472,7 +480,7 @@ function disconnectDevice() {
   if (!state.connected) return;
   // Send DISCONNECT to firmware first (best-effort)
   if (state.devIdx !== null) {
-    sendCFML(state.slot + ':DISCONNECT:' + state.devIdx, 10000)
+    sendCFML(state.slot + ':DISCONNECT:' + state.devIdx, 15000)
       .catch(function () {});
   }
   handleBleDisconnect('Disconnected by user');
@@ -518,7 +526,7 @@ function sendLedCommand(onOff) {
   state.cmdBusy = true;
   updateLEDUI();
   
-  sendCFML(cmd, 10000)
+  sendCFML(cmd, 15000)
     .then(function (resp) {
       logOk('LED ' + (state.ledState ? 'ON' : 'OFF'));
       logCFMLResponse(resp);
@@ -546,64 +554,9 @@ function updateLEDUI() {
 }
 
 /* -------------------------------------------------------------------
-   COLOR CONTROL (FFF2 WRITE — 3-byte RGB)
+   COLOR CONTROL (FFF2 WRITE — 01RRGGBB = ON + fixed color)
 ------------------------------------------------------------------- */
-function onHueChange(val) {
-  state.hue = parseInt(val, 10);
-  state.isWhite = false;
-  clearSwatchActive();
-  updateColorUI();
-}
-
-function onHueCommit(val) {
-  state.hue = parseInt(val, 10);
-  state.isWhite = false;
-  updateColorUI();
-}
-
-function onBrightChange(val) {
-  state.brightness = parseInt(val, 10);
-  updateColorUI();
-}
-
-function onBrightCommit(val) {
-  state.brightness = parseInt(val, 10);
-  updateColorUI();
-}
-
-function applySwatch(hue, brightness) {
-  if (hue === -1) {
-    state.isWhite = true;
-    state.brightness = brightness;
-  } else {
-    state.isWhite = false;
-    state.hue = hue;
-    state.brightness = brightness;
-    var hs = document.getElementById('hue-slider');
-    if (hs) hs.value = String(hue);
-  }
-  var bs = document.getElementById('bright-slider');
-  if (bs) bs.value = String(brightness);
-  clearSwatchActive();
-  var swatches = document.querySelectorAll('.swatch');
-  for (var i = 0; i < swatches.length; i++) {
-    var s = swatches[i];
-    if (parseInt(s.getAttribute('data-h'), 10) === hue &&
-        parseInt(s.getAttribute('data-b'), 10) === brightness) {
-      s.classList.add('active');
-    }
-  }
-  updateColorUI();
-}
-
-function clearSwatchActive() {
-  var swatches = document.querySelectorAll('.swatch');
-  for (var i = 0; i < swatches.length; i++) {
-    swatches[i].classList.remove('active');
-  }
-}
-
-function sendCurrentColor() {
+function sendFixedColor(hexStr, btnEl) {
   if (!state.connected || state.devIdx === null) {
     showToast('Connect a device first');
     return;
@@ -616,63 +569,35 @@ function sendCurrentColor() {
     showToast('Command in progress, please wait...');
     return;
   }
-  var rgb = getCurrentRgb();
-  var hexColor = toHex2(rgb[0]) + toHex2(rgb[1]) + toHex2(rgb[2]);
-  logInfo('Sending color #' + hexColor.toUpperCase());
-  var cmd = state.slot + ':WRITE:' + state.devIdx + ':' + state.fff2_handle.toString(16) + ':' + hexColor;
+  /* Update preview */
+  var colorPrev = document.getElementById('color-preview');
+  if (colorPrev) {
+    colorPrev.style.background = '#' + hexStr;
+    colorPrev.style.boxShadow  = '0 0 14px #' + hexStr + '88';
+  }
+  var colorLabel = document.getElementById('color-hex-label');
+  if (colorLabel) colorLabel.textContent = '#' + hexStr.toUpperCase();
+  /* Mark active button */
+  var btns = document.querySelectorAll('.btn-color');
+  for (var i = 0; i < btns.length; i++) btns[i].classList.remove('active');
+  if (btnEl) btnEl.classList.add('active');
+  /* Ensure LED state is ON when color is sent */
+  state.ledState = true;
+  updateLEDUI();
+  /* Write RRGGBB (3 bytes RGB only) — firmware parses byte[0]=R, byte[1]=G, byte[2]=B */
+  /* Note: LED is already set to ON above (state.ledState = true) */
+  var payload = hexStr.toUpperCase();
+  logInfo('Sending color #' + hexStr.toUpperCase());
+  var cmd = state.slot + ':WRITE:' + state.devIdx + ':' + state.fff2_handle.toString(16) + ':' + payload;
   state.cmdBusy = true;
-  sendCFML(cmd, 10000)
-    .then(function () { showToast('Color sent ✓'); logOk('COLOR:#' + hexColor); })
+  sendCFML(cmd, 15000)
+    .then(function () { showToast('Color sent ✓'); logOk('COLOR:#' + hexStr); })
     .catch(function (e) { logFail('Color write error: ' + (e ? e.message || e : 'timeout')); })
     .finally(function () { state.cmdBusy = false; });
 }
 
 function toHex2(n) {
   return ('0' + Math.min(255, Math.max(0, Math.round(n))).toString(16)).slice(-2).toUpperCase();
-}
-
-function getCurrentRgb() {
-  if (state.isWhite) {
-    var w = Math.round(state.brightness * 2.55);
-    return [w, w, w];
-  }
-  // HSV to RGB conversion (proper algorithm)
-  var h = state.hue % 360;
-  if (h < 0) h += 360;
-  var s = 100;  // Always full saturation for color picker
-  var v = state.brightness;
-  
-  var c = (v / 100.0) * (s / 100.0);
-  var hp = h / 60.0;
-  var x = c * (1 - Math.abs((hp % 2) - 1));
-  var m = (v / 100.0) - c;
-  
-  var r, g, b;
-  if (hp >= 0 && hp < 1) { r = c; g = x; b = 0; }
-  else if (hp >= 1 && hp < 2) { r = x; g = c; b = 0; }
-  else if (hp >= 2 && hp < 3) { r = 0; g = c; b = x; }
-  else if (hp >= 3 && hp < 4) { r = 0; g = x; b = c; }
-  else if (hp >= 4 && hp < 5) { r = x; g = 0; b = c; }
-  else { r = c; g = 0; b = x; }
-  
-  return [(r + m) * 255, (g + m) * 255, (b + m) * 255];
-}
-
-function updateColorUI() {
-  try {
-    var rgb = getCurrentRgb();
-    var hex = '#' + toHex2(rgb[0]) + toHex2(rgb[1]) + toHex2(rgb[2]);
-    var colorPrev = document.getElementById('color-preview');
-    if (colorPrev) {
-      colorPrev.style.background = hex;
-      colorPrev.style.boxShadow  = '0 0 14px ' + hex + '88';
-    }
-    var colorLabel = document.getElementById('color-hex-label');
-    if (colorLabel) colorLabel.textContent = hex.toUpperCase();
-    var baseColor = state.isWhite ? '#FFFFFF' : ('hsl(' + state.hue + ',100%,50%)');
-    var bs = document.getElementById('bright-slider');
-    if (bs) bs.style.background = 'linear-gradient(to right, #111 0%, ' + baseColor + ' 100%)';
-  } catch (e) {}
 }
 
 /* -------------------------------------------------------------------
@@ -769,10 +694,5 @@ window.connectToDevice    = connectToDevice;
 window.disconnectDevice   = disconnectDevice;
 window.onLedToggle        = onLedToggle;
 window.sendLedCommand     = sendLedCommand;
-window.onHueChange        = onHueChange;
-window.onHueCommit        = onHueCommit;
-window.onBrightChange     = onBrightChange;
-window.onBrightCommit     = onBrightCommit;
-window.applySwatch        = applySwatch;
-window.sendCurrentColor   = sendCurrentColor;
+window.sendFixedColor     = sendFixedColor;
 window.clearLog           = clearLog;

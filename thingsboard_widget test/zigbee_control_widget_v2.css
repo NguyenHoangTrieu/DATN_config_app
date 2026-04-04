@@ -307,73 +307,22 @@
 }
 .zb-app-root .color-hex-label { font-size: 11px; font-family: 'Consolas', monospace; color: var(--text-dim); font-weight: 600; }
 
-/* Hue Slider */
-.hue-track-wrap { position: relative; }
-.hue-slider {
-  -webkit-appearance: none; appearance: none;
-  width: 100%; height: 14px; border-radius: 7px; outline: none; cursor: pointer;
-  background: linear-gradient(to right,
-    hsl(0,100%,50%), hsl(30,100%,50%), hsl(60,100%,50%),
-    hsl(90,100%,50%), hsl(120,100%,50%), hsl(150,100%,50%),
-    hsl(180,100%,50%), hsl(210,100%,50%), hsl(240,100%,50%),
-    hsl(270,100%,50%), hsl(300,100%,50%), hsl(330,100%,50%), hsl(360,100%,50%));
-  border: 2px solid rgba(255,255,255,0.1);
+/* 5-Color Fixed Buttons */
+.color-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.btn-color {
+  flex: 1; min-width: 60px; padding: 8px 4px;
+  border-radius: var(--radius-sm); border: 2px solid transparent;
+  font-size: 11px; font-weight: 700; cursor: pointer;
+  transition: all 0.2s; text-align: center;
 }
-.hue-slider::-webkit-slider-thumb {
-  -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%;
-  background: #fff; border: 3px solid rgba(255,255,255,0.9);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.5); cursor: pointer; transition: transform 0.15s;
-}
-.hue-slider::-webkit-slider-thumb:hover { transform: scale(1.15); }
-.hue-slider::-moz-range-thumb {
-  width: 20px; height: 20px; border-radius: 50%;
-  background: #fff; border: 3px solid rgba(255,255,255,0.9); cursor: pointer;
-}
-
-/* Brightness Slider */
-.bright-row { display: flex; align-items: center; gap: 8px; }
-.bright-icon { font-size: 14px; flex-shrink: 0; }
-.bright-slider {
-  -webkit-appearance: none; appearance: none;
-  flex: 1; height: 10px; border-radius: 5px; outline: none; cursor: pointer;
-  border: 1px solid rgba(255,255,255,0.08);
-  background: linear-gradient(to right, #111 0%, #FF8000 100%);
-}
-.bright-slider::-webkit-slider-thumb {
-  -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%;
-  background: #fff; border: 2px solid rgba(255,255,255,0.8);
-  box-shadow: 0 2px 6px rgba(0,0,0,0.4); cursor: pointer; transition: transform 0.15s;
-}
-.bright-slider::-webkit-slider-thumb:hover { transform: scale(1.15); }
-.bright-slider::-moz-range-thumb {
-  width: 18px; height: 18px; border-radius: 50%;
-  background: #fff; border: 2px solid rgba(255,255,255,0.8); cursor: pointer;
-}
-
-/* Swatches */
-.swatches { display: flex; gap: 8px; flex-wrap: wrap; }
-.swatch {
-  width: 28px; height: 28px; border-radius: 50%;
-  border: 2px solid transparent; cursor: pointer;
-  transition: all 0.2s; outline: none; box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-}
-.swatch:hover  { transform: scale(1.2); border-color: rgba(255,255,255,0.5); }
-.swatch.active { border-color: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,0.2); transform: scale(1.15); }
-.swatch-white  { border-color: rgba(200,200,200,0.4) !important; }
-
-/* Send Color Button */
-.btn-send-color {
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-  width: 100%; padding: 10px;
-  background: linear-gradient(135deg, var(--accent), #7c3aed);
-  border: none; border-radius: var(--radius-sm);
-  color: #fff; font-size: 12px; font-weight: 700;
-  cursor: pointer; transition: all 0.2s;
-  box-shadow: 0 4px 16px rgba(108,99,255,0.35);
-}
-.btn-send-color:hover  { filter: brightness(1.15); transform: translateY(-1px); }
-.btn-send-color:active { transform: translateY(0); }
-.send-arrow { font-size: 14px; }
+.btn-color:hover  { filter: brightness(1.15); transform: translateY(-1px); }
+.btn-color:active { transform: translateY(0); }
+.btn-color.active { box-shadow: 0 0 0 3px rgba(255,255,255,0.45); }
+.btn-color-red    { background: #FF0000; color: #fff; border-color: #FF0000; }
+.btn-color-green  { background: #00FF00; color: #000; border-color: #00FF00; }
+.btn-color-blue   { background: #0000FF; color: #fff; border-color: #0000FF; }
+.btn-color-yellow { background: #FFFF00; color: #000; border-color: #FFFF00; }
+.btn-color-white  { background: #FFFFFF; color: #000; border-color: #ccc; }
 
 /* Sensor / read-only display */
 .sensor-card { flex-direction: column; gap: 8px; }
