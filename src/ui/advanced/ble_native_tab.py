@@ -182,8 +182,13 @@ class BleNativeTab(ttk.Frame):
         self._cmd_list_frame.pack(fill=tk.X)
 
         for d in [
-            {"name": "ONOFF",     "model_id": "0x1000", "opcode": "0x8202", "param_schema": "value:uint8"},
-            {"name": "LIGHTNESS", "model_id": "0x1300", "opcode": "0x824C", "param_schema": "lightness:uint16"},
+            {"name": "ONOFF",        "model_id": "0x1000", "opcode": "0x8202", "param_schema": "value:uint8"},
+            {"name": "LIGHTNESS",    "model_id": "0x1300", "opcode": "0x824C", "param_schema": "lightness:uint16"},
+            {"name": "GET_ONOFF",    "model_id": "0x1000", "opcode": "0x8201", "param_schema": ""},
+            {"name": "GET_LIGHTNESS","model_id": "0x1300", "opcode": "0x824B", "param_schema": ""},
+            {"name": "CTL",          "model_id": "0x1303", "opcode": "0x825E", "param_schema": "lightness:uint16,temperature:uint16,delta_uv:int16"},
+            {"name": "SCENE_STORE",  "model_id": "0x1203", "opcode": "0x8044", "param_schema": "scene_num:uint16"},
+            {"name": "SCENE_RECALL", "model_id": "0x1203", "opcode": "0x8042", "param_schema": "scene_num:uint16"},
         ]:
             self._add_cmd_row(d)
 

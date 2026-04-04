@@ -10,6 +10,26 @@
 <div class="mesh-root" id="mesh-root">
 
   <!-- ══════════════════════════════════════════
+       NOT-SUPPORTED OVERLAY — remove when BLE Mesh is validated
+       ══════════════════════════════════════════ -->
+  <div id="unsupported-overlay" style="
+      position:absolute; inset:0; z-index:9999;
+      background:rgba(20,20,20,0.82);
+      display:flex; flex-direction:column;
+      align-items:center; justify-content:center;
+      border-radius:8px;">
+    <div style="font-size:3rem; margin-bottom:12px;">🚧</div>
+    <div style="color:#fff; font-size:1.25rem; font-weight:700; margin-bottom:8px;">
+      BLE Mesh — Chưa hỗ trợ
+    </div>
+    <div style="color:#bbb; font-size:0.9rem; text-align:center; max-width:320px; line-height:1.5;">
+      Tính năng BLE Mesh Provisioner đang trong giai đoạn phát triển
+      và chưa sẵn sàng cho sử dụng thực tế.<br><br>
+      <em>Feature is under development and not yet production-ready.</em>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════
        HEADER
        ══════════════════════════════════════════ -->
   <div class="widget-header">

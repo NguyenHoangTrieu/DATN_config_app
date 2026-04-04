@@ -3,26 +3,9 @@
    ║  Protocol : CFML:CFBN:<slot>:<VERB>:<params>                     ║
    ║  Response : CFBN:<data>                                          ║
    ║                                                                  ║
-   ║  Node types (from CID in SCAN_RESULT):                           ║
-   ║    0xDA21  → LED node                                            ║
-   ║    0xDA22  → Sensor node                                         ║
-   ║                                                                  ║
-   ║  Commands (minimum timeout 15 000 ms):                           ║
-   ║    SCAN:<ms>                                                      ║
-   ║    PROVISION:<uuid>                                               ║
-   ║    NODE_LIST                                                      ║
-   ║    APP_KEY_ADD:{"addr":"<hex>","net_idx":0,"app_idx":0}          ║
-   ║    CONTROL:{"addr":"<hex>","func":"ONOFF","params":{...}}        ║
-   ║    CONTROL:{"addr":"<hex>","func":"VENDOR_COLOR",                ║
-   ║             "params":{"color_idx":<0-4>}}                        ║
-   ║    GET_STATUS:{"addr":"<hex>","model":"ONOFF"}                   ║
-   ║    NODE_RESET:<hex_addr>                                          ║
-   ║                                                                  ║
-   ║  Color index mapping:                                             ║
-   ║    0=Red  1=Green  2=Blue  3=Yellow  4=White                     ║
-   ║                                                                  ║
-   ║  COMMAND QUEUE: each command waits for response or timeout       ║
-   ║  before next command is dispatched.                              ║
+   ║  Prerequisite: use the desktop config app (BLE Mesh tab) to      ║
+   ║  send CFBN:JSON over serial before using this widget.            ║
+   ║  The widget only sends control commands; it does NOT push config. ║
    ╚══════════════════════════════════════════════════════════════════╝ */
 
 /* ────────────────────────────────────────────────────────────────────
@@ -145,8 +128,17 @@ function sendCFML(verbAndArgs, timeoutMs) {
 /** Hex-decode the response string from ThingsBoard */
 function _hexDecodeResp(resp) {
   if (!resp) return '';
-  if (typeof resp === 'object' && resp.value) resp = resp.value;
+  /* TB4 may wrap the payload in an object — try all known field names */
+  if (typeof resp === 'object') {
+    console.log('[BLE-MESH][RX RAW OBJECT]', JSON.stringify(resp));
+    resp = resp.value || resp.data || resp.result || resp.body
+            || JSON.stringify(resp);
+  }
   var str = String(resp).trim();
+  /* Strip outer JSON string quotes if TB double-encoded */
+  if (str.charAt(0) === '"' && str.charAt(str.length - 1) === '"') {
+    try { str = JSON.parse(str); } catch (_) {}
+  }
   /* If it looks hex-encoded, decode it */
   if (/^[0-9A-Fa-f]+$/.test(str) && str.length % 2 === 0) {
     try {
@@ -222,52 +214,68 @@ function _parseScanResult(resp) {
 
   var devs  = [];
   var parts = resp.substring(doneIdx).split('\x1e');
-  /* parts[0] = "SCAN_DONE:<n>", parts[1..] = "UNPROV_DEV:<uuid>" */
+  /* parts[0] = "SCAN_DONE:<n>", parts[1..] = "UNPROV_DEV:<uuid32><addr_type02X><addr12hex>:<oob>" */
   for (var i = 1; i < parts.length; i++) {
     var p = parts[i].trim();
     if (p.indexOf('UNPROV_DEV:') !== 0) continue;
-    var uuid = p.substring('UNPROV_DEV:'.length).trim();
-    if (uuid.length < 32) continue;
-    uuid = uuid.toUpperCase();
-    /* cid = first 4 hex chars (bytes 0-1): 'DA01'=LED, 'DA02'=LED,
-     * 'DA22'=Sensor — extendable per project convention              */
+    var rest = p.substring('UNPROV_DEV:'.length).trim();
+    /* UUID is always exactly the first 32 hex chars */
+    var uuid = rest.substring(0, 32).toUpperCase();
+    if (uuid.length < 32 || !/^[0-9A-F]{32}$/.test(uuid)) continue;
+    /* addr_type (2 hex chars) and compact addr (12 hex chars) follow immediately */
+    var addrType = parseInt(rest.substring(32, 34) || '0', 16) || 0;
+    var addrHex  = rest.substring(34, 46).toUpperCase();  /* 12 hex chars = 6 bytes */
+    if (addrHex.length < 12 || !/^[0-9A-F]{12}$/.test(addrHex)) addrHex = '000000000000';
     var cid      = uuid.substring(0, 4);
     var devIndex = parseInt(uuid.substring(4, 6), 16) || 0;
     var name     = 'Node_' + devIndex;
-    devs.push({ uuid: uuid, name: name, rssi: null, cid: cid });
+    devs.push({ uuid: uuid, name: name, rssi: null, cid: cid,
+                addrType: addrType, addrHex: addrHex });
   }
   return devs;
 }
 
 /* ── Provision a device ───────────────────────────────────────────── */
-function provisionDevice(uuid, name, cid) {
-  logInfo('Provisioning: ' + uuid);
+function provisionDevice(uuid, name, cid, addrType, addrHex) {
+  /* Build extended provision params: <uuid32><addr_type02X><addr12hex>
+   * Firmware handle_provision() uses the BT address to open the PB-ADV link. */
+  var at = ('00' + parseInt(addrType || 0).toString(16).toUpperCase()).slice(-2);
+  var ah = (addrHex && addrHex.length === 12) ? addrHex.toUpperCase() : '000000000000';
+  var provParams = uuid + at + ah;
+  logInfo('Provisioning: ' + uuid + ' addr_type=' + at + ' addr=' + ah);
+  setEl('status-text', 'Đang cấu hình... (30s)');
   enqueue(function () {
-    return sendCFML('PROVISION:' + uuid, 30000)
+    /* Firmware blocks until provisioning + APP_KEY_ADD + MODEL_APP_BIND complete.
+     * PB-ADV provisioning can take up to ~65s (30s attempt + 30s retry + margin).
+     * Add time for APP_KEY_ADD (2s) and per-model binds (~2s × n). Use 150s.  */
+    return sendCFML('PROVISION:' + provParams, 150000)
       .then(function (resp) {
-        /* Expected: CFBN:PROV_DONE:{"uuid":"...","addr":"0x0002"} */
-        var addrMatch = resp.match(/"addr"\s*:\s*"([^"]+)"/);
-        var addr = addrMatch ? addrMatch[1] : null;
-        if (!addr) throw new Error('No addr in response');
+        /* Parse "PROVISIONED:0x0002" or "PROVISIONED:0x0002:BIND_WARN:…"  */
+        var addrMatch = resp.match(/PROVISIONED:0x([0-9A-Fa-f]+)/);
+        if (!addrMatch) throw new Error('Unexpected response: ' + resp);
+        var addr = '0x' + addrMatch[1].toUpperCase();
+
+        if (resp.indexOf('BIND_WARN') >= 0) {
+          logFail('MODEL_APP_BIND had warnings — node may not respond to some commands');
+        }
 
         /* Determine type from CID */
-        var type = (cid === 'DA22' || cid === 0xDA22) ? 'sensor' : 'led';
-        /* Add APP key */
-        return sendCFML(
-          'APP_KEY_ADD:' + JSON.stringify({ addr: addr, net_idx: 0, app_idx: 0 }),
-          15000
-        ).then(function () {
-          var node = { addr: addr, name: name || ('Node_' + addr), type: type, uuid: uuid };
-          state.nodes.push(node);
-          saveNodes();
-          renderNodeList();
-          setEl('status-text', 'Đã thêm node ' + addr);
-          logOk('Provisioned OK — ' + addr + ' (' + type + ')');
-          showToast('Đã cấu hình: ' + node.name);
-        });
+        var type = (cid === 'DA22' || cid === '0xDA22') ? 'sensor' : 'led';
+
+        var node = { addr: addr, name: name || ('Node_' + addr), type: type, uuid: uuid };
+        state.nodes.push(node);
+        saveNodes();
+        /* Auto-select the newly provisioned node */
+        state.selectedNode = node;
+        renderNodeList();
+        updateControlPanel();
+        setEl('status-text', 'Đã thêm node ' + addr);
+        logOk('Provisioned + bound OK — ' + addr + ' (' + type + ')');
+        showToast('Đã cấu hình: ' + node.name);
       })
       .catch(function (e) {
         logFail('Provision failed: ' + (e ? e.message || e : 'timeout'));
+        setEl('status-text', 'Cấu hình thất bại');
         showToast('Cấu hình thất bại');
       });
   });
@@ -348,8 +356,8 @@ function onLedToggle(checked) {
     return sendCFML(
       'CONTROL:' + JSON.stringify({
         addr: state.selectedNode.addr,
-        func: 'ONOFF',
-        params: { onoff: checked ? 1 : 0 }
+        cmd: 'ONOFF',
+        params: { value: checked ? 1 : 0 }
       }),
       15000
     )
@@ -359,15 +367,17 @@ function onLedToggle(checked) {
 }
 
 /**
- * Send a fixed color via BLE Mesh vendor model.
- * color_idx: 0=Red, 1=Green, 2=Blue, 3=Yellow, 4=White
+ * Send a brightness level via BLE Mesh Light Lightness model.
+ * Each "color" button maps to a distinct lightness level so the LED
+ * responds visually even without a vendor RGB model.
+ * color hex → lightness (0–65535): R=21845, G=43690, B=32768, Y=54613, W=65535
  */
-var COLOR_IDX = { 'FF0000': 0, '00FF00': 1, '0000FF': 2, 'FFFF00': 3, 'FFFFFF': 4 };
+var COLOR_LIGHTNESS = { 'FF0000': 21845, '00FF00': 43690, '0000FF': 32768, 'FFFF00': 54613, 'FFFFFF': 65535 };
 
 function sendFixedColor(hexStr, btnEl) {
   if (!state.selectedNode) { showToast('Chọn một node trước'); return; }
-  var colorIdx = COLOR_IDX[hexStr.toUpperCase()];
-  if (colorIdx === undefined) { showToast('Màu không hợp lệ'); return; }
+  var lightness = COLOR_LIGHTNESS[hexStr.toUpperCase()];
+  if (lightness === undefined) { showToast('Màu không hợp lệ'); return; }
 
   /* Update preview */
   var cp = ge('color-preview');
@@ -382,19 +392,19 @@ function sendFixedColor(hexStr, btnEl) {
   /* Turn LED on visually when color is sent */
   updateLEDUI(true);
 
-  logInfo('Color → #' + hexStr + ' (idx=' + colorIdx + ')');
+  logInfo('Color → #' + hexStr + ' (lightness=' + lightness + ')');
 
   enqueue(function () {
     return sendCFML(
       'CONTROL:' + JSON.stringify({
         addr: state.selectedNode.addr,
-        func: 'VENDOR_COLOR',
-        params: { color_idx: colorIdx }
+        cmd: 'LIGHTNESS',
+        params: { lightness: lightness }
       }),
       15000
     )
-    .then(function () { showToast('Màu đã gửi ✓'); logOk('Color sent: #' + hexStr); })
-    .catch(function (e) { logFail('VENDOR_COLOR error: ' + (e ? e.message || e : 'timeout')); });
+    .then(function () { showToast('Màu đã gửi ✓'); logOk('Lightness sent: #' + hexStr + ' → ' + lightness); })
+    .catch(function (e) { logFail('LIGHTNESS error: ' + (e ? e.message || e : 'timeout')); });
   });
 }
 
@@ -478,13 +488,15 @@ function renderUnprovList() {
     var uuid  = escJs(dev.uuid  || '');
     var name  = escJs(dev.name  || dev.uuid || 'Unknown');
     var cid   = escJs(String(dev.cid || ''));
+    var at    = escJs(String(dev.addrType !== undefined ? dev.addrType : 0));
+    var ah    = escJs(dev.addrHex || '000000000000');
     var rssi  = dev.rssi !== undefined ? dev.rssi : '—';
     item.innerHTML =
       '<div style="flex:1;overflow:hidden">' +
         '<div class="unprov-name">' + name + '</div>' +
         '<div class="unprov-uuid">' + uuid.substring(0, 12) + '... RSSI:' + rssi + '</div>' +
       '</div>' +
-      '<button class="btn-provision" onclick="provisionDevice(\'' + uuid + '\',\'' + name + '\',\'' + cid + '\')">' +
+      '<button class="btn-provision" onclick="provisionDevice(\'' + uuid + '\',\'' + name + '\',\'' + cid + '\',\'' + at + '\',\'' + ah + '\')">' +
         'Thêm' +
       '</button>';
     list.appendChild(item);
