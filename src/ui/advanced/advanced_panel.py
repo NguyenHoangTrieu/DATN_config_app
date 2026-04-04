@@ -78,8 +78,7 @@ class AdvancedPanel(ttk.Frame):
         self.notebook.add(self.lte_tab,      text="📱 LTE")
         self.notebook.add(self.server_tab,   text="☁️ Server")
         self.notebook.add(self.ble_tab,        text="🔷 BLE")
-        self.notebook.add(self.ble_native_tab, text="🔵 BLE Mesh [Chưa hỗ trợ]",
-                          state="disabled")
+        self.notebook.add(self.ble_native_tab, text="🔵 BLE Native")
         self.notebook.add(self.lora_tab,       text="🟩 LoRa")
         self.notebook.add(self.zigbee_tab,   text="🔶 Zigbee")
         self.notebook.add(self.rs485_tab,    text="🔌 RS485")

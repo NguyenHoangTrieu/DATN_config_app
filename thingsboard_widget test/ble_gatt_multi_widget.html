@@ -1,0 +1,164 @@
+<!-- =====================================================================
+     DA2 BLE GATT Multi-Device Widget — ThingsBoard Control Widget
+     Protocol: CFBG:<slot>:<verb>:<params>  (hex-encoded via RPC sendCommand)
+     Response: CFBG:OK:<payload> | CFBG:FAIL:<reason>  (lines split by \x1E)
+
+     Target devices (up to 5 simultaneous):
+       DA2_LED_1 / DA2_LED_2    — Service 0xFFF0, FFF2 WRITE (1B ON/OFF | 3B RGB)
+       DA2_SENSOR_1..3          — Service 0xAA10, AA11 READ+NOTIFY (4B temp+hum)
+
+     Paste: HTML → "HTML" tab | CSS → "CSS" tab | JS → "JavaScript" tab
+     ThingsBoard v4.x — Control widget
+     ===================================================================== -->
+
+<div id="app-root" class="app-root">
+
+  <!-- ── Header ── -->
+  <div class="app-header">
+    <div class="header-left">
+      <svg class="ble-icon" viewBox="0 0 24 24" fill="none">
+        <path d="M6.5 7.5L17.5 17.5M17.5 6.5L6.5 16.5M12 3V21M17.5 6.5L12 12L17.5 17.5"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <div>
+        <div class="app-title">BLE GATT Application Test</div>
+        <div class="app-subtitle">Multi-Device Central</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <label class="slot-label">Stack</label>
+      <select id="slot-select" class="slot-select" onchange="onSlotChange(this.value)">
+        <option value="0">0</option>
+        <option value="1">1</option>
+      </select>
+      <div id="status-pill" class="status-pill" data-state="idle">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-text">Idle</span>
+      </div>
+      <button id="btn-scan" class="btn-scan" onclick="startScan()">
+        🔍 Scan
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Main Body: 2-column layout ── -->
+  <div class="main-body">
+
+    <!-- LEFT COLUMN: Scan Results -->
+    <div class="col-left">
+      <div class="section-header">
+        <span>📡 AVAILABLE DEVICES</span>
+        <span id="scan-count-badge" class="count-badge">0</span>
+      </div>
+      <div id="scan-list" class="scan-list"></div>
+    </div>
+
+    <!-- VERTICAL DIVIDER -->
+    <div class="col-divider"></div>
+
+    <!-- RIGHT COLUMN: Connected Devices + Detail -->
+    <div class="col-right">
+
+      <!-- Connected cards grid -->
+      <div class="section-header">
+        <span>🔗 CONNECTED DEVICES</span>
+        <span id="connected-count-badge" class="count-badge">0</span>
+      </div>
+      <div id="device-grid" class="device-grid">
+        <div class="empty-hint">No connected devices yet</div>
+      </div>
+
+      <!-- Separator -->
+      <div class="detail-sep"></div>
+
+      <!-- Detail panel -->
+      <div id="detail-panel" class="detail-panel">
+        <div id="detail-placeholder" class="empty-hint">← Select a connected device to control</div>
+
+        <!-- LED Panel -->
+        <div id="led-panel" class="dev-panel hidden">
+          <div class="dev-panel-header">
+            <div class="dev-info">
+              <span class="dev-icon">💡</span>
+              <div>
+                <div id="led-device-name" class="dev-name">—</div>
+                <div id="led-device-mac" class="dev-mac">—</div>
+              </div>
+            </div>
+            <span id="led-state-badge" class="state-badge" data-on="false">⚫ OFF</span>
+          </div>
+          <div class="color-section">
+            <div class="mini-label">Color Presets</div>
+            <div class="color-row">
+              <button class="btn-color" style="background:#e53935" onclick="sendLedColor('FF0000')">🔴 Red</button>
+              <button class="btn-color" style="background:#43a047" onclick="sendLedColor('00FF00')">🟢 Green</button>
+              <button class="btn-color" style="background:#1e88e5" onclick="sendLedColor('0000FF')">🔵 Blue</button>
+              <button class="btn-color" style="background:#fdd835;color:#111" onclick="sendLedColor('FFFF00')">🟡 Yellow</button>
+              <button class="btn-color" style="background:#bdbdbd;color:#111" onclick="sendLedColor('FFFFFF')">&#9899; White</button>
+            </div>
+          </div>
+          <div class="onoff-row">
+            <button id="btn-led-on"  class="btn-onoff btn-on"  onclick="sendLedOnOff(true)">◉ ON</button>
+            <button id="btn-led-off" class="btn-onoff btn-off" onclick="sendLedOnOff(false)">&#9675; OFF</button>
+          </div>
+          <div class="panel-footer">
+            <button class="btn-disc-footer" onclick="disconnectSelected()">⛔ Disconnect Device</button>
+          </div>
+        </div>
+
+        <!-- Sensor Panel -->
+        <div id="sensor-panel" class="dev-panel hidden">
+          <div class="dev-panel-header">
+            <div class="dev-info">
+              <span class="dev-icon">🌡</span>
+              <div>
+                <div id="sensor-device-name" class="dev-name">—</div>
+                <div id="sensor-device-mac" class="dev-mac">—</div>
+              </div>
+            </div>
+          </div>
+          <div class="sensor-cards">
+            <div class="sensor-card">
+              <div class="sensor-label">🌡 Temperature</div>
+              <div id="temp-value" class="sensor-val">—</div>
+              <div class="sensor-minmax">
+                <span>↑ <span id="temp-max">—</span></span>
+                <span>↓ <span id="temp-min">—</span></span>
+              </div>
+            </div>
+            <div class="sensor-card">
+              <div class="sensor-label">💧 Humidity</div>
+              <div id="hum-value" class="sensor-val">—</div>
+              <div class="sensor-minmax">
+                <span>↑ <span id="hum-max">—</span></span>
+                <span>↓ <span id="hum-min">—</span></span>
+              </div>
+            </div>
+          </div>
+          <div id="sensor-last-update" class="sensor-meta">Last update: —</div>
+          <div class="panel-footer">
+            <button class="btn-disc-footer" onclick="disconnectSelected()">⛔ Disconnect Device</button>
+          </div>
+        </div>
+      </div><!-- /detail-panel -->
+    </div><!-- /col-right -->
+
+  </div><!-- /main-body -->
+
+  <!-- ── Console ── -->
+  <div class="console-wrap">
+    <div class="console-bar">
+      <div class="console-dots">
+        <span class="cdot cdot-g"></span>
+        <span class="cdot cdot-y"></span>
+        <span class="cdot cdot-r"></span>
+        <span class="console-title">CONSOLE</span>
+      </div>
+      <button class="btn-clear" onclick="clearLog()">Clear</button>
+    </div>
+    <div id="console-log" class="console-log"></div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+</div><!-- /app-root -->

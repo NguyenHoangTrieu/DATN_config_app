@@ -1,0 +1,194 @@
+﻿/* =====================================================================
+   DA2 BLE GATT Multi-Device Widget — CSS
+   ===================================================================== */
+
+/* Reset / Base */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+.app-root {
+  font-family: 'Segoe UI', 'Roboto', Arial, sans-serif;
+  font-size: 16px;
+  color: #e0e0e0;
+  background: #1a1a2e;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 480px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Header */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #1a237e;
+  padding: 6px 12px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 44px;
+}
+.header-left { display: flex; align-items: center; gap: 8px; }
+.ble-icon { width: 26px; height: 26px; color: #90caf9; flex-shrink: 0; }
+.app-title { font-size: 15px; font-weight: 700; color: #fff; }
+.app-subtitle { font-size: 13px; color: #90caf9; }
+.header-right { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.slot-label { font-size: 12px; color: #90caf9; }
+.slot-select { background: #283593; color: #fff; border: 1px solid #3949ab; border-radius: 4px; padding: 2px 6px; font-size: 13px; cursor: pointer; }
+
+.status-pill { display: flex; align-items: center; gap: 4px; background: rgba(255,255,255,0.1); border-radius: 20px; padding: 3px 9px; font-size: 13px; white-space: nowrap; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: #9e9e9e; flex-shrink: 0; }
+.status-pill[data-state="idle"]      .status-dot { background: #9e9e9e; }
+.status-pill[data-state="scanning"]  .status-dot { background: #ffd600; animation: blink 0.8s infinite; }
+.status-pill[data-state="connected"] .status-dot { background: #4caf50; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+.btn-scan { background: #1976d2; color: #fff; border: none; border-radius: 6px; padding: 5px 16px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background 0.2s; }
+.btn-scan:hover    { background: #1565c0; }
+.btn-scan:disabled { background: #37474f; cursor: default; }
+
+/* Main Body: 2-column flex */
+.main-body {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* LEFT COLUMN — always 2-column, no responsive stacking */
+.col-left { width: 30%; min-width: 200px; max-width: 320px; display: flex; flex-direction: column; background: #0d1117; overflow: hidden; flex-shrink: 0; }
+.col-divider { width: 2px; background: #455a64; flex-shrink: 0; }
+.col-right { flex: 1; display: flex; flex-direction: column; background: #13192a; overflow: hidden; min-width: 0; }
+
+/* Section header */
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 10px;
+  background: #1e2a3a;
+  border-bottom: 1px solid #37474f;
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #90a4ae;
+  flex-shrink: 0;
+  min-height: 26px;
+}
+
+.count-badge { background: #283593; color: #90caf9; border-radius: 10px; padding: 1px 6px; font-size: 13px; font-weight: 700; }
+
+/* Scan list */
+.scan-list { flex: 1; overflow-y: auto; padding: 4px; }
+
+.scan-item { background: #0f1f35; border: 1px solid #1e3a5f; border-radius: 6px; padding: 6px 9px; margin-bottom: 4px; }
+.scan-item-top { display: flex; align-items: center; gap: 5px; margin-bottom: 3px; }
+.scan-item-icon { font-size: 16px; flex-shrink: 0; }
+.scan-item-name { font-size: 15px; font-weight: 700; color: #e3f2fd; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scan-item-mac { font-size: 13px; color: #546e7a; font-family: monospace; margin-bottom: 4px; }
+.scan-item-bottom { display: flex; align-items: center; justify-content: space-between; }
+.rssi-wrap { display: flex; align-items: center; gap: 4px; }
+.rssi-bar { width: 38px; height: 4px; background: #263238; border-radius: 2px; overflow: hidden; }
+.rssi-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg, #ef5350, #ffc107, #4caf50); }
+.rssi-txt { font-size: 13px; color: #78909c; }
+.btn-connect { background: #1565c0; color: #fff; border: none; border-radius: 4px; padding: 4px 10px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+.btn-connect:hover     { background: #0d47a1; }
+.btn-connect.connected { background: #2e7d32; cursor: default; }
+.btn-connect:disabled  { background: #37474f; cursor: default; }
+
+/* Device grid */
+.device-grid { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; flex-shrink: 0; min-height: 68px; border-bottom: 1px solid #263238; background: #0d1117; }
+.empty-hint { color: #546e7a; font-size: 11px; padding: 4px 2px; width: 100%; font-style: italic; }
+
+.device-card { background: #162032; border: 2px solid #263238; border-radius: 8px; padding: 7px 10px; cursor: pointer; width: 105px; text-align: center; transition: border-color 0.15s; }
+.device-card:hover                            { border-color: #42a5f5; }
+.device-card.led-card                         { border-color: #ff8f00; }
+.device-card.sensor-card                      { border-color: #00897b; }
+.device-card[data-selected="true"]            { border-color: #1976d2; background: #1a2b45; }
+.device-card[data-selected="true"].led-card    { border-color: #ffb300; background: #1e1600; }
+.device-card[data-selected="true"].sensor-card { border-color: #26a69a; background: #011c1a; }
+.device-card-icon { font-size: 20px; margin-bottom: 2px; }
+.device-card-name { font-size: 13px; font-weight: 700; color: #e3f2fd; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.online-badge        { font-size: 12px; margin-top: 2px; }
+.online-badge.online { color: #4caf50; }
+.online-badge.offline{ color: #f44336; }
+
+/* Detail panel */
+.detail-sep    { height: 1px; background: #37474f; flex-shrink: 0; }
+.detail-panel  { flex: 1; overflow-y: auto; padding: 8px; background: #13192a; }
+
+/* Device panel */
+.dev-panel        { display: flex; flex-direction: column; gap: 8px; }
+.dev-panel.hidden { display: none; }
+.dev-panel-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: #1e2a3a; border-radius: 8px; padding: 8px 10px; }
+.dev-info  { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.dev-icon  { font-size: 22px; flex-shrink: 0; }
+.dev-name  { font-size: 15px; font-weight: 700; color: #e3f2fd; }
+.dev-mac   { font-size: 12px; color: #78909c; font-family: monospace; }
+
+.state-badge { font-size: 13px; font-weight: 700; padding: 4px 12px; border-radius: 12px; background: #263238; white-space: nowrap; }
+.state-badge[data-on="true"]  { background: #1b5e20; color: #a5d6a7; }
+.state-badge[data-on="false"] { background: #263238; color: #78909c; }
+
+.btn-disc { background: #c62828; color: #fff; border: none; border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer; white-space: nowrap; transition: background 0.15s; flex-shrink: 0; }
+.btn-disc:hover { background: #b71c1c; }
+
+/* LED controls */
+.mini-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #78909c; margin-bottom: 6px; }
+.color-section { background: #1e2a3a; border-radius: 8px; padding: 9px 10px; }
+.color-row { display: flex; flex-wrap: wrap; gap: 5px; }
+.btn-color { border: none; border-radius: 6px; padding: 8px 14px; font-size: 14px; font-weight: 700; color: #fff; cursor: pointer; transition: opacity 0.15s, transform 0.1s; text-shadow: 0 1px 2px rgba(0,0,0,0.5); }
+.btn-color:hover  { opacity: 0.85; transform: scale(1.04); }
+.btn-color:active { transform: scale(0.97); }
+.onoff-row { display: flex; gap: 8px; }
+.btn-onoff { flex: 1; border: none; border-radius: 8px; padding: 12px; font-size: 16px; font-weight: 700; cursor: pointer; transition: opacity 0.15s; }
+.btn-onoff:hover { opacity: 0.85; }
+.btn-on  { background: #2e7d32; color: #c8e6c9; }
+.btn-off { background: #37474f; color: #b0bec5; }
+.btn-on.active  { background: #43a047; box-shadow: 0 0 12px #43a04766; }
+.btn-off.active { background: #546e7a; }
+
+/* Sensor panel */
+.sensor-cards { display: flex; gap: 8px; flex-wrap: wrap; }
+.sensor-card  { flex: 1; min-width: 110px; background: #1e2a3a; border-radius: 8px; padding: 10px 14px; text-align: center; }
+.sensor-label { font-size: 14px; color: #78909c; margin-bottom: 4px; }
+.sensor-val   { font-size: 28px; font-weight: 700; color: #80deea; line-height: 1.1; }
+.sensor-val .unit { font-size: 15px; color: #90a4ae; }
+.sensor-minmax { display: flex; justify-content: space-around; margin-top: 5px; font-size: 11px; color: #78909c; }
+.sensor-meta  { font-size: 11px; color: #546e7a; text-align: right; }
+
+/* Console */
+.console-wrap { height: 108px; display: flex; flex-direction: column; background: #263238; border-top: 1px solid #37474f; flex-shrink: 0; }
+.console-bar  { display: flex; align-items: center; justify-content: space-between; padding: 3px 8px; background: #1c2b30; border-bottom: 1px solid #37474f; flex-shrink: 0; }
+.console-dots { display: flex; align-items: center; gap: 4px; }
+.cdot   { width: 8px; height: 8px; border-radius: 50%; }
+.cdot-g { background: #4caf50; }
+.cdot-y { background: #ffc107; }
+.cdot-r { background: #f44336; }
+.console-title { margin-left: 6px; font-size: 11px; color: #78909c; text-transform: uppercase; letter-spacing: 0.5px; }
+.btn-clear { background: transparent; color: #78909c; border: 1px solid #37474f; border-radius: 3px; padding: 1px 8px; font-size: 11px; cursor: pointer; }
+.btn-clear:hover { color: #e0e0e0; }
+.console-log { flex: 1; overflow-y: auto; padding: 3px 8px; font-family: 'Consolas','Courier New',monospace; font-size: 13px; line-height: 1.5; }
+.log-line  { margin-bottom: 1px; }
+.log-ts    { color: #546e7a; margin-right: 4px; }
+.log-tx    { color: #42a5f5; }
+.log-ok    { color: #a5d6a7; }
+.log-fail  { color: #ef9a9a; }
+.log-evt   { color: #fff59d; }
+.log-info  { color: #90a4ae; }
+
+/* Panel footer — disconnect action */
+.panel-footer { display: flex; justify-content: flex-end; padding-top: 4px; border-top: 1px solid #263238; margin-top: 4px; }
+.btn-disc-footer { background: transparent; color: #ef5350; border: 1px solid #c62828; border-radius: 6px; padding: 5px 14px; font-size: 13px; cursor: pointer; transition: background 0.15s, color 0.15s; }
+.btn-disc-footer:hover { background: #c62828; color: #fff; }
+
+/* Toast */
+.toast { position: absolute; bottom: 115px; left: 50%; transform: translateX(-50%); background: #455a64; color: #e0e0e0; padding: 5px 16px; border-radius: 20px; font-size: 11px; z-index: 999; pointer-events: none; white-space: nowrap; }
+.toast.hidden { display: none; }
+
+/* No responsive breakpoints — always 2-column desktop layout */

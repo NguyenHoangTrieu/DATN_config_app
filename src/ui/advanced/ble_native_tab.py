@@ -57,7 +57,7 @@ class BleNativeTab(ttk.Frame):
         gatt_frame = ttk.Frame(nb)
         mesh_frame = ttk.Frame(nb)
         nb.add(gatt_frame, text="🔷 GATT Central (CFBG:)")
-        nb.add(mesh_frame, text="🔶 BLE Mesh (CFBN:)")
+        nb.add(mesh_frame, text="🔶 BLE Mesh (CFBN:) [Chưa hỗ trợ]", state="disabled")
 
         self._build_gatt(gatt_frame)
         self._build_mesh(mesh_frame)
