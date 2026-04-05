@@ -1,0 +1,146 @@
+/* =====================================================================
+   DA2 BLE Sensor Monitor Widget — CSS
+   ===================================================================== */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+.mon-root {
+  font-family: 'Segoe UI', 'Roboto', Arial, sans-serif;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Header ── */
+.mon-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #0d47a1;
+  padding: 8px 14px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 46px;
+}
+.mon-hdr-left { display: flex; align-items: center; gap: 10px; }
+.mon-icon     { font-size: 26px; flex-shrink: 0; }
+.mon-title    { font-size: 15px; font-weight: 700; color: #fff; }
+.mon-sub      { font-size: 12px; color: #90caf9; }
+
+.mon-pill {
+  display: flex; align-items: center; gap: 5px;
+  background: rgba(255,255,255,0.12);
+  border-radius: 20px; padding: 3px 10px;
+  font-size: 13px;
+}
+.mon-dot { width: 8px; height: 8px; border-radius: 50%; background: #9e9e9e; flex-shrink: 0; }
+.mon-pill[data-state="idle"]   .mon-dot { background: #9e9e9e; }
+.mon-pill[data-state="active"] .mon-dot { background: #4caf50; animation: mon-blink 1.5s infinite; }
+.mon-pill[data-state="stale"]  .mon-dot { background: #ffc107; }
+@keyframes mon-blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+/* ── Sensor Grid ── */
+.sensor-grid {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-content: flex-start;
+}
+
+/* Hint box */
+.hint-box {
+  width: 100%;
+  text-align: center;
+  padding: 40px 20px;
+  color: #546e7a;
+}
+.hint-icon  { font-size: 36px; margin-bottom: 10px; }
+.hint-title { font-size: 15px; font-weight: 600; margin-bottom: 8px; color: #78909c; }
+.hint-sub   { font-size: 13px; color: #546e7a; line-height: 1.6; }
+.hint-box code {
+  background: #263238; color: #80cbc4;
+  padding: 1px 5px; border-radius: 3px;
+  font-family: 'Consolas', monospace;
+}
+
+/* Sensor Card */
+.sensor-card-wrap {
+  background: #162032;
+  border: 1px solid #1e3a5f;
+  border-radius: 10px;
+  flex: 1 1 220px;
+  max-width: 360px;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+.sensor-card-wrap:hover { border-color: #1565c0; }
+
+.sc-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 8px;
+  background: #1e2a3a;
+  border-bottom: 1px solid #263238;
+}
+.sc-icon { font-size: 20px; flex-shrink: 0; }
+.sc-name {
+  font-size: 14px; font-weight: 700; flex: 1;
+  color: #e3f2fd;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sc-badge {
+  font-size: 11px; color: #4caf50;
+  background: #1b5e20;
+  border-radius: 8px; padding: 2px 7px;
+  white-space: nowrap;
+}
+
+.sc-vals {
+  display: flex;
+  padding: 12px;
+  gap: 0;
+}
+.sc-col { flex: 1; text-align: center; }
+.sc-divider { width: 1px; background: #263238; margin: 4px 8px; flex-shrink: 0; }
+
+.sc-label { font-size: 11px; color: #78909c; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+.sc-val   { font-size: 28px; font-weight: 700; color: #80deea; line-height: 1.1; }
+.sc-unit  { font-size: 13px; color: #90a4ae; }
+.sc-mm    { display: flex; justify-content: center; gap: 10px; margin-top: 5px; font-size: 11px; color: #546e7a; }
+
+.sc-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 12px 8px;
+  font-size: 11px;
+  color: #546e7a;
+  border-top: 1px solid #1e2a3a;
+  background: #111c2c;
+}
+.sc-rxcnt {
+  background: #263238; border-radius: 8px;
+  padding: 1px 6px; color: #78909c;
+}
+
+/* ── Footer ── */
+.mon-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 14px;
+  font-size: 11px;
+  color: #546e7a;
+  background: #0d1117;
+  border-top: 1px solid #263238;
+  flex-shrink: 0;
+}

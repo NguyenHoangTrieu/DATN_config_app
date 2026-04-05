@@ -1,0 +1,45 @@
+<!-- =====================================================================
+     DA2 BLE Sensor Monitor — ThingsBoard Latest Values Widget
+     Type    : Latest Values
+     Datasource: Entity → Gateway device → telemetry key "data"
+     Data flow: Sensor BLE NOTIFY → ESP32 → MQTT → ThingsBoard telemetry
+               → WebSocket push → onDataUpdated() → decode hex → render
+     No polling, no RPC required.
+     ===================================================================== -->
+
+<div id="mon-root" class="mon-root">
+
+  <!-- Header -->
+  <div class="mon-header">
+    <div class="mon-hdr-left">
+      <div class="mon-icon">🌡</div>
+      <div>
+        <div class="mon-title">BLE Sensor Monitor</div>
+        <div class="mon-sub">WebSocket push — no polling</div>
+      </div>
+    </div>
+    <div id="mon-pill" class="mon-pill" data-state="idle">
+      <span class="mon-dot"></span>
+      <span id="mon-pill-txt">Waiting</span>
+    </div>
+  </div>
+
+  <!-- Sensor Cards Grid -->
+  <div id="sensor-grid" class="sensor-grid">
+    <div id="sensor-hint" class="hint-box">
+      <div class="hint-icon">📡</div>
+      <div class="hint-title">Waiting for sensor data…</div>
+      <div class="hint-sub">
+        Add datasource: Entity → Gateway device → key <code>data</code> (Latest Telemetry)<br>
+        Data appears automatically when BLE sensors push NOTIFY.
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="mon-footer">
+    <span id="mon-rx-count">0 packets received</span>
+    <span id="mon-last-ts">—</span>
+  </div>
+
+</div>

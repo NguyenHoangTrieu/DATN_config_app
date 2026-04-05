@@ -1,5 +1,48 @@
 # UI Design — BLE GATT Application Test Widget
 
+---
+
+## ⭐ Kiến trúc 2-Widget (Cập nhật mới)
+
+Hệ thống được tách thành **2 widget riêng biệt** cho 2 mục đích khác nhau:
+
+| Widget | File | Loại ThingsBoard | Chức năng |
+|--------|------|-----------------|-----------|
+| **BLE Sensor Monitor** | `ble_monitor_widget.*` | **Latest Values** | Giám sát sensor (nhiệt độ / độ ẩm) qua WebSocket telemetry push — không polling, không RPC |
+| **BLE GATT Control** | `ble_control_widget.*` | **Control widget** | Điều khiển LED (màu sắc / ON-OFF) + quản lý kết nối BLE (SCAN, CONNECT, DISC, NOTIFY) |
+
+### Luồng dữ liệu
+
+```
+Sensor NOTIFY (mỗi ~3s)
+  → ESP32-LAN → UART → ESP32-WAN
+  → MQTT publish {"data": "<hex>"}
+  → ThingsBoard telemetry key "data"
+  → WebSocket push → ble_monitor_widget.onDataUpdated()
+  → Decode hex → hiển thị nhiệt độ / độ ẩm
+
+LED / BLE control
+  → ble_control_widget (RPC sendCommand)
+  → CFML:CFBG:<slot>:<verb>:<params>
+  → Gateway → BLE GATT peripheral
+```
+
+### Cấu hình ThingsBoard Dashboard
+
+**BLE Sensor Monitor widget:**
+- Type: `Latest Values`
+- Datasource: Entity → Gateway device, key = `data` (Latest Telemetry)
+- Không cần target device / controlApi
+
+**BLE GATT Control widget:**
+- Type: `Control widget`
+- Target device: Gateway device (để sử dụng `controlApi.sendTwoWayCommand`)
+- Datasource: Entity → Gateway device, key = `data` (để nhận async events qua `onDataUpdated`)
+
+> **Lưu ý**: Widget `ble_gatt_multi_widget.*` vẫn được giữ lại để tham khảo (all-in-one widget cũ).
+
+---
+
 ## Mục đích
 
 Widget ThingsBoard cho bài test BLE Native GATT: kết nối **tối đa 5 thiết bị** cùng lúc (2 đèn LED + 3 cảm biến nhiệt độ/độ ẩm), cho phép người dùng scan, kết nối, điều khiển đèn và xem dữ liệu cảm biến.
