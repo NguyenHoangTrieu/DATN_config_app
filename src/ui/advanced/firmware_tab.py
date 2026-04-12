@@ -13,27 +13,86 @@ from typing import Callable, Optional, List, Tuple
 class FirmwareTab(ttk.Frame):
     """Firmware update tab"""
     
-    def __init__(self, parent, log_callback: Optional[Callable] = None, **kwargs):
+    def __init__(self, parent, log_callback: Optional[Callable] = None,
+                 serial_manager=None, **kwargs):
         super().__init__(parent, **kwargs)
         
         self.log_callback = log_callback
+        self.serial_manager = serial_manager
         self.flashing = False
         self._create_widgets()
     
     def _create_widgets(self):
         """Create firmware tab widgets"""
-        # Container fills available space so Flash Log can expand
+        # Container for firmware update options
         container = ttk.Frame(self, padding=10)
         container.pack(fill=tk.BOTH, expand=True)
         
-        # Info section - compact
-        info_section = ttk.LabelFrame(container, text="Information", padding=8)
-        info_section.pack(fill=tk.X, pady=5)
-        
-        ttk.Label(info_section, text="Flash both WAN and LAN MCU firmware",
-                 font=("Segoe UI", 9)).pack(anchor="w")
-        ttk.Label(info_section, text="⚠️ Requires flash_WAN.bat (Windows) or flash_WAN.sh (Linux/macOS) in dist/bin/",
-             font=("Segoe UI", 9), foreground="#FF9800").pack(anchor="w")
+        # ── OTA over WiFi ─────────────────────────────────────────────────────
+        ota_section = ttk.LabelFrame(container, text="LAN MCU OTA Update (via WiFi AP)", padding=8)
+        ota_section.pack(fill=tk.X, pady=5)
+
+        ttk.Label(ota_section,
+                  text="Configure the firmware download URL and trigger a wireless OTA update.\n"
+                       "The WAN MCU will create a Wi-Fi AP (DA2-FOTA) and forward the URL to the LAN MCU.",
+                  font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 6))
+
+        url_frame = ttk.Frame(ota_section)
+        url_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(url_frame, text="Firmware URL:", width=14).pack(side=tk.LEFT)
+        self.url_var = tk.StringVar(value=(
+            "http://192.168.1.100:8080/api/v1/TOKEN/firmware"
+            "?title=DA2_esp_LAN&version=1.1.2"
+        ))
+        url_entry = ttk.Entry(url_frame, textvariable=self.url_var, width=60)
+        url_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+
+        ttk.Label(ota_section,
+                  text="Format: http://<host>:<port>/api/v1/<token>/firmware"
+                       "?title=<title>&version=<ver>",
+                  font=("Segoe UI", 8), foreground="#888888").pack(anchor="w")
+
+        ota_btn_frame = ttk.Frame(ota_section)
+        ota_btn_frame.pack(fill=tk.X, pady=(8, 2))
+        self.ota_btn = ttk.Button(ota_btn_frame, text="� Save LAN URL",
+                                   style='Set.TButton',
+                                   command=self._on_lan_url_save)
+        self.ota_btn.pack(anchor="e", padx=5)
+
+        # ── WAN MCU OTA (direct self-update) ──────────────────────────────────
+        wan_section = ttk.LabelFrame(container, text="WAN MCU OTA Update (Self-Update)", padding=8)
+        wan_section.pack(fill=tk.X, pady=5)
+
+        ttk.Label(wan_section,
+                  text="Configure the WAN MCU firmware URL and trigger a direct self-update.\n"
+                       "The WAN MCU will download and flash its own firmware.",
+                  font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 6))
+
+        wan_url_frame = ttk.Frame(wan_section)
+        wan_url_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(wan_url_frame, text="Firmware URL:", width=14).pack(side=tk.LEFT)
+        self.wan_url_var = tk.StringVar(value=(
+            "http://192.168.1.100:8080/api/v1/TOKEN/firmware"
+            "?title=DA2_esp&version=1.1.2"
+        ))
+        wan_url_entry = ttk.Entry(wan_url_frame, textvariable=self.wan_url_var, width=60)
+        wan_url_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+
+        ttk.Label(wan_section,
+                  text="Format: http://<host>:<port>/api/v1/<token>/firmware"
+                       "?title=<title>&version=<ver>",
+                  font=("Segoe UI", 8), foreground="#888888").pack(anchor="w")
+
+        wan_btn_frame = ttk.Frame(wan_section)
+        wan_btn_frame.pack(fill=tk.X, pady=(8, 2))
+        self.wan_ota_btn = ttk.Button(wan_btn_frame, text="� Save WAN URL",
+                                      style='Set.TButton',
+                                      command=self._on_wan_url_save)
+        self.wan_ota_btn.pack(anchor="e", padx=5)
+
+        ttk.Separator(container, orient="horizontal").pack(fill=tk.X, pady=8)
+
+        # ── Local flash via esptool ───────────────────────────────────────────
         
         # COM Port selection - compact
         port_section = ttk.LabelFrame(container, text="COM Port", padding=8)
@@ -60,27 +119,43 @@ class FirmwareTab(ttk.Frame):
         self.update_btn = ttk.Button(btn_frame, text="Update Firmware", style='Set.TButton',
                                       command=self._on_update_click)
         self.update_btn.pack(anchor="e", padx=5)
-        
-        # Flash output log - expands to use remaining space
-        log_section = ttk.LabelFrame(container, text="Flash Log", padding=5)
-        log_section.pack(fill=tk.BOTH, expand=True, pady=5)
-        
-        log_scroll = ttk.Scrollbar(log_section)
-        log_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        self.log_text = tk.Text(log_section, height=6, wrap=tk.WORD,
-                                font=("Consolas", 8),
-                                yscrollcommand=log_scroll.set,
-                                bg="#1E1E1E", fg="#CCCCCC")
-        self.log_text.pack(fill=tk.BOTH, expand=True)
-        log_scroll.config(command=self.log_text.yview)
-        
-        # Configure tags
-        self.log_text.tag_configure('INFO', foreground='#2196F3')
-        self.log_text.tag_configure('SUCCESS', foreground='#4CAF50')
-        self.log_text.tag_configure('ERROR', foreground='#F44336')
-        self.log_text.tag_configure('DEBUG', foreground='#888888')
     
+    def _on_lan_url_save(self):
+        """Send CFML:CFFU:<url> to save LAN firmware URL to NVS (no OTA trigger)."""
+        url = self.url_var.get().strip()
+        if not url:
+            messagebox.showerror("Error", "Please enter the LAN firmware download URL")
+            return
+        if not self.serial_manager or not self.serial_manager.is_connected():
+            messagebox.showwarning("Not Connected",
+                                   "Connect to the gateway via UART first.")
+            return
+        cmd = f"CFML:CFFU:{url}\r\n"
+        try:
+            self.serial_manager.send(cmd)
+            self._log(f"→ LAN URL saved: CFML:CFFU:{url}", "SUCCESS")
+        except Exception as e:
+            self._log(f"Send error: {e}", "ERROR")
+            messagebox.showerror("Error", str(e))
+
+    def _on_wan_url_save(self):
+        """Send CFFU:<url> to save WAN firmware URL to NVS (no OTA trigger)."""
+        url = self.wan_url_var.get().strip()
+        if not url:
+            messagebox.showerror("Error", "Please enter the WAN MCU firmware download URL")
+            return
+        if not self.serial_manager or not self.serial_manager.is_connected():
+            messagebox.showwarning("Not Connected",
+                                   "Connect to the gateway via UART first.")
+            return
+        cmd = f"CFFU:{url}\r\n"
+        try:
+            self.serial_manager.send(cmd)
+            self._log(f"→ WAN URL saved: CFFU:{url}", "SUCCESS")
+        except Exception as e:
+            self._log(f"Send error: {e}", "ERROR")
+            messagebox.showerror("Error", str(e))
+
     def _refresh_ports(self):
         """Refresh port list"""
         import serial.tools.list_ports
@@ -210,13 +285,7 @@ class FirmwareTab(ttk.Frame):
             self._log("=" * 60, "DEBUG")
     
     def _log(self, message: str, level: str = "INFO"):
-        """Add log message"""
-        def _insert():
-            self.log_text.insert(tk.END, f"[{level}] {message}\n", level)
-            self.log_text.see(tk.END)
-        
-        self.after(0, _insert)
-        
-        # Also call external log callback
+        """Log message - sends to external console only (Flash Log panel removed)"""
+        # Call external log callback for main console display
         if self.log_callback:
             self.log_callback(message, level)

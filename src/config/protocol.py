@@ -168,8 +168,8 @@ class StackConfig:
 @dataclass
 class LanStackInfo:
     """LAN stack info parsed from CFSC response"""
-    stack1_id: str = "000"       # "000"=empty, "001"=Zigbee, "002"=BLE, ...
-    stack2_id: str = "000"
+    stack1_id: str = "none"       # "none"=TCA not found; "000"=Zigbee E18, "009"=RS485, "015"=LoRa WIO E5 ...
+    stack2_id: str = "none"
     rs485_baudrate: int = 115200
     stack1_json_len: int = 0    # 0 = no JSON stored on gateway
     stack2_json_len: int = 0

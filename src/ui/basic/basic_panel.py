@@ -551,7 +551,7 @@ class BasicPanel(ttk.Frame):
 
         def _stack_label(sid: str) -> str:
             entry = lan_map.get(sid, {})
-            if not sid or sid == "000":
+            if not sid or sid == "none":
                 return "(no module)"
             label = entry.get("label", entry.get("type", f"ID {sid}"))
             return f"{sid} — {label}"

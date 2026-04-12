@@ -1,6 +1,13 @@
 {
   "lan_stack_map": {
-    "000": { "type": "NONE",   "label": "Empty" },
+    "none": { "type": "NONE", "label": "No adapter (TCA not found)" },
+    "000": {
+      "type":              "ZIGBEE",
+      "label":             "Zigbee (E18)",
+      "cmd_prefix":        "CFZB",
+      "gateway_json":      "stack_001_config.json",
+      "app_commands_json": "stack_001_app_commands.json"
+    },
     "001": {
       "type":              "ZIGBEE",
       "label":             "Zigbee (E180-ZG120B)",
@@ -29,12 +36,6 @@
       "gateway_json":      "stack_004_config.json",
       "app_commands_json": "stack_004_app_commands.json"
     },
-    "007": {
-      "type":              "RS485",
-      "label":             "RS485 Module",
-      "cmd_prefix":        "CFRS",
-      "gateway_json":      "stack_007_config.json"
-    },
     "005": {
       "type":              "ZIGBEE",
       "label":             "Zigbee (STM32WB55)",
@@ -49,6 +50,12 @@
       "gateway_json":      "stack_006_config.json",
       "app_commands_json": "stack_006_app_commands.json"
     },
+    "007": {
+      "type":              "RS485",
+      "label":             "RS485 Module",
+      "cmd_prefix":        "CFRS",
+      "gateway_json":      "stack_007_config.json"
+    },
     "008": {
       "type":              "BLE_GATT",
       "label":             "BLE GATT Central (ESP32-S3 Native)",
@@ -56,19 +63,42 @@
       "gateway_json":      "stack_008_config.json"
     },
     "009": {
-      "type":              "BLE_MESH",
-      "label":             "BLE Mesh Provisioner (ESP32-S3 Native)",
-      "cmd_prefix":        "CFBN",
-      "gateway_json":      "stack_009_config.json"
+      "type":              "RS485",
+      "label":             "RS485 Module",
+      "cmd_prefix":        "CFRS",
+      "gateway_json":      "stack_007_config.json"
     },
     "010": {
       "type":              "ZIGBEE",
       "label":             "Zigbee (E180-ZG120B HEX)",
       "cmd_prefix":        "CFZB",
       "gateway_json":      "stack_010_config.json"
+    },
+    "015": {
+      "type":              "LORA",
+      "label":             "LoRa (WIO E5)",
+      "cmd_prefix":        "CFLR",
+      "gateway_json":      "stack_006_config.json",
+      "app_commands_json": "stack_006_app_commands.json"
     }
   },
   "wan_stack_map": {
+    "none": {
+      "type":       "NONE",
+      "label":      "No adapter (TCA not found)",
+      "modem":      "",
+      "comm_type":  "NONE",
+      "pwr_pin":    "05",
+      "rst_pin":    "06"
+    },
+    "000": {
+      "type":       "LTE",
+      "label":      "LTE Stack",
+      "modem":      "",
+      "comm_type":  "USB",
+      "pwr_pin":    "05",
+      "rst_pin":    "06"
+    },
     "001": {
       "type":       "QUECTEL",
       "label":      "Quectel (AC76001) / LTE",
@@ -76,6 +106,14 @@
       "comm_type":  "UART",
       "pwr_pin":    "WK",
       "rst_pin":    "PE"
+    },
+    "015": {
+      "type":       "ETHERNET",
+      "label":      "Ethernet Stack",
+      "modem":      "",
+      "comm_type":  "ETH",
+      "pwr_pin":    "05",
+      "rst_pin":    "06"
     },
     "100": {
       "type":       "NONE",
@@ -102,6 +140,5 @@
       "rst_pin":    "06"
     }
   },
-  "pin_options": ["04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17"]
+  "pin_options": ["00", "01", "02", "03", "04", "05", "06", "07", "10", "11", "12", "13", "14", "15", "16", "17"]
 }
-

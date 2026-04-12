@@ -1,5 +1,5 @@
 {
-    "module_id": "001",
+    "module_id": "000",
     "module_type": "ZIGBEE",
     "module_name": "E180-ZG120B",
     "module_communication": {

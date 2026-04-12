@@ -71,7 +71,8 @@ class AdvancedPanel(ttk.Frame):
                                    log_callback=_log)
 
         # Firmware tab
-        self.firmware_tab = FirmwareTab(self.notebook, log_callback=_log)
+        self.firmware_tab = FirmwareTab(self.notebook, log_callback=_log,
+                                         serial_manager=_sm)
 
         # Add tabs to notebook
         self.notebook.add(self.wifi_tab,     text="📶 WiFi")

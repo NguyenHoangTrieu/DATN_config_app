@@ -441,10 +441,13 @@ class GatewayConfigApp:
         self.advanced_panel.set_config(self.current_config)
 
         # Auto-send JSON file for stacks that have no JSON config yet.
-        # When stack_id != "000" (module present) and json_len == 0 (no config on gateway),
+        # When stack_id != "none" (module present) and json_len == 0 (no config on gateway),
         # automatically load the corresponding default JSON file and send it.
-        # This happens immediately in both basic and advanced modes without user prompt.
+        # Stacks are sent sequentially with a 5-second gap to prevent the WAN
+        # MCU's single config-cache slot from being overwritten before the LAN
+        # MCU fetches the first config (first send at 400 ms, second at 5400 ms).
         stack_info = self.current_config.lan.stack_info
+        send_slot = 0  # tracks how many sends have been scheduled this cycle
         for idx, sid, json_len in [
             (0, stack_info.stack1_id, stack_info.stack1_json_len),
             (1, stack_info.stack2_id, stack_info.stack2_json_len),
@@ -453,14 +456,18 @@ class GatewayConfigApp:
             if json_len > 0:
                 # JSON is now present on gateway — clear guard so a future removal is noticed
                 self._prompted_stacks.discard(key)
-            elif sid not in ("", "000") and key not in self._prompted_stacks:
-                # Stack has module (sid != "000") but no JSON config (json_len == 0)
-                # Auto-send the default JSON immediately
+            elif sid not in ("", "none") and key not in self._prompted_stacks:
+                # Stack has a real module but no JSON config loaded on gateway.
+                # Schedule auto-send: first stack at 400 ms, each subsequent
+                # stack 5000 ms later to allow the gateway to process the previous
+                # config before receiving the next one.
+                delay_ms = 400 + send_slot * 5000
                 self._prompted_stacks.add(key)
                 self.root.after(
-                    400,
+                    delay_ms,
                     lambda i=idx, s=sid: self._auto_send_stack_json(i, s)
                 )
+                send_slot += 1
 
     def _auto_send_stack_json(self, stack_idx: int, stack_id: str):
         """Silently load the default JSON for *stack_id* and send it to the
