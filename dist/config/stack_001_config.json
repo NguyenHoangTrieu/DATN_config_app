@@ -385,7 +385,7 @@
             "is_hex": false,
             "gpio_start_control": [],
             "delay_start": 0,
-            "expect_response": "OK",
+            "expect_response": "DEVTYPE=",
             "timeout": 1000,
             "gpio_end_control": [],
             "delay_end": 0
