@@ -402,7 +402,7 @@
             "is_hex": false,
             "gpio_start_control": [],
             "delay_start": 0,
-            "expect_response": "LW LEN,",
+            "expect_response": "+LW: LEN,",
             "timeout": 1500,
             "gpio_end_control": [],
             "delay_end": 0
@@ -426,7 +426,7 @@
             "is_hex": false,
             "gpio_start_control": [],
             "delay_start": 0,
-            "expect_response": "LOWPOWER SLEEP",
+            "expect_response": "+LOWPOWER: SLEEP",
             "timeout": 1500,
             "gpio_end_control": [],
             "delay_end": 0
@@ -462,7 +462,7 @@
             "is_hex": false,
             "gpio_start_control": [],
             "delay_start": 0,
-            "expect_response": "LOWPOWER WAKEUP",
+            "expect_response": "+LOWPOWER: WAKEUP",
             "timeout": 0,
             "gpio_end_control": [],
             "delay_end": 0,
