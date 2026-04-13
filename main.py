@@ -176,7 +176,7 @@ class GatewayConfigApp:
         # Right side: stacked UART Log (expands) + Console Log (fixed)
         self.right_frame = ttk.Frame(self.horizontal_paned)
 
-        self.uart_log = UartLogPanel(self.right_frame)
+        self.uart_log = UartLogPanel(self.right_frame, on_send=self._on_uart_send)
         self.uart_log.pack(fill=tk.BOTH, expand=True)
 
         self._log_separator = ttk.Separator(self.right_frame, orient='horizontal')
@@ -300,6 +300,15 @@ class GatewayConfigApp:
             # first command is sent, especially important with native USB CDC.
             self.root.after(500, self._read_config)
     
+    def _on_uart_send(self, text: str):
+        """Send a raw command string over the active serial connection."""
+        if not self.serial_manager.is_connected():
+            self._log("Cannot send — not connected", "ERROR")
+            return
+        success = self.serial_manager.send(text)
+        if not success:
+            self._log(f"Send failed: {text!r}", "ERROR")
+
     def _on_disconnect(self):
         """Handle disconnect request"""
         self.serial_manager.disconnect()
