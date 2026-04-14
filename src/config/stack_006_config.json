@@ -43,7 +43,7 @@
             "expect_response": "+RESET: OK",
             "timeout": 3000,
             "gpio_end_control": [],
-            "delay_end": 1000
+            "delay_end": 2000
         },
         {
             "function_name": "MODULE_GET_INFO",
@@ -353,7 +353,7 @@
             "is_hex": false,
             "gpio_start_control": [],
             "delay_start": 0,
-            "expect_response": "+CMSG: ACK Received",
+            "expect_response": "+CMSG: Done",
             "timeout": 30000,
             "gpio_end_control": [],
             "delay_end": 0
@@ -377,7 +377,7 @@
             "is_hex": false,
             "gpio_start_control": [],
             "delay_start": 0,
-            "expect_response": "+CMSGHEX: ACK Received",
+            "expect_response": "+CMSGHEX: Done",
             "timeout": 30000,
             "gpio_end_control": [],
             "delay_end": 0

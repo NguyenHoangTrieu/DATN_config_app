@@ -31,7 +31,7 @@
                     "state": "HIGH"
                 }
             ],
-            "delay_end": 500
+            "delay_end": 2000
         },
         {
             "function_name": "MODULE_SW_RESET",
@@ -40,10 +40,10 @@
             "is_hex": false,
             "gpio_start_control": [],
             "delay_start": 0,
-            "expect_response": "OK",
-            "timeout": 2000,
+            "expect_response": "VERSION=",
+            "timeout": 5000,
             "gpio_end_control": [],
-            "delay_end": 1000
+            "delay_end": 2000
         },
         {
             "function_name": "MODULE_FACTORY_RESET",
@@ -64,8 +64,8 @@
             "is_hex": false,
             "gpio_start_control": [],
             "delay_start": 0,
-            "expect_response": "TYPE=",
-            "timeout": 1000,
+            "expect_response": "MAC=",
+            "timeout": 2000,
             "gpio_end_control": [],
             "delay_end": 0
         },
@@ -88,8 +88,8 @@
             "is_hex": false,
             "gpio_start_control": [],
             "delay_start": 0,
-            "expect_response": "OK",
-            "timeout": 10000,
+            "expect_response": "NETOPEN:180-Sec",
+            "timeout": 15000,
             "gpio_end_control": [],
             "delay_end": 0
         },
@@ -373,10 +373,10 @@
             "is_hex": false,
             "gpio_start_control": [],
             "delay_start": 0,
-            "expect_response": "OK",
-            "timeout": 1000,
+            "expect_response": "VERSION=",
+            "timeout": 5000,
             "gpio_end_control": [],
-            "delay_end": 0
+            "delay_end": 2000
         },
         {
             "function_name": "MODULE_SET_DEVICE_TYPE",
@@ -385,7 +385,7 @@
             "is_hex": false,
             "gpio_start_control": [],
             "delay_start": 0,
-            "expect_response": "DEVTYPE=",
+            "expect_response": "OK",
             "timeout": 1000,
             "gpio_end_control": [],
             "delay_end": 0
@@ -476,7 +476,7 @@
         },
         {
             "function_name": "MODULE_ZCL_IDENTIFY",
-            "command": "AT+IDENTIFY=",
+            "command": "AT+IDENTIFY",
             "is_prefix": true,
             "is_hex": false,
             "gpio_start_control": [],

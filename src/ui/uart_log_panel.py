@@ -14,10 +14,10 @@ class UartLogPanel(ttk.Frame):
     # Maximum number of entries kept in command history
     _MAX_HISTORY = 50
 
-    def __init__(self, parent, on_send: Optional[Callable[[str], None]] = None, **kwargs):
+    def __init__(self, parent, on_send: Optional[Callable[[str, bool], None]] = None, **kwargs):
         super().__init__(parent, **kwargs)
         self.port_name = "Not Connected"
-        # Callback invoked with the command string when the user hits Send
+        # Callback invoked with (command_text, add_crlf) when the user hits Send
         self._on_send = on_send
         # Command history list (newest first when navigating with Up/Down)
         self._history: list[str] = []
@@ -106,7 +106,7 @@ class UartLogPanel(ttk.Frame):
 
     # ── Public API ────────────────────────────────────────────────────────
 
-    def set_send_callback(self, callback: Callable[[str], None]):
+    def set_send_callback(self, callback: Callable[[str, bool], None]):
         """Set or replace the callback invoked on send."""
         self._on_send = callback
 
@@ -154,18 +154,15 @@ class UartLogPanel(ttk.Frame):
 
     def _do_send(self):
         """Read the entry, call the send callback, update history."""
-        cmd = self._cmd_var.get()
-        if not self._crlf_var.get():
-            payload = cmd
-        else:
-            # The manager appends \r\n itself, so we only strip redundant ones
-            payload = cmd.rstrip("\r\n")
+        add_crlf = self._crlf_var.get()
+        # Always strip trailing CRLF from user input — caller decides whether to add it back
+        payload = self._cmd_var.get().rstrip("\r\n")
 
         if not payload:
             return
 
         if self._on_send:
-            self._on_send(payload)
+            self._on_send(payload, add_crlf)
 
         # Update history (deduplicate, newest first in dropdown)
         if payload in self._history:

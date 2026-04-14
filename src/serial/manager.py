@@ -227,15 +227,14 @@ class SerialManager:
         """Check if connected"""
         return self.serial_port is not None and self.serial_port.is_open
     
-    def send(self, data: str) -> bool:
+    def send(self, data: str, add_crlf: bool = True) -> bool:
         """Send data to serial port"""
         if not self.is_connected():
             self.log("Not connected", "ERROR")
             return False
         
         try:
-            # Add CRLF if not present
-            if not data.endswith('\r\n'):
+            if add_crlf and not data.endswith('\r\n'):
                 data += '\r\n'
             
             self.serial_port.write(data.encode('utf-8'))

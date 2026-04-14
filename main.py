@@ -300,12 +300,12 @@ class GatewayConfigApp:
             # first command is sent, especially important with native USB CDC.
             self.root.after(500, self._read_config)
     
-    def _on_uart_send(self, text: str):
+    def _on_uart_send(self, text: str, add_crlf: bool = True):
         """Send a raw command string over the active serial connection."""
         if not self.serial_manager.is_connected():
-            self._log("Cannot send — not connected", "ERROR")
+            self._log("Cannot send \u2014 not connected", "ERROR")
             return
-        success = self.serial_manager.send(text)
+        success = self.serial_manager.send(text, add_crlf=add_crlf)
         if not success:
             self._log(f"Send failed: {text!r}", "ERROR")
 
