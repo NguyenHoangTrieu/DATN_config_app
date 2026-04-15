@@ -13,6 +13,30 @@ All commands are sent via **UART** (115200 baud, 8N1) to the WAN MCU (ESP32-S3, 
 
 ---
 
+### Function-Name Based Command Routing (NEW)
+
+For BLE AT (`CFBL:`), Zigbee (`CFZB:`), and LoRa (`CFLR:`) handlers, commands can now be sent using **function names** instead of raw AT/HEX commands. The firmware resolves the function name to the actual module command via JSON config.
+
+**Format:**
+- Non-prefix function: `CFxx:<stack_id>:<FUNCTION_NAME>`
+- Prefix function (with data): `CFxx:<stack_id>:<FUNCTION_NAME>:<data>`
+
+**Examples:**
+```
+CFML:CFBL:0:MODULE_SW_RESET                    → resolves to AT+RESET
+CFML:CFBL:0:MODULE_START_DISCOVERY:3000         → resolves to AT+SCAN=3000
+CFML:CFZB:0:MODULE_GET_NET_STATUS              → resolves to AT+NWINFO
+CFML:CFZB:0:MODULE_SET_PERMIT_JOIN:60          → resolves to AT+OPENWNET=60
+CFML:CFLR:0:MODULE_SET_REGION:AS923            → resolves to AT+DR AS923
+CFML:CFLR:0:MODULE_JOIN                        → resolves to AT+JOIN
+```
+
+**Detection:** The firmware detects the new format by checking if the command starts with `MODULE_`. If not, it falls back to legacy raw AT command pass-through for backward compatibility.
+
+**Function name tables:** See `s_ble_func_names[]`, `s_zigbee_func_names[]`, `s_lora_func_names[]` in the respective handler source files.
+
+---
+
 ## 1. BLE GATT Central (`CFBG:`)
 
 ### 1.1 Scan for BLE devices
@@ -221,191 +245,298 @@ Expect:  CFBN:0:OK:NODE_RESET:0x0002
 ## 3. Zigbee via E180-ZG120B (`CFZB:`)
 
 > Module: **Ebyte E180-ZG120B** (Zigbee 3.0 Coordinator), UART **115200** baud.
-> Format: `CFML:CFZB:<stack_id>:<AT_COMMAND>` — the AT command is forwarded verbatim to the module.
-> The JSON config (`stack_001_config.json`) is matched by command prefix to supply GPIO, timeout, and expected response metadata.
+> **New format:** `CFML:CFZB:<stack_id>:<FUNCTION_NAME>[:<data>]` — the firmware resolves the function name to the actual AT command via JSON config.
+> **Legacy format:** `CFML:CFZB:<stack_id>:<AT_COMMAND>` — raw AT commands still supported for backward compatibility.
+> The JSON config (`stack_001_config.json`) supplies GPIO, timeout, and expected response metadata.
 > Response: `CFZB:<stack_id>:OK:<response>` or `CFZB:<stack_id>:FAIL:<reason>`.
+>
+> **Function Name Reference:**
+> | Function Name | AT Command | is_prefix | Description |
+> |---|---|---|---|
+> | `MODULE_GET_INFO` | AT+INFO? | false | Get module info |
+> | `MODULE_SW_RESET` | AT+RESET | false | Software reset |
+> | `MODULE_START_NETWORK` | AT+CREATENW | false | Create/start network |
+> | `MODULE_STOP_NETWORK` | AT+STOP | false | Stop network |
+> | `MODULE_LEAVE_NETWORK` | AT+QUITNW | false | Leave network |
+> | `MODULE_GET_NET_STATUS` | AT+NWINFO | false | Query network status |
+> | `MODULE_SET_PERMIT_JOIN` | AT+OPENWNET= | true | Open permit join (data=duration) |
+> | `MODULE_AUTO_FIND_TARGET` | AT+FIND | false | Auto-discover nodes |
+> | `MODULE_DELETE_NODE` | AT+ENTDEL= | true | Delete node (data=short_addr) |
+> | `MODULE_ZCL_SEND_CONTROL_CMD` | AT+ZCL= | true | ZCL command (data=short,ep,cluster,cmd,...) |
+> | `MODULE_ZCL_READ_ATTR` | AT+ATTRREAD= | true | Read ZCL attribute (data=short,ep,cluster,attrId) |
+> | `MODULE_ZCL_WRITE_ATTR` | AT+ATTRWRITE= | true | Write ZCL attribute (data=short,ep,cluster,...) |
+>
+> **Note:** The E180-ZG120B AT mode only supports basic network management and transparent transmission.
+> ZCL attribute operations (read/write/report), cluster commands, and advanced node management
+> require HEX binary mode (`AT+EXIT`) which is handled separately by the firmware.
 
 ### 3.1 Get module info
 
 ```
-Send:    CFML:CFZB:0:AT+INFO?
-Expect:  CFZB:0:OK:TYPE=...
+Send:    CFML:CFZB:1:MODULE_GET_INFO
+Legacy:  CFML:CFZB:1:AT+INFO?
+Expect:  CFZB:1:OK:TYPE=...  (TYPE, MAC, PANID, CHANNEL, ADDR or NO NET)
 ```
 
 ### 3.2 Software reset
 
 ```
-Send:    CFML:CFZB:0:AT+RESET
-Expect:  CFZB:0:OK:OK
-         (module restarts — wait ~1 s)
+Send:    CFML:CFZB:1:MODULE_SW_RESET
+Legacy:  CFML:CFZB:1:AT+RESET
+Expect:  CFZB:1:OK:OK
+         (then async: BOOT=0, VERSION=0 — wait ~1 s)
 ```
 
 ### 3.3 Factory reset
 
 ```
-Send:    CFML:CFZB:0:AT+RESTORE
-Expect:  CFZB:0:OK:+RESTORE:0
-         (module power-cycles — wait ~2 s)
+Not supported in AT mode (no AT command available).
 ```
 
-### 3.4 Create (start) Zigbee network (coordinator role)
+### 3.4 Create / join Zigbee network
 
 ```
-Send:    CFML:CFZB:0:AT+CREATENW
-Expect:  CFZB:0:OK:+CREATENW:0
+Send:    CFML:CFZB:1:AT+JOIN
+Expect:  CFZB:1:OK:OK
+         (then async: NETOPEN:180-Sec  ← coordinator opens network for 180 s)
+         (or async:   NET:JOIN         ← router/end-device joined a network)
 ```
 
 ### 3.5 Stop network
 
 ```
-Send:    CFML:CFZB:0:AT+QUITNW
-Expect:  CFZB:0:OK:+QUITNW:0
+Send:    CFML:CFZB:1:AT+STOP
+Expect:  CFZB:1:OK:OK
+         (then async: NETCLOSE)
 ```
 
 ### 3.6 Get network info
 
 ```
-Send:    CFML:CFZB:0:AT+NWINFO
-Expect:  CFZB:0:OK:+NWINFO:<channel>,<PANID>,<short_addr>,...
+Not supported in AT mode. Use AT+INFO? to read current PANID, CHANNEL, and ADDR.
+
+Send:    CFML:CFZB:1:AT+INFO?
+Expect:  CFZB:1:OK:TYPE=COORDINATOR
+         MAC=...
+         PANID=...
+         CHANNEL=...
+         ADDR=...
 ```
 
 ### 3.7 Set channel
 
 ```
-Send:    CFML:CFZB:0:AT+CH=<channel>
-Example: CFML:CFZB:0:AT+CH=15
-Expect:  CFZB:0:OK:+CH:0
-Notes:   Valid range 11–26
+Not supported in AT mode. Channel is assigned automatically when the network is created.
 ```
 
 ### 3.8 Set PAN ID
 
 ```
-Send:    CFML:CFZB:0:AT+PANID=<panid_hex>
-Example: CFML:CFZB:0:AT+PANID=1301
-Expect:  CFZB:0:OK:+PANID:0
-Notes:   4 hex characters, big-endian
+Not supported in AT mode. PAN ID is assigned automatically when the network is created.
 ```
 
 ### 3.9 Set TX power
 
 ```
-Send:    CFML:CFZB:0:AT+POWER=<dbm>
-Example: CFML:CFZB:0:AT+POWER=20
-Expect:  CFZB:0:OK:+POWER:0
-Notes:   Range 0–20 dBm
+Not supported in AT mode.
 ```
 
 ### 3.10 Open network for joining (permit join)
 
 ```
-Send:    CFML:CFZB:0:AT+OPENWNET=<duration_s>
-Example: CFML:CFZB:0:AT+OPENWNET=60
-Expect:  CFZB:0:OK:+OPENWNET:0
-         CFZB:0:EVT:JOIN:<short_addr>    (when a device joins)
-Notes:   duration_s=0 closes the network immediately
+Send:    CFML:CFZB:1:AT+JOIN
+Expect:  CFZB:1:OK:OK
+         (then async: NETOPEN:180-Sec — network open for 180 s fixed, no duration parameter)
+         CFZB:1:EVT:JOIN:<short_addr>    (when a device joins)
+Notes:   The E180-ZG120B opens the network for exactly 180 seconds. Duration is not configurable via AT mode.
 ```
 
-### 3.11 Query device short address by IEEE address
+### 3.11 Query device short address
 
 ```
-Send:    CFML:CFZB:0:AT+QUERYSHORT=<ieee_hex>
-Example: CFML:CFZB:0:AT+QUERYSHORT=AABBCCDDEEFF0011
-Expect:  CFZB:0:OK:+QUERYSHORT:<short_addr>
+Not supported in AT mode.
 ```
 
 ### 3.12 Get device simple descriptor
 
 ```
-Send:    CFML:CFZB:0:AT+SIMPLEDESC=<short_addr>,<endpoint_hex>
-Example: CFML:CFZB:0:AT+SIMPLEDESC=1234,0A
-Expect:  CFZB:0:OK:+SIMPLEDESC:<profile>,<device_id>,<in_clusters>,...
+Not supported in AT mode.
 ```
 
 ### 3.13 Remove device from network
 
 ```
-Send:    CFML:CFZB:0:AT+ENTDEL=<short_addr>
-Example: CFML:CFZB:0:AT+ENTDEL=1234
-Expect:  CFZB:0:OK:+ENTDEL:0
-         CFZB:0:EVT:LEAVE:<short_addr>
+Not supported in AT mode.
 ```
 
 ### 3.14 Read Zigbee ZCL attribute
 
 ```
-Send:    CFML:CFZB:0:AT+ATTRREAD=<short_addr>,<ep_hex>,<cluster_hex>,<attr_hex>
-Example: CFML:CFZB:0:AT+ATTRREAD=1234,0A,0006,0000
-Expect:  CFZB:0:OK:+ATTRREAD:<short_addr>,<ep>,<cluster>,<attr>,<type>,<value>
+Not supported in AT mode. ZCL operations require HEX binary mode (AT+EXIT).
 ```
 
 ### 3.15 Write Zigbee ZCL attribute
 
 ```
-Send:    CFML:CFZB:0:AT+ATTRWRITE=<short_addr>,<ep_hex>,<cluster_hex>,<attr_hex>,<type_hex>,<value_hex>
-Example: CFML:CFZB:0:AT+ATTRWRITE=1234,0A,0006,0000,10,01
-Expect:  CFZB:0:OK:+ATTRWRITE:0
+Not supported in AT mode.
 ```
 
-### 3.16 Send ZCL cluster command
+### 3.16 Switch control (On/Off/Toggle)
+
+> E180-ZG120B AT mode provides direct switch control for bound devices.
 
 ```
-Send:    CFML:CFZB:0:AT+ZCL=<short_addr>,<ep_hex>,<cluster_hex>,<cmd_id_hex>[,<data_hex>]
-Example: CFML:CFZB:0:AT+ZCL=1234,0A,0006,01
-         (OnOff cluster cmd 0x01 = ON, no extra data)
-Expect:  CFZB:0:OK:+ZCL:0
-         CFZB:0:EVT:RSP:<data>    (ZCL response from device, if any)
+Turn ON all bound switches:
+Send:    CFML:CFZB:1:AT+TURNON
+Expect:  CFZB:1:OK:OK
+
+Turn ON specific switch (0-based index):
+Send:    CFML:CFZB:1:AT+TURNON=<n>
+Expect:  CFZB:1:OK:OK
+
+Turn OFF:
+Send:    CFML:CFZB:1:AT+TURNOFF
+         CFML:CFZB:1:AT+TURNOFF=<n>
+
+Toggle:
+Send:    CFML:CFZB:1:AT+TOGGLE
+         CFML:CFZB:1:AT+TOGGLE=<n>
+
+Query bound switch list:
+Send:    CFML:CFZB:1:AT+TURNON?
+Expect:  CFZB:1:OK:OK
 ```
 
-### 3.17 Configure attribute reporting
+### 3.17 Set destination address for transparent transmission
 
 ```
-Send:    CFML:CFZB:0:AT+CONFREPORT=<short_addr>,<ep_hex>,<cluster_hex>,<attr_hex>,<type_hex>,<min_s_hex>,<max_s_hex>,<change_hex>
-Example: CFML:CFZB:0:AT+CONFREPORT=1234,01,0402,0000,29,0001,003C,0064
-         (Temperature attr: min 1s, max 60s, change 100 = 1.00°C)
-Expect:  CFZB:0:OK:+CONFREPORT:0
-         CFZB:0:EVT:RPT:<short_addr>,<ep>,<cluster>,<attr>,<type>,<value>  (periodic)
+Send:    CFML:CFZB:1:AT+DSTADDR=<short_addr_hex>
+Example: CFML:CFZB:1:AT+DSTADDR=1234
+Expect:  CFZB:1:OK:OK
 ```
 
-### 3.18 Send raw unicast data
+### 3.18 Set destination endpoint
 
 ```
-Send:    CFML:CFZB:0:AT+SENDDATA=<short_addr>,<ep_hex>,<cluster_hex>,<data_hex>
-Example: CFML:CFZB:0:AT+SENDDATA=1234,01,0000,DEADBEEF
-Expect:  CFZB:0:OK:+SENDDATA:0
+Send:    CFML:CFZB:1:AT+DSTEP=<ep>
+Example: CFML:CFZB:1:AT+DSTEP=1
+Expect:  CFZB:1:OK:OK
 ```
 
-### 3.19 Broadcast
+### 3.19 Enter transparent transmission mode
 
 ```
-Send:    CFML:CFZB:0:AT+BROADCAST=<cluster_hex>,<data_hex>
-Example: CFML:CFZB:0:AT+BROADCAST=0000,AABB
-Expect:  CFZB:0:OK:+BROADCAST:0
+Send:    CFML:CFZB:1:AT+SEND
+Expect:  CFZB:1:OK:SEND MODE
+Notes:   After entering SEND MODE, all subsequent bytes are forwarded to DSTADDR/DSTEP.
+         Send "+++" to exit back to AT mode.
+```
+
+### 3.20 Set device type
+
+```
+Send:    CFML:CFZB:1:AT+DEVTYPE=<n>
+Types:   0=COORDINATOR  1=ROUTER  2=END_DEVICE  3=SLEEPY_END_DEVICE
+Example: CFML:CFZB:1:AT+DEVTYPE=0
+Expect:  CFZB:1:OK:OK
+Notes:   Module requires AT+RESET after this command to take effect.
+         Query current type: CFML:CFZB:1:AT+DEVTYPE?
+```
+
+### 3.21 Leave network
+
+```
+Send:    CFML:CFZB:1:AT+LEAVE
+Expect:  CFZB:1:OK:OK
+         (module reboots)
+```
+
+### 3.22 Auto find target device
+
+```
+Send:    CFML:CFZB:1:AT+FIND
+Expect:  CFZB:1:OK:OK
+         (then async: FIND:ADDR=<short_addr>  or  FIND:MISS)
+```
+
+### 3.23 Unbind
+
+```
+Send:    CFML:CFZB:1:AT+UNBIND
+Expect:  CFZB:1:OK:OK
+```
+
+### 3.24 Exit AT mode (enter HEX binary mode)
+
+```
+Send:    CFML:CFZB:1:AT+EXIT
+Expect:  CFZB:1:OK:OK
+Notes:   Module switches to binary HEX mode for ZCL operations.
+         To re-enter AT mode: send HEX frame 55 03 00 16 16.
 ```
 
 ### Asynchronous Events (E180-ZG120B → gateway)
 
 ```
-CFZB:0:EVT:JOIN:<short_addr>                                     ← new device joined
-CFZB:0:EVT:LEAVE:<short_addr>                                    ← device left
-CFZB:0:EVT:NODE:<data>                                           ← device announces itself
-CFZB:0:EVT:RSP:<data>                                            ← ZCL cluster response
-CFZB:0:EVT:RPT:<short_addr>,<ep>,<cluster>,<attr>,<type>,<value> ← periodic attribute data
+CFZB:1:EVT:JOIN:<short_addr>    ← new device joined network
+CFZB:1:EVT:LEAVE:<short_addr>   ← device left network
+CFZB:1:EVT:NODE:<data>          ← device announces itself
 ```
 
-### Typical Zigbee test flow
+### Typical Zigbee test flow (AT mode)
+
+> **Why AT+JOIN returns INVALID**: The E180-ZG120B requires `AT+DEVTYPE` to be explicitly set and the
+> module reset before `AT+JOIN` is accepted, even if `AT+INFO?` already shows the correct type. Always
+> follow the full sequence below.
 
 ```
-1. CFML:CFZB:0:AT+INFO?                                                    — verify module
-2. CFML:CFZB:0:AT+CREATENW                                               — start coordinator
-3. CFML:CFZB:0:AT+NWINFO                                              — confirm PAN formed
-4. CFML:CFZB:0:AT+OPENWNET=60                                          — allow join
-   [ power on E18 end-device — observe CFZB:0:EVT:JOIN:<short_addr> ]
-5. CFML:CFZB:0:AT+SIMPLEDESC=<addr>,01                              — verify clusters
-6. CFML:CFZB:0:AT+ATTRREAD=<addr>,01,0006,0000                           — read OnOff
-7. CFML:CFZB:0:AT+ZCL=<addr>,01,0006,01                      — turn ON
-8. CFML:CFZB:0:AT+CONFREPORT=<addr>,01,0402,0000,29,0001,003C,0064
-   [ observe periodic CFZB:0:EVT:RPT:... ]
+Step 1 — Check current state
+  Send:    CFML:CFZB:1:AT+INFO?
+  Expect:  CFZB:1:OK:... TYPE=... MAC=0x...
+  Purpose: Verify module is alive and see current network/type status.
+
+Step 2 — Set device type (must be done before JOIN even if already correct)
+  Send:    CFML:CFZB:1:AT+DEVTYPE=0
+  Expect:  CFZB:1:OK:OK
+  Note:    0=COORDINATOR  1=ROUTER  2=END_DEVICE  3=SLEEPY_END_DEVICE
+           For router: CFML:CFZB:1:AT+DEVTYPE=1
+
+Step 3 — Reset to apply device type
+  Send:    CFML:CFZB:1:AT+RESET
+  Expect:  CFZB:1:OK:VERSION=...   ← wait for full reboot (BOOT=0 then VERSION=x)
+  Wait:    ~2 seconds before next command
+
+Step 4 — Verify state after reset
+  Send:    CFML:CFZB:1:AT+INFO?
+  Expect:  CFZB:1:OK:... TYPE=Coordinate ... MAC=0x...
+
+Step 5 — Create / join network
+  Send:    CFML:CFZB:1:AT+JOIN
+  Expect:  CFZB:1:OK:NETOPEN:180-Sec     ← coordinator creates/opens network for 180s
+           (router/end-device: expect NET:JOIN or NET:IDLE)
+  Timeout: up to 15 s
+
+Step 6 — Allow end-device to join
+  [ Power on end-device — observe async event: CFZB:1:EVT:JOIN:<short_addr> ]
+  Send:    CFML:CFZB:1:AT+STOP            ← optional: close network after device joined
+  Expect:  CFZB:1:OK:NETCLOSE
+
+Step 7 — Find and bind target
+  Send:    CFML:CFZB:1:AT+FIND
+  Expect:  CFZB:1:OK:FIND:ADDR=<addr> EP=<ep> cluster=<cluster>
+           or CFZB:1:FAIL:... FIND:MISS
+
+Step 8 — Point to specific device
+  Send:    CFML:CFZB:1:AT+DSTADDR=<short_addr_hex>
+  Expect:  CFZB:1:OK:OK
+  Send:    CFML:CFZB:1:AT+DSTEP=1
+  Expect:  CFZB:1:OK:OK
+
+Step 9 — Control switch
+  Send:    CFML:CFZB:1:AT+TURNON          — turn on
+  Send:    CFML:CFZB:1:AT+TOGGLE          — toggle
+  Send:    CFML:CFZB:1:AT+TURNOFF         — turn off
+  Expect:  CFZB:1:OK:OK  (or CFZB:1:FAIL:...<module reply> on error)
 ```
 
 ---
@@ -413,21 +544,44 @@ CFZB:0:EVT:RPT:<short_addr>,<ep>,<cluster>,<attr>,<type>,<value> ← periodic at
 ## 4. LoRa Wio-E5 mini (`CFLR:`)
 
 > Module: **Seeed Wio-E5 mini** (LoRaWAN, STM32WLE5JC), UART **9600** baud.
-> Format: `CFML:CFLR:<stack_id>:<AT_COMMAND>` — the AT command is forwarded verbatim to the module.
-> The JSON config (`stack_006_config.json`) is matched by command prefix to supply GPIO, timeout, and expected response metadata.
+> **New format:** `CFML:CFLR:<stack_id>:<FUNCTION_NAME>[:<data>]` — the firmware resolves the function name to the actual AT command via JSON config.
+> **Legacy format:** `CFML:CFLR:<stack_id>:<AT_COMMAND>` — raw AT commands still supported for backward compatibility.
+> The JSON config (`stack_006_config.json`) supplies GPIO, timeout, and expected response metadata.
 > Response: `CFLR:<stack_id>:OK:<response>` or `CFLR:<stack_id>:FAIL:<reason>`.
+>
+> **Function Name Reference:**
+> | Function Name | AT Command | is_prefix | Description |
+> |---|---|---|---|
+> | `MODULE_SW_RESET` | AT+RESET | false | Software reset |
+> | `MODULE_GET_INFO` | AT+VER | false | Get firmware version |
+> | `MODULE_SET_REGION` | AT+DR  | true | Set region (data=AS923/EU868/etc) |
+> | `MODULE_SET_CLASS` | AT+CLASS  | true | Set class (data=A/B/C) |
+> | `MODULE_SET_JOIN_MODE` | AT+MODE  | true | Set join mode (data=OTAA/ABP) |
+> | `MODULE_SET_DEV_EUI` | AT+ID DevEui, | true | Set DevEUI |
+> | `MODULE_SET_APP_EUI` | AT+ID AppEui, | true | Set AppEUI |
+> | `MODULE_SET_APP_KEY` | AT+KEY APPKEY, | true | Set AppKey |
+> | `MODULE_JOIN` | AT+JOIN | false | Join network |
+> | `MODULE_SET_ADR` | AT+ADR  | true | Enable/disable ADR (data=ON/OFF) |
+> | `MODULE_SET_DR` | AT+DR  | true | Set data rate (data=DR0-DR5) |
+> | `MODULE_SET_PORT` | AT+PORT  | true | Set application port |
+> | `MODULE_SEND_UNCONFIRMED` | AT+MSG  | true | Send unconfirmed uplink |
+> | `MODULE_SEND_CONFIRMED` | AT+CMSG  | true | Send confirmed uplink |
+> | `MODULE_SEND_HEX_UNCONFIRMED` | AT+MSGHEX  | true | Send hex unconfirmed |
+> | `MODULE_SEND_HEX_CONFIRMED` | AT+CMSGHEX  | true | Send hex confirmed |
 
 ### 4.1 Get firmware version
 
 ```
-Send:    CFML:CFLR:0:AT+VER
+Send:    CFML:CFLR:0:MODULE_GET_INFO
+Legacy:  CFML:CFLR:0:AT+VER
 Expect:  CFLR:0:OK:+VER: <version_string>
 ```
 
 ### 4.2 Software reset
 
 ```
-Send:    CFML:CFLR:0:AT+RESET
+Send:    CFML:CFLR:0:MODULE_SW_RESET
+Legacy:  CFML:CFLR:0:AT+RESET
 Expect:  CFLR:0:OK:+RESET: OK
          (module restarts — wait ~1 s)
 ```
@@ -435,7 +589,8 @@ Expect:  CFLR:0:OK:+RESET: OK
 ### 4.3 Factory reset
 
 ```
-Send:    CFML:CFLR:0:AT+FDEFAULT
+Send:    CFML:CFLR:0:MODULE_FACTORY_RESET
+Legacy:  CFML:CFLR:0:AT+FDEFAULT
 Expect:  CFLR:0:OK:+FDEFAULT: OK
          (wait ~1 s)
 ```
@@ -443,7 +598,8 @@ Expect:  CFLR:0:OK:+FDEFAULT: OK
 ### 4.4 Set region / DR plan
 
 ```
-Send:    CFML:CFLR:0:AT+DR <region>
+Send:    CFML:CFLR:0:MODULE_SET_REGION:AS923
+Legacy:  CFML:CFLR:0:AT+DR <region>
 Regions: EU868 | US915 | AU915 | AS923 | KR920 | IN865
 Example: CFML:CFLR:0:AT+DR AS923    (Vietnam)
 Expect:  CFLR:0:OK:+DR: AS923
@@ -531,7 +687,8 @@ Expect:  CFLR:0:OK:+KEY: APPSKEY FFEEDDCCBBAA99887766554433221100
 ### 4.15 Join network
 
 ```
-Send:    CFML:CFLR:0:AT+JOIN
+Send:    CFML:CFLR:0:MODULE_JOIN
+Legacy:  CFML:CFLR:0:AT+JOIN
 Expect:  CFLR:0:OK:+JOIN: Start
          CFLR:0:OK:+JOIN: NORMAL          (joining in progress)
          CFLR:0:OK:+JOIN: Done            (join successful, ~5–30 s)
@@ -646,20 +803,20 @@ CFLR:0:EVT:RX: port <port>; RX: "<data_hex>"      ← downlink received
 ### Typical LoRa OTAA test flow (Wio-E5)
 
 ```
-1.  CFML:CFLR:0:AT+RESET                                              — restart module
-2.  CFML:CFLR:0:AT+VER                                              — verify firmware
-3.  CFML:CFLR:0:AT+DR AS923                                      — AS923 (Vietnam)
-4.  CFML:CFLR:0:AT+CLASS A                                           — Class A
-5.  CFML:CFLR:0:AT+MODE OTAA                                    — OTAA mode
-6.  CFML:CFLR:0:AT+ID DevEui,00 11 22 33 44 55 66 77                    — DevEUI
-7.  CFML:CFLR:0:AT+ID AppEui,00 00 00 00 00 00 00 01                    — AppEUI
-8.  CFML:CFLR:0:AT+KEY APPKEY,00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF
-9.  CFML:CFLR:0:AT+ADR OFF                                           — disable ADR
-10. CFML:CFLR:0:AT+DR DR3                                            — DR3 (SF9)
-11. CFML:CFLR:0:AT+PORT 1                                            — port 1
-12. CFML:CFLR:0:AT+JOIN                                                  — join (wait ~5-30 s)
+1.  CFML:CFLR:0:MODULE_SW_RESET                                       — restart module
+2.  CFML:CFLR:0:MODULE_GET_INFO                                       — verify firmware
+3.  CFML:CFLR:0:MODULE_SET_REGION:AS923                               — AS923 (Vietnam)
+4.  CFML:CFLR:0:MODULE_SET_CLASS:A                                    — Class A
+5.  CFML:CFLR:0:MODULE_SET_JOIN_MODE:OTAA                             — OTAA mode
+6.  CFML:CFLR:0:MODULE_SET_DEV_EUI:00 11 22 33 44 55 66 77           — DevEUI
+7.  CFML:CFLR:0:MODULE_SET_APP_EUI:00 00 00 00 00 00 00 01           — AppEUI
+8.  CFML:CFLR:0:MODULE_SET_APP_KEY:00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF
+9.  CFML:CFLR:0:MODULE_SET_ADR:OFF                                    — disable ADR
+10. CFML:CFLR:0:MODULE_SET_DR:DR3                                     — DR3 (SF9)
+11. CFML:CFLR:0:MODULE_SET_PORT:1                                     — port 1
+12. CFML:CFLR:0:MODULE_JOIN                                           — join (wait ~5-30 s)
     [ observe CFLR:0:EVT:+JOIN: Done ]
-13. CFML:CFLR:0:AT+MSGHEX 48 65 6C 6C 6F                              — send "Hello"
+13. CFML:CFLR:0:MODULE_SEND_HEX_UNCONFIRMED:48 65 6C 6C 6F           — send "Hello"
     [ observe CFLR:0:OK:+MSGHEX: Done ]
     [ observe CFLR:0:EVT:RX: port 1; RX: "..." if server sends downlink ]
 ```
@@ -1062,190 +1219,152 @@ CFML:CFBN:0:NODE_RESET:0x0006                                         → reset 
 | 2 | ZB-TH-Sensor-1  | Sensor | ESP32-C6 | EP 1     | 0x0402 (Temperature), 0x0405 (Humidity) |
 | 3 | ZB-TH-Sensor-2  | Sensor | ESP32-C6 | EP 1     | 0x0402 (Temperature), 0x0405 (Humidity) |
 
+> **Lưu ý quan trọng:** E180-ZG120B trong AT mode chỉ hỗ trợ quản lý mạng cơ bản và truyền
+> trong suốt (transparent). Các thao tác ZCL (đọc/ghi attribute, gửi cluster command, cấu hình
+> reporting) **không hỗ trợ trong AT mode** — chúng chỉ khả dụng qua HEX binary mode (`AT+EXIT`).
+> Bài test dưới đây chỉ dùng các AT command thực sự có trong datasheet E180-ZG120B.
+
 **LED device (ZB-C6-Bulb, EP 10):**
-- Cluster 0x0006: OnOff — cmd 0x01=ON, 0x00=OFF, 0x02=Toggle
-- Cluster 0x0008: Level Control — cmd 0x04=Move to Level `[level, transition_time_lo, transition_time_hi]`
-- Cluster 0x0300: Color Control — cmd 0x07=Move to Color XY `[X_lo, X_hi, Y_lo, Y_hi, time_lo, time_hi]`
-
-**5 màu cố định (Color XY CIE 1931):**
-
-| Màu       | X      | Y      | X hex  | Y hex  |
-|-----------|--------|--------|--------|--------|
-| Đỏ        | 0.6915 | 0.3083 | 0xB0A3 | 0x4F05 |
-| Xanh lá   | 0.1700 | 0.7000 | 0x2B9D | 0xB333 |
-| Xanh dương | 0.1500 | 0.0600 | 0x2666 | 0x0F5C |
-| Vàng      | 0.4317 | 0.5003 | 0x6EA1 | 0x8028 |
-| Trắng     | 0.3127 | 0.3290 | 0x5013 | 0x5438 |
+- Bind với coordinator qua AT mode → điều khiển bằng AT+TURNON/TURNOFF/TOGGLE
+- Control nâng cao (level, color) chỉ qua HEX mode
 
 **Sensor device (ZB-TH-Sensor, EP 1):**
-- Cluster 0x0402, Attr 0x0000: MeasuredValue (int16, đơn vị 0.01°C)
-- Cluster 0x0405, Attr 0x0000: MeasuredValue (uint16, đơn vị 0.01%)
-- Hỗ trợ Attribute Reporting tự động
+- Join network → gửi report tự động qua transparent mode
+- Report asynchronous nhận qua CFZB:1:EVT:NODE hoặc transparent data
 
 ### 7.1 Bước 1 — Khởi tạo mạng Zigbee
 
 ```
-Send:    CFML:CFZB:0:AT+INFO?
-Expect:  CFZB:0:OK:TYPE=...
+Send:    CFML:CFZB:1:MODULE_GET_INFO
+Legacy:  CFML:CFZB:1:AT+INFO?
+Expect:  CFZB:1:OK:TYPE=COORDINATOR    (or NO NET if not joined yet)
 
-Send:    CFML:CFZB:0:AT+CREATENW
-Expect:  CFZB:0:OK:+CREATENW:0
+Send:    CFML:CFZB:1:MODULE_SW_RESET
+Legacy:  CFML:CFZB:1:AT+RESET
+Expect:  CFZB:1:OK:OK
 
-Send:    CFML:CFZB:0:AT+NWINFO
-Expect:  CFZB:0:OK:+NWINFO:<ch>,<panid>,<short_addr>,...
+Send:    CFML:CFZB:1:MODULE_START_NETWORK
+Legacy:  CFML:CFZB:1:AT+JOIN
+Expect:  CFZB:1:OK:OK
+         (then async: NETOPEN:180-Sec — network open for 180s)
 ```
 
 ### 7.2 Bước 2 — Cho phép thiết bị join
 
 ```
-Send:    CFML:CFZB:0:AT+OPENWNET=120
-Expect:  CFZB:0:OK:+OPENWNET:0
+MODULE_START_NETWORK đã mở network cho 180 giây. Nếu cần mở lại:
+
+Send:    CFML:CFZB:1:MODULE_START_NETWORK
+Legacy:  CFML:CFZB:1:AT+JOIN
+Expect:  CFZB:1:OK:OK
+         (async: NETOPEN:180-Sec)
 ```
 
 > Bật nguồn 3 thiết bị ESP32-C6. Chờ sự kiện JOIN:
 
 ```
-Expect:  CFZB:0:EVT:JOIN:<short_addr_1>    ← ZB-C6-Bulb
-         CFZB:0:EVT:JOIN:<short_addr_2>    ← ZB-TH-Sensor-1
-         CFZB:0:EVT:JOIN:<short_addr_3>    ← ZB-TH-Sensor-2
+Expect:  CFZB:1:EVT:JOIN:<short_addr_1>    ← ZB-C6-Bulb
+         CFZB:1:EVT:JOIN:<short_addr_2>    ← ZB-TH-Sensor-1
+         CFZB:1:EVT:JOIN:<short_addr_3>    ← ZB-TH-Sensor-2
 ```
 
-### 7.3 Bước 3 — Xác nhận thiết bị (Simple Descriptor)
+### 7.3 Bước 3 — Xác nhận thông tin module
 
 ```
-Send:    CFML:CFZB:0:AT+SIMPLEDESC=<short_1>,0A
-Expect:  CFZB:0:OK:+SIMPLEDESC:<profile>,<device_id>,...
-         → EP=10, Profile=0x0104, DeviceID=0x0102 (Color Dimmable Light)
-         → InClusters: 0x0006, 0x0008, 0x0300
-
-Send:    CFML:CFZB:0:AT+SIMPLEDESC=<short_2>,01
-Expect:  CFZB:0:OK:+SIMPLEDESC:<profile>,<device_id>,...
-         → EP=1, Profile=0x0104, DeviceID=0x0302 (Temperature Sensor)
-         → InClusters: 0x0402, 0x0405
-
-Send:    CFML:CFZB:0:AT+SIMPLEDESC=<short_3>,01
-Expect:  (tương tự sensor 2)
+Send:    CFML:CFZB:1:MODULE_GET_INFO
+Legacy:  CFML:CFZB:1:AT+INFO?
+Expect:  CFZB:1:OK:TYPE=COORDINATOR
+         PANID=<panid>
+         CHANNEL=<ch>
+         ADDR=0x0000
+Notes:   Simple descriptor (cluster list) không hỗ trợ trong AT mode.
 ```
 
-### 7.4 Bước 4 — Cấu hình reporting cho sensor
+### 7.4 Bước 4 — Tìm thiết bị và cấu hình destination
 
 ```
-Send:    CFML:CFZB:0:AT+CONFREPORT=<short_2>,01,0402,0000,29,0005,003C,0064
-         (Temperature: min 5s, max 60s, change 100=1.00°C, type 0x29=int16)
-Expect:  CFZB:0:OK:+CONFREPORT:0
+Send:    CFML:CFZB:1:MODULE_AUTO_FIND_TARGET
+Legacy:  CFML:CFZB:1:AT+FIND
+Expect:  CFZB:1:OK:OK
+         (then async: FIND:ADDR=<short_addr>  or  FIND:MISS)
 
-Send:    CFML:CFZB:0:AT+CONFREPORT=<short_2>,01,0405,0000,21,0005,003C,0064
-         (Humidity: min 5s, max 60s, change 100=1.00%, type 0x21=uint16)
-Expect:  CFZB:0:OK:+CONFREPORT:0
+Set destination address (short address of LED):
+Send:    CFML:CFZB:1:MODULE_SET_DEST_ADDR:<short_addr_1>
+Legacy:  CFML:CFZB:1:AT+DSTADDR=<short_addr_1>
+Expect:  CFZB:1:OK:OK
 
-Send:    CFML:CFZB:0:AT+CONFREPORT=<short_3>,01,0402,0000,29,0005,003C,0064
-Expect:  CFZB:0:OK:+CONFREPORT:0
-
-Send:    CFML:CFZB:0:AT+CONFREPORT=<short_3>,01,0405,0000,21,0005,003C,0064
-Expect:  CFZB:0:OK:+CONFREPORT:0
-```
-
-> Sau khi cấu hình, sẽ nhận được report tự động:
-```
-CFZB:0:EVT:RPT:<short_2>,01,0402,0000,29,<value_hex>
-CFZB:0:EVT:RPT:<short_2>,01,0405,0000,21,<value_hex>
+Send:    CFML:CFZB:1:MODULE_SET_DEST_EP:10
+Legacy:  CFML:CFZB:1:AT+DSTEP=10
+Expect:  CFZB:1:OK:OK
 ```
 
-**Parse giá trị temperature:**
+### 7.5 Bước 5 — Điều khiển LED (switch on/off)
+
+> Yêu cầu LED device đã được bind với coordinator. AT mode chỉ hỗ trợ ON/OFF/TOGGLE.
+
+**Bật LED:**
 ```
-Type 0x29 = int16: value_hex = "0A09" → 0x090A = 2314 → 23.14°C
+Send:    CFML:CFZB:1:AT+TURNON
+Expect:  CFZB:1:OK:OK
 ```
 
-**Parse giá trị humidity:**
+**Tắt LED:**
 ```
-Type 0x21 = uint16: value_hex = "8413" → 0x1384 = 4996 → 49.96%
-```
-
-### 7.5 Bước 5 — Điều khiển LED
-
-**Bật LED (OnOff cluster 0x0006, cmd 0x01=ON):**
-```
-Send:    CFML:CFZB:0:AT+ZCL=<short_1>,0A,0006,01
-Expect:  CFZB:0:OK:+ZCL:0
+Send:    CFML:CFZB:1:AT+TURNOFF
+Expect:  CFZB:1:OK:OK
 ```
 
-**Tắt LED (cmd 0x00=OFF):**
+**Toggle LED:**
 ```
-Send:    CFML:CFZB:0:AT+ZCL=<short_1>,0A,0006,00
-Expect:  CFZB:0:OK:+ZCL:0
-```
-
-**Đổi màu Đỏ (Color XY cluster 0x0300, cmd 0x07=MoveToColorXY, transition=1s=0x000A):**
-```
-Send:    CFML:CFZB:0:AT+ZCL=<short_1>,0A,0300,07,A3B0054F0A00
-         Bytes: X_lo=A3 X_hi=B0 (→0xB0A3) Y_lo=05 Y_hi=4F (→0x4F05) time_lo=0A time_hi=00
-Expect:  CFZB:0:OK:+ZCL:0
+Send:    CFML:CFZB:1:AT+TOGGLE
+Expect:  CFZB:1:OK:OK
 ```
 
-**Đổi màu Xanh lá:**
-```
-Send:    CFML:CFZB:0:AT+ZCL=<short_1>,0A,0300,07,9D2B33B30A00
-         (X=0x2B9D, Y=0xB333)
-```
+> Điều khiển màu sắc và dimmer **không khả dụng trong AT mode**.
+> Cần chuyển sang HEX binary mode (AT+EXIT) để dùng ZCL Color/Level clusters.
 
-**Đổi màu Xanh dương:**
-```
-Send:    CFML:CFZB:0:AT+ZCL=<short_1>,0A,0300,07,66265C0F0A00
-         (X=0x2666, Y=0x0F5C)
-```
+### 7.6 Bước 6 — Nhận dữ liệu sensor (transparent mode)
 
-**Đổi màu Vàng:**
-```
-Send:    CFML:CFZB:0:AT+ZCL=<short_1>,0A,0300,07,A16E28800A00
-         (X=0x6EA1, Y=0x8028)
-```
-
-**Đổi màu Trắng:**
-```
-Send:    CFML:CFZB:0:AT+ZCL=<short_1>,0A,0300,07,135038540A00
-         (X=0x5013, Y=0x5438)
-```
-
-### 7.6 Bước 6 — Đọc attribute thủ công (nếu cần)
-
-**Đọc trạng thái OnOff:**
-```
-Send:    CFML:CFZB:0:AT+ATTRREAD=<short_1>,0A,0006,0000
-Expect:  CFZB:0:OK:+ATTRREAD:<short_1>,0A,0006,0000,10,<00|01>
-```
-
-**Đọc nhiệt độ:**
-```
-Send:    CFML:CFZB:0:AT+ATTRREAD=<short_2>,01,0402,0000
-Expect:  CFZB:0:OK:+ATTRREAD:<short_2>,01,0402,0000,29,<value_hex>
-```
-
-### 7.7 Bước 7 — Xóa thiết bị (nếu cần)
+> Sensor device gửi report tự động. Để nhận qua transparent mode:
 
 ```
-Send:    CFML:CFZB:0:AT+ENTDEL=<short_3>
-Expect:  CFZB:0:OK:+ENTDEL:0
-         CFZB:0:EVT:LEAVE:<short_3>
+Send:    CFML:CFZB:1:AT+SEND
+Expect:  CFZB:1:OK:SEND MODE
+         (module enters transparent receive mode)
+         (sensor data arrives as raw bytes when sensor reports)
+```
+
+> Đọc attribute trực tiếp (AT+ATTRREAD) **không hỗ trợ trong AT mode**.
+
+### 7.7 Bước 7 — Rời mạng / reset (nếu cần)
+
+```
+Leave network:
+Send:    CFML:CFZB:1:AT+LEAVE
+Expect:  CFZB:1:OK:OK
+         (module reboots)
+
+Stop network (coordinator):
+Send:    CFML:CFZB:1:AT+STOP
+Expect:  CFZB:1:OK:OK
+         (then async: NETCLOSE)
 ```
 
 ### 7.8 Full Test Sequence (tóm tắt)
 
 ```
-CFML:CFZB:0:AT+INFO?                                                              → verify module
-CFML:CFZB:0:AT+CREATENW                                                         → start coordinator
-CFML:CFZB:0:AT+OPENWNET=120                                                   → permit join 120s
-  [ bật nguồn 3 thiết bị ESP32-C6, chờ CFZB:0:EVT:JOIN events ]
-CFML:CFZB:0:AT+SIMPLEDESC=<short_1>,0A                                     → verify LED (EP10)
-CFML:CFZB:0:AT+SIMPLEDESC=<short_2>,01                                     → verify sensor1
-CFML:CFZB:0:AT+SIMPLEDESC=<short_3>,01                                     → verify sensor2
-CFML:CFZB:0:AT+CONFREPORT=<short_2>,01,0402,0000,29,0005,003C,0064         → temp report
-CFML:CFZB:0:AT+CONFREPORT=<short_2>,01,0405,0000,21,0005,003C,0064         → hum report
-CFML:CFZB:0:AT+CONFREPORT=<short_3>,01,0402,0000,29,0005,003C,0064
-CFML:CFZB:0:AT+CONFREPORT=<short_3>,01,0405,0000,21,0005,003C,0064
-CFML:CFZB:0:AT+ZCL=<short_1>,0A,0006,01                            → LED ON
-CFML:CFZB:0:AT+ZCL=<short_1>,0A,0300,07,A3B0054F0A00              → màu Đỏ
-  [ quan sát CFZB:0:EVT:RPT từ sensor ]
-CFML:CFZB:0:AT+ZCL=<short_1>,0A,0006,00                            → LED OFF
+CFML:CFZB:1:MODULE_GET_INFO                         → verify module type
+CFML:CFZB:1:AT+DEVTYPE=0                             → set coordinator role (0=coord, 1=router, 2=end_device)
+CFML:CFZB:1:MODULE_START_NETWORK                    → start network (NETOPEN:180-Sec)
+  [ bật nguồn 3 thiết bị ESP32-C6, chờ CFZB:1:EVT:JOIN events ]
+CFML:CFZB:1:MODULE_GET_INFO                          → confirm PANID, CHANNEL
+CFML:CFZB:1:MODULE_AUTO_FIND_TARGET                  → find bound target
+CFML:CFZB:1:MODULE_SET_DEST_ADDR:<short_1>          → set LED as target
+CFML:CFZB:1:MODULE_SET_DEST_EP:10                   → endpoint 10
+CFML:CFZB:1:AT+TURNON                               → LED ON
+CFML:CFZB:1:AT+TOGGLE                               → LED toggle
+CFML:CFZB:1:AT+TURNOFF                              → LED OFF
+CFML:CFZB:1:MODULE_STOP_NETWORK                     → stop network when done
 ```
 
 ---
@@ -1284,37 +1403,48 @@ CFML:CFZB:0:AT+ZCL=<short_1>,0A,0006,00                            → LED OFF
 ### 8.1 Bước 1 — Cấu hình Wio-E5 trên Gateway
 
 ```
-Send:    CFML:CFLR:0:AT+RESET
+Send:    CFML:CFLR:0:MODULE_SW_RESET
+Legacy:  CFML:CFLR:0:AT+RESET
 Expect:  CFLR:0:OK:+RESET: OK    (wait ~1s)
 
-Send:    CFML:CFLR:0:AT+VER
+Send:    CFML:CFLR:0:MODULE_GET_INFO
+Legacy:  CFML:CFLR:0:AT+VER
 Expect:  CFLR:0:OK:+VER: <version_string>
 
-Send:    CFML:CFLR:0:AT+DR AS923
+Send:    CFML:CFLR:0:MODULE_SET_REGION:AS923
+Legacy:  CFML:CFLR:0:AT+DR AS923
 Expect:  CFLR:0:OK:+DR: AS923
 
-Send:    CFML:CFLR:0:AT+CLASS A
+Send:    CFML:CFLR:0:MODULE_SET_CLASS:A
+Legacy:  CFML:CFLR:0:AT+CLASS A
 Expect:  CFLR:0:OK:+CLASS: A
 
-Send:    CFML:CFLR:0:AT+MODE OTAA
+Send:    CFML:CFLR:0:MODULE_SET_JOIN_MODE:OTAA
+Legacy:  CFML:CFLR:0:AT+MODE OTAA
 Expect:  CFLR:0:OK:+MODE: OTAA
 
-Send:    CFML:CFLR:0:AT+ID DevEui,DA 2D A2 DA 2D A2 DA 01
+Send:    CFML:CFLR:0:MODULE_SET_DEV_EUI:DA 2D A2 DA 2D A2 DA 01
+Legacy:  CFML:CFLR:0:AT+ID DevEui,DA 2D A2 DA 2D A2 DA 01
 Expect:  CFLR:0:OK:+ID: DevEui, DA:2D:A2:DA:2D:A2:DA:01
 
-Send:    CFML:CFLR:0:AT+ID AppEui,00 00 00 00 00 00 00 00
+Send:    CFML:CFLR:0:MODULE_SET_APP_EUI:00 00 00 00 00 00 00 00
+Legacy:  CFML:CFLR:0:AT+ID AppEui,00 00 00 00 00 00 00 00
 Expect:  CFLR:0:OK:+ID: AppEui, 00:00:00:00:00:00:00:00
 
-Send:    CFML:CFLR:0:AT+KEY APPKEY,DA 2D A2 DA 2D A2 DA 2D A2 DA 2D A2 DA 2D A2 DA
+Send:    CFML:CFLR:0:MODULE_SET_APP_KEY:DA 2D A2 DA 2D A2 DA 2D A2 DA 2D A2 DA 2D A2 DA
+Legacy:  CFML:CFLR:0:AT+KEY APPKEY,DA 2D A2 DA 2D A2 DA 2D A2 DA 2D A2 DA 2D A2 DA
 Expect:  CFLR:0:OK:+KEY: APPKEY DA2DA2DA2DA2DA2DA2DA2DA2DA2DA2DA
 
-Send:    CFML:CFLR:0:AT+ADR OFF
+Send:    CFML:CFLR:0:MODULE_SET_ADR:OFF
+Legacy:  CFML:CFLR:0:AT+ADR OFF
 Expect:  CFLR:0:OK:+ADR: OFF
 
-Send:    CFML:CFLR:0:AT+DR DR3
+Send:    CFML:CFLR:0:MODULE_SET_DR:DR3
+Legacy:  CFML:CFLR:0:AT+DR DR3
 Expect:  CFLR:0:OK:+DR: DR3    (SF9/125kHz)
 
-Send:    CFML:CFLR:0:AT+PORT 1
+Send:    CFML:CFLR:0:MODULE_SET_PORT:1
+Legacy:  CFML:CFLR:0:AT+PORT 1
 Expect:  CFLR:0:OK:+PORT: 1
 ```
 
@@ -1323,7 +1453,8 @@ Expect:  CFLR:0:OK:+PORT: 1
 > Đảm bảo thiết bị Arduino đã bật và đang chờ join.
 
 ```
-Send:    CFML:CFLR:0:AT+JOIN
+Send:    CFML:CFLR:0:MODULE_JOIN
+Legacy:  CFML:CFLR:0:AT+JOIN
 Expect:  CFLR:0:OK:+JOIN: Start
          CFLR:0:OK:+JOIN: Done    (thành công, ~5-30s)
 ```
@@ -1340,19 +1471,22 @@ Expect:  CFLR:0:EVT:RX: port 1; RX: "AA"
 
 **Bật tất cả LED (payload=01, port=1):**
 ```
-Send:    CFML:CFLR:0:AT+MSGHEX 01
+Send:    CFML:CFLR:0:MODULE_SEND_HEX_UNCONFIRMED:01
+Legacy:  CFML:CFLR:0:AT+MSGHEX 01
 Expect:  CFLR:0:OK:+MSGHEX: Start
          CFLR:0:OK:+MSGHEX: Done
 ```
 
 **Tắt tất cả LED:**
 ```
-Send:    CFML:CFLR:0:AT+MSGHEX 00
+Send:    CFML:CFLR:0:MODULE_SEND_HEX_UNCONFIRMED:00
+Legacy:  CFML:CFLR:0:AT+MSGHEX 00
 ```
 
 **Blink:**
 ```
-Send:    CFML:CFLR:0:AT+MSGHEX 02
+Send:    CFML:CFLR:0:MODULE_SEND_HEX_UNCONFIRMED:02
+Legacy:  CFML:CFLR:0:AT+MSGHEX 02
 ```
 
 **Hiển thị "HI":**
@@ -1392,25 +1526,25 @@ Expect:  CFLR:0:EVT:RX: port 1; RX: "BB"    (mỗi ~15s)
 ### 8.5 Full Test Sequence (tóm tắt)
 
 ```
-CFML:CFLR:0:AT+RESET                                               → reset module
-CFML:CFLR:0:AT+DR AS923                                       → AS923
-CFML:CFLR:0:AT+CLASS A                                            → Class A
-CFML:CFLR:0:AT+MODE OTAA                                     → OTAA mode
-CFML:CFLR:0:AT+ID DevEui,DA 2D A2 DA 2D A2 DA 01                    → DevEUI
-CFML:CFLR:0:AT+ID AppEui,00 00 00 00 00 00 00 00                    → AppEUI
-CFML:CFLR:0:AT+KEY APPKEY,DA 2D A2 DA 2D A2 DA 2D A2 DA 2D A2 DA 2D A2 DA
-CFML:CFLR:0:AT+ADR OFF                                            → disable ADR
-CFML:CFLR:0:AT+DR DR3                                             → DR3 (SF9)
-CFML:CFLR:0:AT+PORT 1                                             → port 1
-CFML:CFLR:0:AT+JOIN                                                   → join (chờ ~5-30s)
+CFML:CFLR:0:MODULE_SW_RESET                                        → reset module
+CFML:CFLR:0:MODULE_SET_REGION:AS923                                → AS923
+CFML:CFLR:0:MODULE_SET_CLASS:A                                     → Class A
+CFML:CFLR:0:MODULE_SET_JOIN_MODE:OTAA                              → OTAA mode
+CFML:CFLR:0:MODULE_SET_DEV_EUI:DA 2D A2 DA 2D A2 DA 01            → DevEUI
+CFML:CFLR:0:MODULE_SET_APP_EUI:00 00 00 00 00 00 00 00             → AppEUI
+CFML:CFLR:0:MODULE_SET_APP_KEY:DA 2D A2 DA 2D A2 DA 2D A2 DA 2D A2 DA 2D A2 DA
+CFML:CFLR:0:MODULE_SET_ADR:OFF                                     → disable ADR
+CFML:CFLR:0:MODULE_SET_DR:DR3                                      → DR3 (SF9)
+CFML:CFLR:0:MODULE_SET_PORT:1                                      → port 1
+CFML:CFLR:0:MODULE_JOIN                                            → join (chờ ~5-30s)
   [ quan sát CFLR:0:EVT:+JOIN: Done ]
   [ quan sát CFLR:0:EVT:RX: port 1; RX: "AA" = initial report ]
-CFML:CFLR:0:AT+MSGHEX 01                                            → bật LED
+CFML:CFLR:0:MODULE_SEND_HEX_UNCONFIRMED:01                         → bật LED
   [ chờ keepalive BB → CFLR:0:EVT:RX: port 1; RX: "BB" ]
-CFML:CFLR:0:AT+MSGHEX 03                                            → scroll "HI"
-CFML:CFLR:0:AT+MSGHEX 20                                            → Heart icon
-CFML:CFLR:0:AT+MSGHEX 15                                            → số 5
-CFML:CFLR:0:AT+MSGHEX 00                                            → tắt LED
+CFML:CFLR:0:MODULE_SEND_HEX_UNCONFIRMED:03                         → scroll "HI"
+CFML:CFLR:0:MODULE_SEND_HEX_UNCONFIRMED:20                         → Heart icon
+CFML:CFLR:0:MODULE_SEND_HEX_UNCONFIRMED:15                         → số 5
+CFML:CFLR:0:MODULE_SEND_HEX_UNCONFIRMED:00                         → tắt LED
 ```
 
 ---
@@ -1621,20 +1755,20 @@ BLE Mesh unsegmented lý thuyết: ~220 B/s (11 bytes × 20 packets/s)
 ### 11.1 Kết nối thiết bị
 
 ```
-Send:    CFML:CFZB:0:AT+CREATENW
-Expect:  CFZB:0:OK:+CREATENW:0
+Send:    CFML:CFZB:1:AT+CREATENW
+Expect:  CFZB:1:OK:+CREATENW:0
 
-Send:    CFML:CFZB:0:AT+OPENWNET=60
-Expect:  CFZB:0:OK:+OPENWNET:0
-         CFZB:0:EVT:JOIN:<short_bw>         ← ZB-BW-Sensor joined
+Send:    CFML:CFZB:1:AT+OPENWNET=60
+Expect:  CFZB:1:OK:+OPENWNET:0
+         CFZB:1:EVT:JOIN:<short_bw>         ← ZB-BW-Sensor joined
 ```
 
 ### 11.2 Cấu hình fast reporting
 
 ```
-Send:    CFML:CFZB:0:AT+CONFREPORT=<short_bw>,01,0402,0000,29,0001,0005,0001
+Send:    CFML:CFZB:1:AT+CONFREPORT=<short_bw>,01,0402,0000,29,0001,0005,0001
          (min 1s, max 5s, change 0x0001=0.01°C → report rất thường xuyên)
-Expect:  CFZB:0:OK:+CONFREPORT:0
+Expect:  CFZB:1:OK:+CONFREPORT:0
 ```
 
 ### 11.3 Test Uplink (device → gateway)
@@ -1643,8 +1777,8 @@ Expect:  CFZB:0:OK:+CONFREPORT:0
 > Gateway nhận `EVT:RPT` liên tục.
 
 ```
-Expect:  CFZB:0:EVT:RPT:<short_bw>,01,0402,0000,29,<value>
-         CFZB:0:EVT:RPT:<short_bw>,01,0402,0000,29,<value>
+Expect:  CFZB:1:EVT:RPT:<short_bw>,01,0402,0000,29,<value>
+         CFZB:1:EVT:RPT:<short_bw>,01,0402,0000,29,<value>
          ... (mỗi ~100ms nếu device flood)
 ```
 
@@ -1654,11 +1788,11 @@ Expect:  CFZB:0:EVT:RPT:<short_bw>,01,0402,0000,29,<value>
 
 **Gửi dữ liệu liên tục qua AT+SENDDATA:**
 ```
-Send:    CFML:CFZB:0:AT+SENDDATA=<short_bw>,01,0000,<80_bytes_hex>
-Expect:  CFZB:0:OK:+SENDDATA:0
+Send:    CFML:CFZB:1:AT+SENDDATA=<short_bw>,01,0000,<80_bytes_hex>
+Expect:  CFZB:1:OK:+SENDDATA:0
 
-Send:    CFML:CFZB:0:AT+SENDDATA=<short_bw>,01,0000,<80_bytes_hex>
-Expect:  CFZB:0:OK:+SENDDATA:0
+Send:    CFML:CFZB:1:AT+SENDDATA=<short_bw>,01,0000,<80_bytes_hex>
+Expect:  CFZB:1:OK:+SENDDATA:0
 ... (lặp lại)
 ```
 
@@ -1674,9 +1808,9 @@ Report fast mode: ~40 bytes × 10 report/s = ~400 B/s (ước lượng)
 ### 11.6 Xóa thiết bị
 
 ```
-Send:    CFML:CFZB:0:AT+ENTDEL=<short_bw>
-Expect:  CFZB:0:OK:+ENTDEL:0
-         CFZB:0:EVT:LEAVE:<short_bw>
+Send:    CFML:CFZB:1:AT+ENTDEL=<short_bw>
+Expect:  CFZB:1:OK:+ENTDEL:0
+         CFZB:1:EVT:LEAVE:<short_bw>
 ```
 
 ---

@@ -4,21 +4,6 @@
 
 ---
 
-> **⚠️ TRẠNG THÁI: CHƯA HỖ TRỢ / NOT SUPPORTED**
->
-> Tính năng BLE Mesh Provisioner đang trong giai đoạn phát triển và **chưa được kiểm chứng đủ để triển khai thực tế**.
-> Tất cả các điểm truy cập đều đã bị khoá:
-> - **Firmware** (`DA2_esp_LAN`): `config_handler_ble_native_commands.c` trả về `CFBN:FAIL:NOT_SUPPORTED` cho mọi lệnh CFBN: và CFBN:JSON:. Để mở khoá, đặt `#define BLE_NATIVE_MESH_SUPPORTED 1` trong file đó.
-> - **Config App** (`DATN_config_app`): Tab "🔵 BLE Mesh" trong Advanced Panel bị vô hiệu hoá (`state='disabled'`).
-> - **ThingsBoard Widget** (`ble_mesh_widget.html`): Overlay "Chưa hỗ trợ" phủ toàn bộ giao diện widget.
->
-> Để kích hoạt lại tính năng này sau khi đã kiểm chứng đầy đủ:
-> 1. Đặt `#define BLE_NATIVE_MESH_SUPPORTED  1` trong `config_handler_ble_native_commands.c`
-> 2. Xoá dòng `state="disabled"` trong `advanced_panel.py`
-> 3. Xoá thẻ `<div id="unsupported-overlay">` trong `ble_mesh_widget.html`
-
----
-
 ## 1. Why Native BLE Mesh
 
 Tuya E27 và các thiết bị Tuya BLE Mesh **không thể** kết nối bằng GATT Central. Lý do:

@@ -1,6 +1,7 @@
 {
   "module_id": "007",
   "module_type": "RS485",
+  "is_crlf_terminated": false,
   "stack_id": 0,
   "functions": [
     {

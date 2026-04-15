@@ -2,6 +2,7 @@
     "module_id": "000",
     "module_type": "ZIGBEE",
     "module_name": "E180-ZG120B",
+    "is_crlf_terminated": false,
     "module_communication": {
         "port_type": "uart",
         "parameters": {
@@ -18,20 +19,20 @@
             "is_hex": false,
             "gpio_start_control": [
                 {
-                    "pin": "01",
+                    "pin": "07",
                     "state": "LOW"
                 }
             ],
-            "delay_start": 100,
+            "delay_start": 500,
             "expect_response": "",
             "timeout": 0,
             "gpio_end_control": [
                 {
-                    "pin": "01",
+                    "pin": "07",
                     "state": "HIGH"
                 }
             ],
-            "delay_end": 2000
+            "delay_end": 1000
         },
         {
             "function_name": "MODULE_SW_RESET",
@@ -40,7 +41,7 @@
             "is_hex": false,
             "gpio_start_control": [],
             "delay_start": 0,
-            "expect_response": "VERSION=",
+            "expect_response": "OK",
             "timeout": 5000,
             "gpio_end_control": [],
             "delay_end": 2000
@@ -88,7 +89,7 @@
             "is_hex": false,
             "gpio_start_control": [],
             "delay_start": 0,
-            "expect_response": "NETOPEN:180-Sec",
+            "expect_response": "NETOPEN:",
             "timeout": 15000,
             "gpio_end_control": [],
             "delay_end": 0
@@ -573,6 +574,18 @@
                 { "pin": "03", "state": "HIGH" }
             ],
             "delay_end": 100
+        },
+        {
+            "function_name": "MODULE_EXIT_SEND_MODE",
+            "command": "+++",
+            "is_prefix": false,
+            "is_hex": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "",
+            "timeout": 1200,
+            "gpio_end_control": [],
+            "delay_end": 0
         }
     ]
 }

@@ -44,138 +44,141 @@ class BasicPanel(ttk.Frame):
         ttk.Label(title_frame, text="📋 BASIC CONFIGURATION",
                  font=("Segoe UI", 12, "bold")).pack(anchor="w")
 
-        # Notebook — fixed tabs first, dynamic module tabs added by set_config()
+        # Notebook — fixed tabs: Internet, Server, Interfaces
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
         # Create fixed tabs
-        self._create_wifi_tab()
-        self._create_lte_tab()
+        self._create_internet_tab()
         self._create_server_tab()
         self._create_interfaces_tab()
     
-    def _create_wifi_tab(self):
-        """Create WiFi configuration tab"""
+    # ─────────────────────────────────────────────────────────────────────────
+    # Internet tab (replaces old separate WiFi / LTE tabs)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _create_internet_tab(self):
+        """Unified Internet tab — WiFi / LTE / Ethernet switcher."""
         tab = ttk.Frame(self.notebook, padding=10)
-        self.notebook.add(tab, text="📶 WiFi")
-        
-        # WiFi Settings LabelFrame
-        wifi_frame = ttk.LabelFrame(tab, text="WiFi Settings", padding=10)
-        wifi_frame.pack(fill=tk.X, pady=5)
-        
-        # SSID
-        row1 = ttk.Frame(wifi_frame)
-        row1.pack(fill=tk.X, pady=3)
+        self.notebook.add(tab, text="📡 Internet")
+
+        # Hidden LTE defaults (populated by set_config from wan_stack_map)
+        self._lte_modem_default = ""
+        self._lte_comm_default  = "USB"
+        self._lte_pwr_default   = "05"
+        self._lte_rst_default   = "06"
+
+        # ── Internet type selector ────────────────────────────────────────
+        type_frame = ttk.LabelFrame(tab, text="Internet Type", padding=8)
+        type_frame.pack(fill=tk.X, pady=5)
+        row = ttk.Frame(type_frame); row.pack(fill=tk.X, pady=3)
+        ttk.Label(row, text="Connection:", width=15).pack(side=tk.LEFT)
+        self.internet_type_var = tk.StringVar(value="WiFi")
+        type_combo = ttk.Combobox(row, textvariable=self.internet_type_var,
+                                  state="readonly",
+                                  values=["WiFi", "LTE", "Ethernet"],
+                                  width=12)
+        type_combo.pack(side=tk.LEFT, padx=5)
+        type_combo.bind("<<ComboboxSelected>>", self._on_internet_type_change)
+
+        # ── WiFi settings ─────────────────────────────────────────────────
+        self._wifi_settings_frame = ttk.LabelFrame(tab, text="WiFi Settings", padding=10)
+
+        row1 = ttk.Frame(self._wifi_settings_frame); row1.pack(fill=tk.X, pady=3)
         ttk.Label(row1, text="SSID:", width=15).pack(side=tk.LEFT)
         self.wifi_ssid_var = tk.StringVar()
-        ttk.Entry(row1, textvariable=self.wifi_ssid_var).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        
-        # Password
-        row2 = ttk.Frame(wifi_frame)
-        row2.pack(fill=tk.X, pady=3)
+        ttk.Entry(row1, textvariable=self.wifi_ssid_var).pack(
+            side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+
+        row2 = ttk.Frame(self._wifi_settings_frame); row2.pack(fill=tk.X, pady=3)
         ttk.Label(row2, text="Password:", width=15).pack(side=tk.LEFT)
-        
-        # Pack Checkbutton first (right side)
         self.show_pwd_var = tk.BooleanVar()
         ttk.Checkbutton(row2, text="Show", variable=self.show_pwd_var,
-                       command=lambda: self.wifi_pwd_entry.config(show="" if self.show_pwd_var.get() else "*")
-                       ).pack(side=tk.RIGHT, padx=5)
-        
-        # Then Entry fills remaining space
+                        command=lambda: self.wifi_pwd_entry.config(
+                            show="" if self.show_pwd_var.get() else "*")
+                        ).pack(side=tk.RIGHT, padx=5)
         self.wifi_pwd_var = tk.StringVar()
         self.wifi_pwd_entry = ttk.Entry(row2, textvariable=self.wifi_pwd_var, show="*")
         self.wifi_pwd_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        
-        # Auth Mode - only PERSONAL (0) or ENTERPRISE (1)
-        row3 = ttk.Frame(wifi_frame)
-        row3.pack(fill=tk.X, pady=3)
+
+        row3 = ttk.Frame(self._wifi_settings_frame); row3.pack(fill=tk.X, pady=3)
         ttk.Label(row3, text="Auth Mode:", width=15).pack(side=tk.LEFT)
         self.wifi_auth_var = tk.StringVar(value="PERSONAL")
         auth_combo = ttk.Combobox(row3, textvariable=self.wifi_auth_var, state="readonly",
                                   values=["PERSONAL", "ENTERPRISE"])
         auth_combo.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
         auth_combo.bind("<<ComboboxSelected>>", self._on_wifi_auth_change)
-        
-        # Username (Enterprise only) - Initially hidden
-        self.wifi_username_frame = ttk.Frame(wifi_frame)
-        # Don't pack initially - hidden when PERSONAL
+
+        self.wifi_username_frame = ttk.Frame(self._wifi_settings_frame)
         ttk.Label(self.wifi_username_frame, text="Username:", width=15).pack(side=tk.LEFT)
         self.wifi_username_var = tk.StringVar()
-        ttk.Entry(self.wifi_username_frame, textvariable=self.wifi_username_var).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        
-        # Set Button
-        btn_frame = ttk.Frame(tab)
-        btn_frame.pack(fill=tk.X, pady=10)
-        ttk.Button(btn_frame, text="Set WiFi Config", style='Set.TButton',
-                  command=self._set_wifi_config).pack(anchor="e", padx=5)
-    
-    def _on_wifi_auth_change(self, event=None):
-        """Handle WiFi auth mode change - show/hide username field"""
-        if self.wifi_auth_var.get() == "ENTERPRISE":
-            self.wifi_username_frame.pack(fill=tk.X, pady=3)
-        else:
-            self.wifi_username_frame.pack_forget()
-            self.wifi_username_var.set("")
-    
-    def _create_lte_tab(self):
-        """Create LTE configuration tab (hidden when no LTE adapter present)"""
-        tab = ttk.Frame(self.notebook, padding=10)
-        self._lte_tab_frame = tab
+        ttk.Entry(self.wifi_username_frame, textvariable=self.wifi_username_var).pack(
+            side=tk.LEFT, padx=5, fill=tk.X, expand=True)
 
-        # Hidden-from-user defaults populated by set_config() from stack_id_map
-        self._lte_modem_default  = ""
-        self._lte_comm_default   = "USB"
-        self._lte_pwr_default    = "05"
-        self._lte_rst_default    = "06"
+        # ── LTE settings ──────────────────────────────────────────────────
+        self._lte_settings_frame = ttk.LabelFrame(tab, text="LTE Settings", padding=10)
 
-        # Adapter info row (read-only)
-        info_row = ttk.Frame(tab)
-        info_row.pack(fill=tk.X, pady=(0, 4))
+        info_row = ttk.Frame(self._lte_settings_frame); info_row.pack(fill=tk.X, pady=(0, 4))
         ttk.Label(info_row, text="LTE Module:", width=15).pack(side=tk.LEFT)
         self._lte_modem_info_var = tk.StringVar(value="—")
         ttk.Label(info_row, textvariable=self._lte_modem_info_var,
                   foreground="#1565C0", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=4)
 
-        # LTE Settings LabelFrame
-        lte_frame = ttk.LabelFrame(tab, text="LTE Settings", padding=10)
-        lte_frame.pack(fill=tk.X, pady=5)
-
-        # APN
-        row1 = ttk.Frame(lte_frame)
-        row1.pack(fill=tk.X, pady=3)
-        ttk.Label(row1, text="APN:", width=15).pack(side=tk.LEFT)
+        la = ttk.Frame(self._lte_settings_frame); la.pack(fill=tk.X, pady=3)
+        ttk.Label(la, text="APN:", width=15).pack(side=tk.LEFT)
         self.lte_apn_var = tk.StringVar(value="internet")
-        ttk.Entry(row1, textvariable=self.lte_apn_var).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        ttk.Entry(la, textvariable=self.lte_apn_var).pack(
+            side=tk.LEFT, padx=5, fill=tk.X, expand=True)
 
-        # Username
-        row2 = ttk.Frame(lte_frame)
-        row2.pack(fill=tk.X, pady=3)
-        ttk.Label(row2, text="Username:", width=15).pack(side=tk.LEFT)
+        lb = ttk.Frame(self._lte_settings_frame); lb.pack(fill=tk.X, pady=3)
+        ttk.Label(lb, text="Username:", width=15).pack(side=tk.LEFT)
         self.lte_user_var = tk.StringVar()
-        ttk.Entry(row2, textvariable=self.lte_user_var).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        ttk.Entry(lb, textvariable=self.lte_user_var).pack(
+            side=tk.LEFT, padx=5, fill=tk.X, expand=True)
 
-        # Password
-        row3 = ttk.Frame(lte_frame)
-        row3.pack(fill=tk.X, pady=3)
-        ttk.Label(row3, text="Password:", width=15).pack(side=tk.LEFT)
+        lc = ttk.Frame(self._lte_settings_frame); lc.pack(fill=tk.X, pady=3)
+        ttk.Label(lc, text="Password:", width=15).pack(side=tk.LEFT)
         self.lte_pwd_var = tk.StringVar()
-        self.lte_pwd_entry = ttk.Entry(row3, textvariable=self.lte_pwd_var, show="*")
+        self.lte_pwd_entry = ttk.Entry(lc, textvariable=self.lte_pwd_var, show="*")
         self.lte_pwd_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
         self.show_lte_pwd_var = tk.BooleanVar()
-        ttk.Checkbutton(row3, text="Show", variable=self.show_lte_pwd_var,
+        ttk.Checkbutton(lc, text="Show", variable=self.show_lte_pwd_var,
                         command=lambda: self.lte_pwd_entry.config(
                             show="" if self.show_lte_pwd_var.get() else "*")
                         ).pack(side=tk.LEFT, padx=5)
 
-        # Set Button
+        # ── Ethernet info ─────────────────────────────────────────────────
+        self._eth_settings_frame = ttk.LabelFrame(tab, text="Ethernet", padding=10)
+        ttk.Label(self._eth_settings_frame,
+                  text="Ethernet is hardware-configured (DHCP).\n"
+                       "No additional settings required.\n"
+                       "Click 'Set Internet Config' to activate Ethernet mode.",
+                  foreground="#555555", font=("Segoe UI", 9),
+                  wraplength=380, justify=tk.LEFT).pack(anchor="w", pady=5)
+
+        # ── Set button ────────────────────────────────────────────────────
         btn_frame = ttk.Frame(tab)
         btn_frame.pack(fill=tk.X, pady=10)
-        ttk.Button(btn_frame, text="✅ Set LTE Config", style='Set.TButton',
-                   command=self._set_lte_config).pack(anchor="e", padx=5)
+        ttk.Button(btn_frame, text="✅ Set Internet Config", style='Set.TButton',
+                   command=self._set_internet_config).pack(anchor="e", padx=5)
 
-        # NOTE: tab is NOT added to notebook here.
-        # set_config() will add/remove it based on wan_stack_id.
-    
+        # Show initial sub-frame
+        self._on_internet_type_change()
+
+    def _on_internet_type_change(self, event=None):
+        """Show/hide sub-frame for the selected internet type."""
+        itype = self.internet_type_var.get()
+        for frame in (self._wifi_settings_frame,
+                      self._lte_settings_frame,
+                      self._eth_settings_frame):
+            frame.pack_forget()
+        if itype == "WiFi":
+            self._wifi_settings_frame.pack(fill=tk.X, pady=5)
+        elif itype == "LTE":
+            self._lte_settings_frame.pack(fill=tk.X, pady=5)
+        elif itype == "Ethernet":
+            self._eth_settings_frame.pack(fill=tk.X, pady=5)
+
     def _create_server_tab(self):
         """Create Server configuration tab"""
         tab = ttk.Frame(self.notebook, padding=10)
@@ -337,13 +340,14 @@ class BasicPanel(ttk.Frame):
                   font=("Segoe UI", 9), foreground="#757575",
                   wraplength=380).pack(anchor="w", pady=(8, 0))
     
-    def _check_connection(self) -> bool:
-        """Check if serial is connected"""
-        if not self.serial_manager or not self.serial_manager.is_connected():
-            messagebox.showwarning("Warning", "Not connected to gateway")
-            return False
-        return True
-    
+    def _on_wifi_auth_change(self, event=None):
+        """Show/hide username field for Enterprise WiFi."""
+        if self.wifi_auth_var.get() == "ENTERPRISE":
+            self.wifi_username_frame.pack(fill=tk.X, pady=3)
+        else:
+            self.wifi_username_frame.pack_forget()
+            self.wifi_username_var.set("")
+
     def _send_command(self, cmd: str, description: str):
         """Send command without waiting for response"""
         self.log(f"Sending: {description}", "INFO")
@@ -352,79 +356,65 @@ class BasicPanel(ttk.Frame):
         else:
             self.log(f"{description} - Send failed", "ERROR")
     
-    def _set_wifi_config(self):
-        """Set WiFi configuration"""
-        if not self._check_connection():
-            return
-        
-        ssid = self.wifi_ssid_var.get().strip()
-        password = self.wifi_pwd_var.get()
-        auth = self.wifi_auth_var.get()
-        username = self.wifi_username_var.get().strip()
-        
-        if not ssid:
-            messagebox.showwarning("Warning", "Please enter WiFi SSID")
-            return
-        
-        # Validate username for Enterprise mode
-        if auth == "ENTERPRISE" and not username:
-            messagebox.showwarning("Warning", "Please enter Username for Enterprise mode")
-            return
-        
-        # Build CFWF command: CFWF:SSID:PASSWORD:AUTH_MODE or CFWF:SSID:PASSWORD:USERNAME:AUTH_MODE
-        if auth == "ENTERPRISE":
-            cmd = f"CFWF:{ssid}:{password}:{username}:ENTERPRISE"
-        else:
-            cmd = f"CFWF:{ssid}:{password}:PERSONAL"
-        
-        # Send CFWF first, then CFIN:WIFI after 1s delay (no response waiting)
-        def send_wifi_sequence():
-            import time
-            self.log(f"Sending: WiFi Config", "INFO")
-            self.serial_manager.send(cmd)
-            self.log(f"WiFi Config - Sent", "SUCCESS")
-            
-            # Wait 1s before sending CFIN:WIFI
-            time.sleep(1.0)
-            
-            self.log(f"Sending: Set Internet Type = WIFI", "INFO")
-            self.serial_manager.send("CFIN:WIFI")
-            self.log(f"Set Internet Type = WIFI - Sent", "SUCCESS")
-        
-        thread = threading.Thread(target=send_wifi_sequence)
-        thread.daemon = True
-        thread.start()
-    
-    def _set_lte_config(self):
-        """Set LTE configuration using full CFLT format"""
+    def _set_internet_config(self):
+        """Send internet config command for the selected connection type."""
         if not self._check_connection():
             return
 
-        apn  = self.lte_apn_var.get().strip()
-        user = self.lte_user_var.get().strip()
-        pwd  = self.lte_pwd_var.get()
+        itype = self.internet_type_var.get()
 
-        if not apn:
-            messagebox.showwarning("Warning", "Please enter APN")
-            return
+        if itype == "WiFi":
+            ssid     = self.wifi_ssid_var.get().strip()
+            password = self.wifi_pwd_var.get()
+            auth     = self.wifi_auth_var.get()
+            username = self.wifi_username_var.get().strip()
+            if not ssid:
+                messagebox.showwarning("Warning", "Please enter WiFi SSID")
+                return
+            if auth == "ENTERPRISE" and not username:
+                messagebox.showwarning("Warning",
+                                       "Please enter Username for Enterprise mode")
+                return
+            if auth == "ENTERPRISE":
+                cmd = f"CFWF:{ssid}:{password}:{username}:ENTERPRISE"
+            else:
+                cmd = f"CFWF:{ssid}:{password}:PERSONAL"
 
-        # CFLT:MODEM:APN:USER:PASS:COMM:AUTO:TIMEOUT_MS:MAX_RETRY:PWR:RST
-        cmd = (f"CFLT:{self._lte_modem_default}:{apn}:{user}:{pwd}"
-               f":{self._lte_comm_default}:true:30000:0"
-               f":{self._lte_pwr_default}:{self._lte_rst_default}")
+            def _send():
+                self.log(f"→ {cmd}", "DEBUG")
+                self.serial_manager.send(cmd)
+                self.log("✓ WiFi Config sent", "SUCCESS")
+                time.sleep(1.0)
+                self.serial_manager.send("CFIN:WIFI")
+                self.log("✓ Internet type = WiFi set", "SUCCESS")
+            threading.Thread(target=_send, daemon=True).start()
 
-        def send_lte_sequence():
-            self.log(f"→ {cmd}", "DEBUG")
-            self.serial_manager.send(cmd)
-            self.log("✓ LTE Config sent", "SUCCESS")
-            time.sleep(1.0)
-            self.log("→ CFIN:LTE", "DEBUG")
-            self.serial_manager.send("CFIN:LTE")
-            self.log("✓ Internet type = LTE set", "SUCCESS")
+        elif itype == "LTE":
+            apn  = self.lte_apn_var.get().strip()
+            user = self.lte_user_var.get().strip()
+            pwd  = self.lte_pwd_var.get()
+            if not apn:
+                messagebox.showwarning("Warning", "Please enter APN")
+                return
+            cmd = (f"CFLT:{self._lte_modem_default}:{apn}:{user}:{pwd}"
+                   f":{self._lte_comm_default}:true:30000:0"
+                   f":{self._lte_pwr_default}:{self._lte_rst_default}")
 
-        thread = threading.Thread(target=send_lte_sequence, daemon=True)
-        thread.start()
-    
+            def _send():
+                self.log(f"→ {cmd}", "DEBUG")
+                self.serial_manager.send(cmd)
+                self.log("✓ LTE Config sent", "SUCCESS")
+                time.sleep(1.0)
+                self.serial_manager.send("CFIN:LTE")
+                self.log("✓ Internet type = LTE set", "SUCCESS")
+            threading.Thread(target=_send, daemon=True).start()
+
+        elif itype == "Ethernet":
+            def _send():
+                self.serial_manager.send("CFIN:ETHERNET")
+                self.log("✓ Internet type = Ethernet set", "SUCCESS")
+            threading.Thread(target=_send, daemon=True).start()
+
     def _set_server_config(self):
         """Set Server configuration"""
         if not self._check_connection():
@@ -475,41 +465,45 @@ class BasicPanel(ttk.Frame):
     
     def set_config(self, config: GatewayConfig):
         """Set config values from loaded config"""
-        # WiFi
+        # ── Internet type ────────────────────────────────────────────────
+        _inet_map = {'WIFI': 'WiFi', 'LTE': 'LTE', 'ETHERNET': 'Ethernet'}
+        inet_raw = (getattr(config.wan, 'internet_type', 'WIFI') or 'WIFI').upper()
+        self.internet_type_var.set(_inet_map.get(inet_raw, 'WiFi'))
+
+        # WiFi fields
         self.wifi_ssid_var.set(config.wan.wifi_ssid or "")
         if config.wan.wifi_password and config.wan.wifi_password != "***HIDDEN***":
             self.wifi_pwd_var.set(config.wan.wifi_password)
 
-        # LTE — show/hide tab based on wan_stack_id
-        wan_id  = getattr(config.wan, "stack_wan_id", "100") or "100"
-        wan_map = _STACK_MAP.get("wan_stack_map", {})
+        # LTE defaults from wan_stack_map
+        wan_id    = getattr(config.wan, "stack_wan_id", "100") or "100"
+        wan_map   = _STACK_MAP.get("wan_stack_map", {})
         lte_entry = wan_map.get(wan_id, {})
-
-        # Determine whether LTE tab should be visible
         lte_visible = lte_entry.get("type", "NONE") != "NONE"
-        # Manage tab presence in notebook
-        tab_ids = list(self.notebook.tabs())
-        lte_frame_id = str(self._lte_tab_frame)
-        tab_present = lte_frame_id in tab_ids
-        if lte_visible and not tab_present:
-            self.notebook.insert(1, self._lte_tab_frame, text="📱 LTE")
-        elif not lte_visible and tab_present:
-            self.notebook.forget(self._lte_tab_frame)
 
         if lte_visible:
-            # Auto-fill hidden defaults
-            self._lte_modem_default = lte_entry.get("modem", getattr(config.wan, "lte_modem_name", "") or "")
-            self._lte_comm_default  = lte_entry.get("comm_type", getattr(config.wan, "lte_comm_type", "USB") or "USB")
-            self._lte_pwr_default   = lte_entry.get("pwr_pin",  getattr(config.wan, "lte_pwr_pin", "05") or "05")
-            self._lte_rst_default   = lte_entry.get("rst_pin",  getattr(config.wan, "lte_rst_pin", "06") or "06")
+            self._lte_modem_default = lte_entry.get(
+                "modem", getattr(config.wan, "lte_modem_name", "") or "")
+            self._lte_comm_default  = lte_entry.get(
+                "comm_type", getattr(config.wan, "lte_comm_type", "USB") or "USB")
+            self._lte_pwr_default   = lte_entry.get(
+                "pwr_pin", getattr(config.wan, "lte_pwr_pin", "05") or "05")
+            self._lte_rst_default   = lte_entry.get(
+                "rst_pin", getattr(config.wan, "lte_rst_pin", "06") or "06")
             label = lte_entry.get("label", f"Stack {wan_id}")
             self._lte_modem_info_var.set(f"{self._lte_modem_default}  ({label})")
-            # Populate user-editable fields
-            self.lte_apn_var.set(getattr(config.wan, "lte_apn", "") or "")
-            self.lte_user_var.set(getattr(config.wan, "lte_username", "") or "")
-            pwd = getattr(config.wan, "lte_password", "") or ""
-            if pwd and pwd != "***HIDDEN***":
-                self.lte_pwd_var.set(pwd)
+        else:
+            self._lte_modem_info_var.set("— (no LTE adapter)")
+
+        # LTE user-editable fields
+        self.lte_apn_var.set(getattr(config.wan, "lte_apn", "") or "")
+        self.lte_user_var.set(getattr(config.wan, "lte_username", "") or "")
+        lte_pwd = getattr(config.wan, "lte_password", "") or ""
+        if lte_pwd and lte_pwd != "***HIDDEN***":
+            self.lte_pwd_var.set(lte_pwd)
+
+        # Refresh sub-frame visibility
+        self._on_internet_type_change()
 
         # Server
         # — type

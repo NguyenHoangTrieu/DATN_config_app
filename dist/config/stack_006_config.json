@@ -2,6 +2,7 @@
     "module_id": "015",
     "module_type": "LORA",
     "module_name": "Wio-E5 mini",
+    "is_crlf_terminated": true,
     "module_communication": {
         "port_type": "uart",
         "parameters": {

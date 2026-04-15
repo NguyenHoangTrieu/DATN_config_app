@@ -3,6 +3,7 @@
   "module_type": "BLE_MESH",
   "stack_type": "esp32_native_ble_mesh",
   "module_name": "ESP32-S3 BLE Mesh Provisioner",
+  "is_crlf_terminated": true,
   "stack_id": 0,
   "ble_native": {
     "mesh": {

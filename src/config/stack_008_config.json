@@ -3,6 +3,7 @@
   "module_type": "BLE_GATT",
   "stack_type": "esp32_native_ble_gatt",
   "module_name": "ESP32-S3 BLE GATT Central",
+  "is_crlf_terminated": true,
   "stack_id": 0,
   "ble_gatt": {
     "scan": {

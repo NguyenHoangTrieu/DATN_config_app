@@ -260,14 +260,14 @@ function parseNodeList(lines) {
    Network Commands
    ──────────────────────────────────────────────────────────────────── */
 function queryNetStatus() {
-  sendCFML('AT+NWINFO', 15000)
+  sendCFML('MODULE_GET_NET_STATUS', 15000)
     .then(function (r) { parseNetStatus(splitResp(r)); })
     .catch(function () {});
 }
 
 function startNetwork() {
   setNetState('starting');
-  sendCFML('AT+CREATENW', 15000)
+  sendCFML('MODULE_START_NETWORK', 15000)
     .then(function (r) {
       var lines = splitResp(r);
       var ok    = lines.some(function (l) { return /\+CREATENW:0|NETWORK UP/i.test(l); });
@@ -280,7 +280,7 @@ function startNetwork() {
 }
 
 function stopNetwork() {
-  sendCFML('AT+QUITNW', 15000)
+  sendCFML('MODULE_LEAVE_NETWORK', 15000)
     .then(function () {
       state.networkUp = false;
       setNetState('off');
@@ -291,19 +291,18 @@ function stopNetwork() {
 }
 
 function openPermitJoin() {
-  sendCFML('AT+OPENWNET=60', 15000)
+  sendCFML('MODULE_SET_PERMIT_JOIN:60', 15000)
     .then(function () { showToast('Permit join: 60 s — waiting for nodes…'); })
     .catch(function () {});
 }
 
 function autoFind() {
   logInfo('Auto-finding nodes…');
-  sendCFML('AT+FIND', 15000)
-    .then(function (r) {
-      var lines = splitResp(r);
-      parseNodeList(lines);   /* handles FIND:<short>,<ieee> */
-      renderNodeList();
-      showToast('Find complete (' + Object.keys(state.nodes).length + ' nodes)');
+  sendCFML('MODULE_AUTO_FIND_TARGET', 5000)
+    .then(function () {
+      /* AT+FIND returns OK immediately; FIND:<addr>,<ieee> events arrive
+         asynchronously via telemetry and are handled by handleAsyncEvent(). */
+      showToast('Finding… nodes will appear when discovered');
     })
     .catch(function () {});
 }
@@ -355,7 +354,7 @@ function deleteNode() {
   var ov = ge('ctrl-overlay');
   if (ov) ov.classList.remove('hidden');
 
-  sendCFML('AT+ENTDEL=' + addr, 15000)
+  sendCFML('MODULE_DELETE_NODE:' + addr, 15000)
     .then(function () {
       delete state.nodes[addr];
       state.selectedNode = null;
@@ -408,7 +407,7 @@ function onOnOffToggle(checked) {
   setEl('onoff-icon', checked ? '💡' : '🔦');
   var t = getTarget();
   /* ZCL On/Off cmd: 01=ON, 00=OFF */
-  sendCFML('AT+ZCL=' + t.s + ',' + t.ep + ',0006,' + (checked ? '01' : '00'), 15000)
+  sendCFML('MODULE_ZCL_SEND_CONTROL_CMD:' + t.s + ',' + t.ep + ',0006,' + (checked ? '01' : '00'), 15000)
     .catch(function () {});
 }
 
@@ -429,7 +428,7 @@ function onLevelChange(v) {
      params: level (1 byte), transition time in 100ms units (2 bytes LE) */
   var lvlHex  = pad2(state.levelVal);
   /* AT+ZCL=<short>,<ep>,0008,04,<level>,0001  (ZCL Move to Level with On/Off) */
-  sendCFML('AT+ZCL=' + t.s + ',' + t.ep + ',0008,04,' + lvlHex + ',0001', 15000)
+  sendCFML('MODULE_ZCL_SEND_CONTROL_CMD:' + t.s + ',' + t.ep + ',0008,04,' + lvlHex + ',0001', 15000)
     .catch(function () {});
 }
 
@@ -468,7 +467,7 @@ function sendFixedColor(hexStr, btnEl) {
   if (btnEl) btnEl.classList.add('active');
   logInfo('Sending color #' + hexStr.toUpperCase());
   /* ZCL cmd 0x08 = Move to Color XY, params: colorX(2B), colorY(2B), transition(2B) */
-  sendCFML('AT+ZCL=' + t.s + ',' + t.ep + ',0300,08,' + xH + ',' + yH + ',000A', 15000)
+  sendCFML('MODULE_ZCL_SEND_CONTROL_CMD:' + t.s + ',' + t.ep + ',0300,08,' + xH + ',' + yH + ',000A', 15000)
     .then(function () { showToast('Color sent ✓'); })
     .catch(function () {});
 }
@@ -480,7 +479,7 @@ function readTempAttr() {
   if (!state.selectedNode) { showToast('Select a node first'); return; }
   var t = getTarget();
   /* AT+ATTRREAD=<short>,<ep>,0402,0000  — ZCL Measured Temperature */
-  sendCFML('AT+ATTRREAD=' + t.s + ',' + t.ep + ',0402,0000', 15000)
+  sendCFML('MODULE_ZCL_READ_ATTR:' + t.s + ',' + t.ep + ',0402,0000', 15000)
     .then(function (r) {
       var lines = splitResp(r);
       for (var i = 0; i < lines.length; i++) {
@@ -502,7 +501,7 @@ function readTempAttr() {
 function readAttribute() {
   var attrId = (ge('inp-attr-id') ? ge('inp-attr-id').value.trim().toUpperCase() : '') || '0000';
   var t = getTarget();
-  sendCFML('AT+ATTRREAD=' + t.s + ',' + t.ep + ',' + t.cl + ',' + attrId, 15000)
+  sendCFML('MODULE_ZCL_READ_ATTR:' + t.s + ',' + t.ep + ',' + t.cl + ',' + attrId, 15000)
     .then(function (r) {
       var lines = splitResp(r);
       for (var i = 0; i < lines.length; i++) {
@@ -519,7 +518,7 @@ function writeAttribute() {
   var v   = inp ? inp.value.trim() : '';
   if (!v) { showToast('Format: AttrID,Type,Value'); return; }
   var t = getTarget();
-  sendCFML('AT+ATTRWRITE=' + t.s + ',' + t.ep + ',' + t.cl + ',' + v, 15000)
+  sendCFML('MODULE_ZCL_WRITE_ATTR:' + t.s + ',' + t.ep + ',' + t.cl + ',' + v, 15000)
     .then(function () { showToast('Write sent ✓'); })
     .catch(function () {});
 }
@@ -529,7 +528,7 @@ function sendZclCmd() {
   var v   = inp ? inp.value.trim() : '';
   if (!v) { showToast('Format: CmdID[,data]'); return; }
   var t = getTarget();
-  sendCFML('AT+ZCL=' + t.s + ',' + t.ep + ',' + t.cl + ',' + v, 15000)
+  sendCFML('MODULE_ZCL_SEND_CONTROL_CMD:' + t.s + ',' + t.ep + ',' + t.cl + ',' + v, 15000)
     .then(function () { showToast('Cmd sent ✓'); })
     .catch(function () {});
 }

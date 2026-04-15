@@ -292,6 +292,16 @@ class FunctionItem(ttk.Frame):
         if self._module_type == "ZIGBEE":
             self._is_async = fd.get("is_async_event", False)
 
+        # Zigbee-specific fields
+        if self._module_type == "ZIGBEE":
+            self._cmd_type_var = tk.StringVar(value=fd.get("cmd_type", ""))
+            self._add_field(body, "CMD Type", self._cmd_type_var, width=15)
+            self._cmd_code_var = tk.StringVar(value=fd.get("cmd_code", ""))
+            self._add_field(body, "CMD Code", self._cmd_code_var, width=15)
+            self._resp_format_var = tk.StringVar(value=fd.get("resp_format", "ascii"))
+            self._add_field(body, "Resp Format", self._resp_format_var,
+                            "combo", options=["ascii", "hex"])
+
         # GPIO start
         self._gpio_start = GpioListWidget(
             body, "GPIO Start",
@@ -344,6 +354,18 @@ class FunctionItem(ttk.Frame):
         if self._module_type == "ZIGBEE" and getattr(self, "_is_async", False):
             d["is_async_event"] = True
 
+        # Zigbee-specific fields
+        if self._module_type == "ZIGBEE":
+            ct = getattr(self, "_cmd_type_var", None)
+            cc = getattr(self, "_cmd_code_var", None)
+            rf = getattr(self, "_resp_format_var", None)
+            if ct is not None:
+                d["cmd_type"] = ct.get()
+            if cc is not None:
+                d["cmd_code"] = cc.get()
+            if rf is not None:
+                d["resp_format"] = rf.get()
+
         d["gpio_start_control"] = self._gpio_start.get_data()
         d["delay_start"] = self._safe_int(self._delay_start_var.get())
         d["expect_response"] = self._expect_var.get()
@@ -369,6 +391,14 @@ class FunctionItem(ttk.Frame):
         self._delay_end_var.set(str(func_data.get("delay_end", 0)))
         self._expect_var.set(func_data.get("expect_response", ""))
         self._timeout_var.set(str(func_data.get("timeout", 0)))
+        # Zigbee-specific fields
+        if self._module_type == "ZIGBEE":
+            if hasattr(self, "_cmd_type_var"):
+                self._cmd_type_var.set(func_data.get("cmd_type", ""))
+            if hasattr(self, "_cmd_code_var"):
+                self._cmd_code_var.set(func_data.get("cmd_code", ""))
+            if hasattr(self, "_resp_format_var"):
+                self._resp_format_var.set(func_data.get("resp_format", "ascii"))
 
     @staticmethod
     def _parse_hex_val(text: str) -> int:
@@ -415,6 +445,7 @@ class ConfigForm(ttk.Frame):
         self._loaded_file: str = ""  # Path to currently loaded/generated file
         self._suppress_preview = False
         self._stack_slot_var = tk.StringVar(value="S1")
+        self._crlf_terminated_var = tk.BooleanVar(value=True)
 
         self._build_ui()
         if self._module_config:
@@ -488,6 +519,14 @@ class ConfigForm(ttk.Frame):
                              state="readonly", width=10)
         pt_cb.pack(side=tk.LEFT, padx=4)
         pt_cb.bind("<<ComboboxSelected>>", self._on_port_type_change)
+
+        # CRLF Terminated
+        fr_crlf = ttk.Frame(comm)
+        fr_crlf.pack(fill=tk.X, pady=1)
+        ttk.Label(fr_crlf, text="CRLF Terminated:", width=16).pack(side=tk.LEFT)
+        crlf_cb = ttk.Checkbutton(fr_crlf, variable=self._crlf_terminated_var,
+                                  command=self._update_preview)
+        crlf_cb.pack(side=tk.LEFT, padx=4)
 
         # UART/USB fields
         self._uart_frame = ttk.Frame(comm)
@@ -748,6 +787,7 @@ class ConfigForm(ttk.Frame):
             "module_id": self._module_id_var.get(),
             "module_type": self._module_type,
             "module_name": self._module_name_var.get(),
+            "is_crlf_terminated": self._crlf_terminated_var.get(),
             "module_communication": self._get_comm_data(),
             "functions": [fi.get_data() for fi in self._function_items],
         }
@@ -770,6 +810,7 @@ class ConfigForm(ttk.Frame):
         try:
             self._module_id_var.set(config.get("module_id", ""))
             self._module_name_var.set(config.get("module_name", ""))
+            self._crlf_terminated_var.set(config.get("is_crlf_terminated", True))
             self._set_comm_data(config.get("module_communication", {}))
             self._populate_functions(config.get("functions", []))
         finally:

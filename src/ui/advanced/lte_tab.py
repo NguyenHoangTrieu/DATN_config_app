@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 # â”€â”€ Stack-ID map (default values per WAN adapter) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _STACK_MAP_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)),
                                "config", "stack_id_map.json")
-_PIN_OPTIONS = ["WK", "PE", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11"]
+_PIN_OPTIONS = ["04", "05", "06", "07", "11", "12", "13", "14", "15", "16", "17"]
 
 def _load_stack_map() -> dict:
     try:
@@ -126,16 +126,16 @@ class LTETab(ttk.Frame):
 
         rp1 = ttk.Frame(pin_frame); rp1.pack(fill=tk.X, pady=2)
         ttk.Label(rp1, text="PWR Pin:", width=18).pack(side=tk.LEFT)
-        self.pwr_pin_var = tk.StringVar(value="WK")
+        self.pwr_pin_var = tk.StringVar(value="05")
         ttk.Combobox(rp1, textvariable=self.pwr_pin_var,
                      values=_PIN_OPTIONS, state="readonly", width=6).pack(
                          side=tk.LEFT, padx=5)
-        ttk.Label(rp1, text="WK=WAKE#, PE=PERST#, 01â€¥11=GPIO",
+        ttk.Label(rp1, text="P04–P07 / P11–P17 (TCA port-pin)",
                   foreground="#757575", font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=4)
 
         rp2 = ttk.Frame(pin_frame); rp2.pack(fill=tk.X, pady=2)
         ttk.Label(rp2, text="RST Pin:", width=18).pack(side=tk.LEFT)
-        self.rst_pin_var = tk.StringVar(value="PE")
+        self.rst_pin_var = tk.StringVar(value="06")
         ttk.Combobox(rp2, textvariable=self.rst_pin_var,
                      values=_PIN_OPTIONS, state="readonly", width=6).pack(
                          side=tk.LEFT, padx=5)
@@ -154,7 +154,7 @@ class LTETab(ttk.Frame):
                   text="Cmd: CFLT:MODEM:APN:USER:PASS:COMM:AUTO:TIMEOUT_MS"
                        ":MAX_RETRY:PWR_PIN:RST_PIN").pack(anchor="w")
         ttk.Label(info, foreground="#757575", font=("Consolas", 8),
-                  text="Example: CFLT:A7600C1:v-internet:::USB:true:30000:0:WK:PE"
+                  text="Example: CFLT:A7600C1:v-internet:::USB:true:30000:0:05:06"
                   ).pack(anchor="w")
 
     # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

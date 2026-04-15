@@ -269,12 +269,12 @@ function startScan() {
   renderDeviceList([]);
   logInfo('Resetting BLE module…');
 
-  sendCFML('AT+RESET', 15000)
+  sendCFML('MODULE_SW_RESET', 15000)
     .then(function () { return new Promise(function (res) { setTimeout(res, 5000); }); })
     .catch(function () { return new Promise(function (res) { setTimeout(res, 5000); }); })
     .then(function () {
       logInfo('Scanning 3 s…');
-      return sendCFML('AT+SCAN=3000', 20000);
+      return sendCFML('MODULE_START_DISCOVERY:3000', 20000);
     })
     .then(function (r) {
       /* +SCAN lines come back in the AT+SCAN response.
@@ -297,7 +297,7 @@ function connectDevice(idx, mac, name) {
   showOverlay(true, 'Connecting to ' + (name || mac) + '…');
   setStatusPill('connecting');
 
-  sendCFML('AT+CONNECT=' + idx, 15000)
+  sendCFML('MODULE_CONNECT:' + idx, 15000)
     .then(function (r) {
       var pidx = parseConnectIdx(r);
       state.devIdx    = pidx >= 0 ? pidx : idx;
@@ -320,7 +320,7 @@ function connectDevice(idx, mac, name) {
 function _discoverAndNotify() {
   var idx = state.devIdx;
   logInfo('Discovering service handles…');
-  sendCFML('AT+DISC=' + idx, 15000)
+  sendCFML('MODULE_DISCOVER_SERVICES:' + idx, 15000)
     .then(function (r) {
       /* Look for FFF0 service range to narrow the char query */
       var start = '0001', end = 'FFFF';
@@ -328,12 +328,12 @@ function _discoverAndNotify() {
         var m = l.match(/^\+SERVICE:0x([0-9A-Fa-f]{4}),0x([0-9A-Fa-f]{4}),0xFFF0/i);
         if (m) { start = m[1]; end = m[2]; }
       });
-      return sendCFML('AT+CHARS=' + idx + ',' + start + ',' + end, 15000);
+      return sendCFML('MODULE_DISCOVER_CHARACTERISTICS:' + idx + ',' + start + ',' + end, 15000);
     })
     .then(function (r) {
       autoDetectHandles(splitResp(r));
       /* Enable FFF1 notify with the (now correct) h_cccd */
-      return sendCFML('AT+NOTIFY=' + idx + ',' + state.h_cccd + ',1', 15000);
+      return sendCFML('MODULE_NOTIFY:' + idx + ',' + state.h_cccd + ',1', 15000);
     })
     .then(function () {
       state.notifyEnabled = true;
@@ -348,7 +348,7 @@ function _discoverAndNotify() {
 
 function disconnectDevice() {
   if (!state.connected || state.devIdx < 0) return;
-  sendCFML('AT+DISCONNECT=' + state.devIdx, 15000)
+  sendCFML('MODULE_DISCONNECT:' + state.devIdx, 15000)
     .then(function () {
       state.connected = false;
       state.notifyEnabled = false;
@@ -361,7 +361,7 @@ function disconnectDevice() {
 }
 
 function _enableNotify() {
-  sendCFML('AT+NOTIFY=' + state.devIdx + ',' + state.h_cccd + ',1', 15000)
+  sendCFML('MODULE_NOTIFY:' + state.devIdx + ',' + state.h_cccd + ',1', 15000)
     .then(function () { state.notifyEnabled = true; logInfo('Notifications enabled (FFF1)'); })
     .catch(function () {});
 }
@@ -379,7 +379,7 @@ function onLedToggle(checked) {
   state.ledOn = checked;
   updateLedUI();
   var hexByte = checked ? '01' : '00';
-  sendCFML('AT+WRITE=' + state.devIdx + ',' + state.h_fff2 + ',' + hexByte, 15000)
+  sendCFML('MODULE_SEND_DATA:' + state.devIdx + ',' + state.h_fff2 + ',' + hexByte, 15000)
     .catch(function () {});
 }
 
@@ -406,7 +406,7 @@ function sendFixedColor(hexStr, btnEl) {
   /* Write 01RRGGBB — byte 01 = ON, then 3 bytes RGB */
   var payload = '01' + hexStr.toUpperCase();
   logInfo('Sending color #' + hexStr.toUpperCase());
-  sendCFML('AT+WRITE=' + state.devIdx + ',' + state.h_fff2 + ',' + payload, 15000)
+  sendCFML('MODULE_SEND_DATA:' + state.devIdx + ',' + state.h_fff2 + ',' + payload, 15000)
     .then(function () { showToast('Color sent ✓'); })
     .catch(function () {});
 }

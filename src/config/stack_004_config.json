@@ -2,6 +2,7 @@
     "module_id": "004",
     "module_type": "BLE",
     "module_name": "ESP_AT_BLE_Gateway",
+    "is_crlf_terminated": true,
     "module_communication": {
         "port_type": "uart",
         "parameters": {

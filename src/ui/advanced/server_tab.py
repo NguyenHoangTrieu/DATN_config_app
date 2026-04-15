@@ -184,6 +184,13 @@ class ServerTab(ttk.Frame):
         self.coap_dtls_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(_row, text="Use DTLS (CoAPS — port 5684)", variable=self.coap_dtls_var).pack(side=tk.LEFT, padx=5)
 
+        _row = ttk.Frame(self.coap_frame)
+        _row.pack(fill=tk.X, pady=2)
+        ttk.Label(_row, text="RPC Poll Interval (ms):", width=18).pack(side=tk.LEFT)
+        self.coap_rpc_poll_var = tk.StringVar(value="1500")
+        ttk.Entry(_row, textvariable=self.coap_rpc_poll_var, width=8).pack(side=tk.LEFT, padx=5)
+        ttk.Label(_row, text="  (RPC polling interval for CoAP)").pack(side=tk.LEFT, padx=5)
+
         ttk.Label(self.coap_frame,
                   text="ℹ️ Use {token} in Resource Path to inject the device token",
                   foreground="#757575").pack(anchor="w", pady=(2, 0))
