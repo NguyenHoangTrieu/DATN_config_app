@@ -93,8 +93,8 @@
     },
     "000": {
       "type":       "LTE",
-      "label":      "LTE Stack",
-      "modem":      "",
+      "label":      "SIMCom SIM7600G-H-PCIE / LTE",
+      "modem":      "SIM7600G",
       "comm_type":  "USB",
       "pwr_pin":    "05",
       "rst_pin":    "06"

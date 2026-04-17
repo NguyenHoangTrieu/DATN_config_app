@@ -79,7 +79,7 @@ x:  0        80      158        240      319
     +------------------------------------------+  y=24 (separator)
     |WiFi          |||   LTE                   |  y=26..47  Section headers (CYAN)
     | * Connected  |||    * Connected           |  y=50..71  Dot + status text
-    | HomeNet      |||    v-internet            |  y=74..91  SSID / APN
+    | HomeNet      |||    m-wap            |  y=74..91  SSID / APN
     | -65dBm PERS  |||    A7600C1 18/31        |  y=94..111 Detail (gray)
     +------------------------------------------+  y=116 (separator)
     |ETH:  * Connected    192.168.1.50          |  y=119..137 ETH row

@@ -83,7 +83,7 @@ x:  0        80      158        240      319
     +------------------------------------------+  y=24 (gray separator line)
     |WiFi           |||  LTE                   |  y=26..47 Section headers (CYAN)
     | * Connected   |||   * Connected          |  y=50..71 Dot + status text
-    | HomeNetwork   |||   v-internet           |  y=74..91 SSID / APN
+    | HomeNetwork   |||   m-wap           |  y=74..91 SSID / APN
     | -65dBm PERS   |||   A7600C1 18/31       |  y=94..111 Detail row (gray)
     +------------------------------------------+  y=116 (gray separator line)
     |ETH:  * Connected    192.168.1.50         |  y=119..137 ETH row
@@ -121,7 +121,7 @@ The two TJC button components (comp 1 and comp 2) are rendered by the display co
 | LTE hdr | `xstr 162,27,70,20,0,cyan,0,0,1,0,"LTE"` | Static |
 | LTE dot | `xstr 166,51,14,20,0,lte_col,0,1,1,0,"*"` | Green/Red |
 | LTE status | `xstr 182,51,92,20,0,lte_col,0,0,1,0,"Connected"` | Dynamic |
-| LTE APN | `xstr 166,75,150,18,0,white,0,0,1,0,"v-internet"` | Truncated 16 chars |
+| LTE APN | `xstr 166,75,150,18,0,white,0,0,1,0,"m-wap"` | Truncated 16 chars |
 | LTE detail | `xstr 166,97,150,18,0,gray,0,0,1,0,"A7600C1 18/31"` | Modem + CSQ |
 | ETH label | `xstr 4,120,40,18,0,cyan,0,0,1,0,"ETH:"` | Static |
 | ETH dot | `xstr 48,120,14,18,0,eth_col,0,1,1,0,"*"` | Green/Red |

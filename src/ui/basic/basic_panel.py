@@ -81,6 +81,12 @@ class BasicPanel(ttk.Frame):
         type_combo.pack(side=tk.LEFT, padx=5)
         type_combo.bind("<<ComboboxSelected>>", self._on_internet_type_change)
 
+        # Fallback row
+        row_fb = ttk.Frame(type_frame); row_fb.pack(fill=tk.X, pady=3)
+        self.internet_fallback_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(row_fb, text="Enable fallback when primary fails",
+                        variable=self.internet_fallback_var).pack(side=tk.LEFT, padx=5)
+
         # ── WiFi settings ─────────────────────────────────────────────────
         self._wifi_settings_frame = ttk.LabelFrame(tab, text="WiFi Settings", padding=10)
 
@@ -126,7 +132,7 @@ class BasicPanel(ttk.Frame):
 
         la = ttk.Frame(self._lte_settings_frame); la.pack(fill=tk.X, pady=3)
         ttk.Label(la, text="APN:", width=15).pack(side=tk.LEFT)
-        self.lte_apn_var = tk.StringVar(value="internet")
+        self.lte_apn_var = tk.StringVar(value="m-wap")
         ttk.Entry(la, textvariable=self.lte_apn_var).pack(
             side=tk.LEFT, padx=5, fill=tk.X, expand=True)
 
@@ -348,6 +354,12 @@ class BasicPanel(ttk.Frame):
             self.wifi_username_frame.pack_forget()
             self.wifi_username_var.set("")
 
+    def _check_connection(self) -> bool:
+        if not self.serial_manager or not self.serial_manager.is_connected():
+            messagebox.showwarning("Warning", "Not connected to gateway")
+            return False
+        return True
+
     def _send_command(self, cmd: str, description: str):
         """Send command without waiting for response"""
         self.log(f"Sending: {description}", "INFO")
@@ -362,6 +374,23 @@ class BasicPanel(ttk.Frame):
             return
 
         itype = self.internet_type_var.get()
+        itype_upper = itype.upper()
+        fb = "1" if self.internet_fallback_var.get() else "0"
+
+        # Auto-compute fallback type (mirrors firmware logic) for explicit CFIN cmd
+        if fb == "1":
+            if itype_upper in ("LTE", "ETHERNET"):
+                fb_type = "WIFI"
+            else:  # WIFI primary
+                apn_check = self.lte_apn_var.get().strip()
+                fb_type = "LTE" if apn_check else "ETHERNET"
+        else:
+            fb_type = None
+
+        def _build_cfin(primary):
+            if fb == "1" and fb_type:
+                return f"CFIN:{primary}:1:{fb_type}"
+            return f"CFIN:{primary}:{fb}"
 
         if itype == "WiFi":
             ssid     = self.wifi_ssid_var.get().strip()
@@ -379,40 +408,54 @@ class BasicPanel(ttk.Frame):
                 cmd = f"CFWF:{ssid}:{password}:{username}:ENTERPRISE"
             else:
                 cmd = f"CFWF:{ssid}:{password}:PERSONAL"
+            cfin = _build_cfin("WIFI")
 
             def _send():
                 self.log(f"→ {cmd}", "DEBUG")
                 self.serial_manager.send(cmd)
                 self.log("✓ WiFi Config sent", "SUCCESS")
                 time.sleep(1.0)
-                self.serial_manager.send("CFIN:WIFI")
-                self.log("✓ Internet type = WiFi set", "SUCCESS")
+                self.log(f"→ {cfin}", "DEBUG")
+                self.serial_manager.send(cfin)
+                fb_msg = f" (fallback → {fb_type})" if fb == "1" else " (fallback disabled)"
+                self.log(f"✓ Internet type = WiFi set{fb_msg}", "SUCCESS")
             threading.Thread(target=_send, daemon=True).start()
 
         elif itype == "LTE":
             apn  = self.lte_apn_var.get().strip()
             user = self.lte_user_var.get().strip()
             pwd  = self.lte_pwd_var.get()
+            
+            # Use default if empty
             if not apn:
-                messagebox.showwarning("Warning", "Please enter APN")
-                return
+                apn = "m-wap"
+                self.lte_apn_var.set(apn)
+                self.log(f"Using default APN: {apn}", "INFO")
+            
             cmd = (f"CFLT:{self._lte_modem_default}:{apn}:{user}:{pwd}"
                    f":{self._lte_comm_default}:true:30000:0"
                    f":{self._lte_pwr_default}:{self._lte_rst_default}")
+            cfin = _build_cfin("LTE")
 
             def _send():
                 self.log(f"→ {cmd}", "DEBUG")
                 self.serial_manager.send(cmd)
-                self.log("✓ LTE Config sent", "SUCCESS")
+                self.log("✓ LTE Config sent (CFLT)", "SUCCESS")
                 time.sleep(1.0)
-                self.serial_manager.send("CFIN:LTE")
-                self.log("✓ Internet type = LTE set", "SUCCESS")
+                self.log(f"→ {cfin}", "DEBUG")
+                self.serial_manager.send(cfin)
+                fb_msg = f" (fallback → {fb_type})" if fb == "1" else " (fallback disabled)"
+                self.log(f"✓ Internet type = LTE set{fb_msg}", "SUCCESS")
             threading.Thread(target=_send, daemon=True).start()
 
         elif itype == "Ethernet":
+            cfin = _build_cfin("ETHERNET")
+
             def _send():
-                self.serial_manager.send("CFIN:ETHERNET")
-                self.log("✓ Internet type = Ethernet set", "SUCCESS")
+                self.log(f"→ {cfin}", "DEBUG")
+                self.serial_manager.send(cfin)
+                fb_msg = f" (fallback → {fb_type})" if fb == "1" else " (fallback disabled)"
+                self.log(f"✓ Internet type = Ethernet set{fb_msg}", "SUCCESS")
             threading.Thread(target=_send, daemon=True).start()
 
     def _set_server_config(self):
@@ -469,6 +512,7 @@ class BasicPanel(ttk.Frame):
         _inet_map = {'WIFI': 'WiFi', 'LTE': 'LTE', 'ETHERNET': 'Ethernet'}
         inet_raw = (getattr(config.wan, 'internet_type', 'WIFI') or 'WIFI').upper()
         self.internet_type_var.set(_inet_map.get(inet_raw, 'WiFi'))
+        self.internet_fallback_var.set(getattr(config.wan, 'internet_fallback', False))
 
         # WiFi fields
         self.wifi_ssid_var.set(config.wan.wifi_ssid or "")

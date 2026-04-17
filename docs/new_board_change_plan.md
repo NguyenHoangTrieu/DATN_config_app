@@ -331,7 +331,7 @@ With the new pin enum, the LTE module control pins move to:
   - `rst_pin` default → 6 (was 12)
 - [ ] **Update CFLT command format** (if renamed from LT):
   - New format should accept pin labels matching the new IO expander layout
-  - Example: `LT:A7600C1:v-internet:::USB:true:30000:0:05:06`
+  - Example: `LT:A7600C1:m-wap:::USB:true:30000:0:05:06`
 - [ ] **Update `lte_connect.c`** — any code that calls `stack_handler_gpio_write(0, pwr_pin, ...)` will work automatically if pin enum is updated, but verify the logic
 - [ ] **Update NVS migration** — existing NVS `"lte_cfg"` with old pin numbers need migration or reset
 
@@ -988,7 +988,7 @@ Add an on-device touchscreen configuration and status interface using the **TJC3
 │    Signal: -65 dBm  Auth: PERSONAL      │  y=80..100 detail (gray)
 ├ · · · · · · · · · · · · · · · · · · · ·┤  y=105
 │ LTE                                     │  y=109..130 section header (cyan)
-│  ● Connected          v-internet        │  y=134..155 status row (green dot)
+│  ● Connected          m-wap        │  y=134..155 status row (green dot)
 │    Modem: A7600C1   CSQ: 18/31          │  y=159..179 detail (gray)
 ├─────────────────────────────────────────┤  y=184
 │  [    WiFi CFG    ]   [    LTE CFG    ] │  y=192..237 nav buttons (blue)
@@ -1024,7 +1024,7 @@ Add an on-device touchscreen configuration and status interface using the **TJC3
 ├─────────────────────────────────────────┤  y=35
 │  APN                                    │  y=40 label
 │  ┌──────────────────────────────────┐   │  y=58 xstr input (tap → keyboard)
-│  │  v-internet                      │   │  h=32
+│  │  m-wap                      │   │  h=32
 │  └──────────────────────────────────┘   │
 │  Username  (optional)                   │  y=95 label
 │  ┌──────────────────────────────────┐   │  y=113 xstr input

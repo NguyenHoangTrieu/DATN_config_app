@@ -2,7 +2,7 @@
 LTE Configuration Tab (Advanced Mode)
 Command format:
   CFLT:MODEM_NAME:APN:USERNAME:PASSWORD:COMM_TYPE:AUTO_RECONNECT:RECONNECT_TIMEOUT:MAX_RECONNECT:PWR_PIN:RST_PIN
-  Example: CFLT:A7600C1:v-internet:user:pass:USB:true:30000:0:WK:PE
+  Example: CFLT:A7600C1:m-wap:user:pass:USB:true:30000:0:WK:PE
 Then: CFIN:LTE (after 1 s)
 """
 
@@ -143,7 +143,7 @@ class LTETab(ttk.Frame):
         # â”€â”€ Action â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         btn_frame = ttk.Frame(container)
         btn_frame.pack(fill=tk.X, pady=10)
-        ttk.Button(btn_frame, text="âœ… Set LTE Config", style='Set.TButton',
+        ttk.Button(btn_frame, text="Set LTE Config", style='Set.TButton',
                    command=self._set_lte_config).pack(anchor="e", padx=5)
 
         # â”€â”€ Info â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -154,7 +154,7 @@ class LTETab(ttk.Frame):
                   text="Cmd: CFLT:MODEM:APN:USER:PASS:COMM:AUTO:TIMEOUT_MS"
                        ":MAX_RETRY:PWR_PIN:RST_PIN").pack(anchor="w")
         ttk.Label(info, foreground="#757575", font=("Consolas", 8),
-                  text="Example: CFLT:A7600C1:v-internet:::USB:true:30000:0:05:06"
+                  text="Example: CFLT:A7600C1:m-wap:::USB:true:30000:0:05:06"
                   ).pack(anchor="w")
 
     # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -179,9 +179,11 @@ class LTETab(ttk.Frame):
         pwr_pin  = self.pwr_pin_var.get()
         rst_pin  = self.rst_pin_var.get()
 
+        # Use default APN if empty
         if not apn:
-            messagebox.showwarning("Input", "APN cannot be empty.")
-            return
+            apn = "m-wap"
+            self.apn_var.set(apn)
+            self.log(f"Using default APN: {apn}", "INFO")
         if not modem:
             messagebox.showwarning("Input", "Modem Name cannot be empty.")
             return

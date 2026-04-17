@@ -1,0 +1,87 @@
+<!-- =====================================================================
+     DA2 LoRa WiOe5 Monitor — ThingsBoard Latest Values Widget
+     Type    : Latest Values (no controlApi — read-only)
+     Datasource: Entity → Gateway device → telemetry key "data"
+
+     Data flow:
+       RAK3172 receives LoRaWAN downlink → firmware emits:
+         CFLR:<slot>:EVT:+EVT:RX1:<port>:<len>:<hex>
+         CFLR:<slot>:EVT:+EVT:RX2:<port>:<len>:<hex>
+       → MQTT → ThingsBoard telemetry key "data"
+       → WebSocket push → onDataUpdated() → render RX card + history
+
+     Also tracks uplink confirmations:
+       CFLR:<slot>:EVT:+EVT:SEND_CONFIRMED
+       CFLR:<slot>:EVT:+EVT:JOINED | JOIN_FAILED
+
+     Add datasource: Gateway device, key "data" (Latest Telemetry)
+     ===================================================================== -->
+
+<div id="lrm-root" class="lrm-root">
+
+  <!-- ── App Header ── -->
+  <div class="lrm-header">
+    <div class="lrm-hdr-left">
+      <div class="lrm-logo">
+        <svg viewBox="0 0 24 24" fill="none">
+          <path d="M5 12.5C5 9.46 7.46 7 10.5 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M3 12.5C3 8.36 6.36 5 10.5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M1 12.5C1 7.25 5.25 3 10.5 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <circle cx="11" cy="13" r="2" fill="currentColor"/>
+          <path d="M13 13H22" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M19 10L22 13L19 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div>
+        <div class="lrm-title">LoRa WiOe5 Monitor</div>
+        <div class="lrm-sub">Downlink RX — WebSocket push</div>
+      </div>
+    </div>
+    <div class="lrm-hdr-right">
+      <label class="lrm-slot-label">Slot</label>
+      <select id="lrm-slot" class="lrm-slot-select" onchange="lrmSetSlot(this.value)">
+        <option value="">All</option>
+        <option value="0">0</option>
+        <option value="1">1</option>
+      </select>
+      <div id="lrm-pill" class="lrm-pill" data-state="idle">
+        <span class="lrm-dot"></span>
+        <span id="lrm-pill-txt">Waiting</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Body: Latest RX card + History ── -->
+  <div class="lrm-body">
+
+    <!-- Latest RX card -->
+    <div class="lrm-section-hdr">📥 Latest Downlink</div>
+    <div id="lrm-latest" class="lrm-latest-card" data-empty="true">
+      <div class="lrm-hint">
+        <div class="hint-icon">📡</div>
+        <div class="hint-title">No downlink received yet</div>
+        <div class="hint-sub">
+          Add datasource: Entity → Gateway device → key <code>data</code> (Latest Telemetry)<br>
+          Downlinks appear here when the LoRaWAN network server sends data to the device.
+        </div>
+      </div>
+    </div>
+
+    <!-- RX History list -->
+    <div class="lrm-section-hdr" style="margin-top:10px">
+      <span>📋 RX History</span>
+      <button class="lrm-btn-clear-hist" onclick="lrmClearHistory()">Clear</button>
+    </div>
+    <div id="lrm-history" class="lrm-history"></div>
+
+  </div><!-- /lrm-body -->
+
+  <!-- ── Footer stats ── -->
+  <div class="lrm-footer">
+    <span>RX: <span id="lrm-rx-count">0</span></span>
+    <span>TX ACK: <span id="lrm-tx-count">0</span></span>
+    <span>Joined: <span id="lrm-join-status">—</span></span>
+    <span id="lrm-last-ts">—</span>
+  </div>
+
+</div>

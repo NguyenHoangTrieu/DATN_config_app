@@ -1,0 +1,247 @@
+<!-- =====================================================================
+     DA2 LoRa WiOe5 (RAK3172) Gateway Test Widget — ThingsBoard HTML
+     Protocol: CFML:CFLR:<slot>:<MODULE_FUNCTION>[:<params>]  hex-encoded
+     Response: CFLR:<slot>:OK:<resp> | CFLR:<slot>:FAIL:<err>:<resp>
+     Async:    CFLR:<slot>:EVT:+EVT:<data>  via ThingsBoard telemetry key "data"
+
+     Target module : RAK3172 LoRaWAN module (AT command mode, always on)
+     Gateway stack : CFLR slot 0 (default, user-selectable)
+
+     Paste: HTML → "HTML" tab | CSS → "CSS" tab | JS → "JavaScript" tab
+     ThingsBoard v4.x — Control widget
+     ===================================================================== -->
+
+<div id="lr-app-root" class="lr-app-root">
+
+  <!-- ── App Header ── -->
+  <div class="app-header">
+    <div class="app-header-left">
+      <div class="lr-logo">
+        <!-- LoRa radio-wave icon -->
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M5 12.5C5 9.46 7.46 7 10.5 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M3 12.5C3 8.36 6.36 5 10.5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M1 12.5C1 7.25 5.25 3 10.5 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <circle cx="11" cy="13" r="2" fill="currentColor"/>
+          <path d="M13 13H22" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M19 10L22 13L19 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div>
+        <div class="app-title">LoRa WiOe5 Test</div>
+        <div class="app-subtitle">RAK3172 — LoRaWAN Gateway</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <select id="cfg-slot" class="slot-select" onchange="onSlotChange(this.value)">
+        <option value="0">Stack 1</option>
+        <option value="1">Stack 2</option>
+      </select>
+      <div class="status-pill" id="status-pill" data-state="offline">
+        <div class="status-dot-sm"></div>
+        <span id="status-text">Not Joined</span>
+      </div>
+      <button class="btn-info" id="btn-info" onclick="queryModuleInfo()" title="Read module info">ℹ</button>
+    </div>
+  </div>
+
+  <!-- ── Main Content: 2-column ── -->
+  <div class="main-content">
+
+    <!-- ── LEFT: Config + Keys Panel ── -->
+    <div class="panel-left">
+
+      <!-- Mode selector -->
+      <div class="section-hdr">
+        <span>Join Mode</span>
+        <div class="mode-tabs" id="mode-tabs">
+          <button class="btn-mode-tab active" id="tab-otaa" onclick="selectMode('OTAA')">OTAA</button>
+          <button class="btn-mode-tab"        id="tab-abp"  onclick="selectMode('ABP')">ABP</button>
+        </div>
+      </div>
+
+      <!-- OTAA Keys panel -->
+      <div id="panel-otaa" class="keys-panel">
+        <label class="inp-label">Device EUI (16 hex)</label>
+        <div class="inp-row">
+          <input id="inp-deveui" class="lr-input" type="text" maxlength="16"
+                 placeholder="0000000000000000" oninput="formatHexInput(this,16)">
+          <button class="btn-get" onclick="readDevEui()" title="Read from module">↓</button>
+        </div>
+        <label class="inp-label">App EUI (16 hex)</label>
+        <input id="inp-appeui" class="lr-input" type="text" maxlength="16"
+               placeholder="0000000000000000" oninput="formatHexInput(this,16)">
+        <label class="inp-label">App Key (32 hex)</label>
+        <input id="inp-appkey" class="lr-input" type="text" maxlength="32"
+               placeholder="00000000000000000000000000000000" oninput="formatHexInput(this,32)">
+        <div class="key-actions">
+          <button class="btn-set-keys" onclick="setOtaaKeys()">💾 Set Keys</button>
+        </div>
+      </div>
+
+      <!-- ABP Keys panel -->
+      <div id="panel-abp" class="keys-panel hidden">
+        <label class="inp-label">Dev Addr (8 hex)</label>
+        <input id="inp-devaddr" class="lr-input" type="text" maxlength="8"
+               placeholder="00000000" oninput="formatHexInput(this,8)">
+        <label class="inp-label">NwkSKey (32 hex)</label>
+        <input id="inp-nwkskey" class="lr-input" type="text" maxlength="32"
+               placeholder="00000000000000000000000000000000" oninput="formatHexInput(this,32)">
+        <label class="inp-label">AppSKey (32 hex)</label>
+        <input id="inp-appskey" class="lr-input" type="text" maxlength="32"
+               placeholder="00000000000000000000000000000000" oninput="formatHexInput(this,32)">
+        <div class="key-actions">
+          <button class="btn-set-keys" onclick="setAbpKeys()">💾 Set Keys</button>
+        </div>
+      </div>
+
+      <!-- Join/Leave -->
+      <div class="join-row">
+        <button class="btn-join" id="btn-join" onclick="doJoin()">
+          <span id="join-btn-text">⚡ Join Network</span>
+        </button>
+        <button class="btn-leave" id="btn-leave" onclick="doLeave()">✕ Leave</button>
+      </div>
+
+      <!-- ── Radio Config ── -->
+      <div class="section-hdr" style="margin-top:10px">Radio Config</div>
+      <div class="cfg-grid">
+        <div class="cfg-item">
+          <label class="cfg-label">Region (Band)</label>
+          <select id="inp-region" class="lr-select" onchange="setRegion(this.value)">
+            <option value="8">AS923 (8)</option>
+            <option value="5">EU868 (5)</option>
+            <option value="1">EU433 (1)</option>
+            <option value="0">EU863 (0)</option>
+            <option value="2">CN470 (2)</option>
+            <option value="3">US915 (3)</option>
+            <option value="4">AU915 (4)</option>
+            <option value="6">KR920 (6)</option>
+            <option value="7">IN865 (7)</option>
+          </select>
+        </div>
+        <div class="cfg-item">
+          <label class="cfg-label">Data Rate</label>
+          <select id="inp-dr" class="lr-select" onchange="setDR(this.value)">
+            <option value="0">DR0 (SF12/125)</option>
+            <option value="1">DR1 (SF11/125)</option>
+            <option value="2">DR2 (SF10/125)</option>
+            <option value="3" selected>DR3 (SF9/125)</option>
+            <option value="4">DR4 (SF8/125)</option>
+            <option value="5">DR5 (SF7/125)</option>
+          </select>
+        </div>
+        <div class="cfg-item">
+          <label class="cfg-label">TX Power</label>
+          <select id="inp-txp" class="lr-select" onchange="setTxPower(this.value)">
+            <option value="0" selected>0 (Max)</option>
+            <option value="2">2</option>
+            <option value="5">5</option>
+            <option value="8">8</option>
+            <option value="12">12</option>
+            <option value="15">15 (Min)</option>
+          </select>
+        </div>
+        <div class="cfg-item">
+          <label class="cfg-label">ADR</label>
+          <div class="toggle-wrap">
+            <label class="toggle">
+              <input type="checkbox" id="chk-adr" onchange="setADR(this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+            <span id="adr-label" class="toggle-label">OFF</span>
+          </div>
+        </div>
+        <div class="cfg-item">
+          <label class="cfg-label">Confirmed</label>
+          <div class="toggle-wrap">
+            <label class="toggle">
+              <input type="checkbox" id="chk-cfm" onchange="setConfirm(this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+            <span id="cfm-label" class="toggle-label">OFF</span>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /panel-left -->
+
+    <!-- ── RIGHT: TX + RX + Module Info ── -->
+    <div class="panel-right">
+
+      <!-- TX Panel -->
+      <div class="section-hdr">
+        <span>📤 Send Uplink</span>
+        <div class="tx-type-tabs">
+          <button class="btn-txtype active" id="btn-unconfirmed" onclick="selectTxType('unconfirmed')">Unconfirmed</button>
+          <button class="btn-txtype"        id="btn-confirmed"   onclick="selectTxType('confirmed')">Confirmed</button>
+        </div>
+      </div>
+      <div class="tx-panel">
+        <div class="tx-row">
+          <label class="inp-label">Port (1–223)</label>
+          <input id="inp-port" class="lr-input-sm" type="number" min="1" max="223" value="2">
+        </div>
+        <label class="inp-label">Payload (text or hex, prefix 0x for hex)</label>
+        <textarea id="inp-payload" class="lr-textarea"
+                  placeholder="Hello LoRa&#10;or: 0xDEADBEEF"></textarea>
+        <div class="tx-actions">
+          <button class="btn-send" id="btn-send" onclick="sendUplink()">
+            <span id="send-btn-text">▶ Send</span>
+          </button>
+          <span id="tx-status" class="tx-status"></span>
+        </div>
+      </div>
+
+      <!-- RX Panel -->
+      <div class="section-hdr" style="margin-top:10px">
+        <span>📥 Last Downlink</span>
+        <button class="btn-readrecv" onclick="readRecv()">⟳ Read</button>
+      </div>
+      <div class="rx-panel" id="rx-panel">
+        <div class="rx-row">
+          <span class="rx-label">Port</span><span id="rx-port" class="rx-val">—</span>
+          <span class="rx-label">Size</span><span id="rx-size" class="rx-val">—</span>
+          <span class="rx-label">Window</span><span id="rx-window" class="rx-val">—</span>
+          <span class="rx-label">Time</span><span id="rx-time" class="rx-val">—</span>
+        </div>
+        <div class="rx-hex-wrap">
+          <span class="rx-label">Hex</span>
+          <div id="rx-hex" class="rx-hex">—</div>
+        </div>
+        <div class="rx-hex-wrap">
+          <span class="rx-label">ASCII</span>
+          <div id="rx-ascii" class="rx-ascii">—</div>
+        </div>
+      </div>
+
+      <!-- Module Info Panel -->
+      <div class="section-hdr" style="margin-top:10px">Module Info</div>
+      <div class="info-panel" id="info-panel">
+        <div class="info-row"><span class="info-key">Firmware</span><span id="inf-fw" class="info-val">—</span></div>
+        <div class="info-row"><span class="info-key">DevEUI</span><span id="inf-deveui" class="info-val">—</span></div>
+        <div class="info-row"><span class="info-key">Join Status</span><span id="inf-njs" class="info-val">—</span></div>
+      </div>
+
+    </div><!-- /panel-right -->
+
+  </div><!-- /main-content -->
+
+  <!-- ── Console ── -->
+  <div class="console-wrap">
+    <div class="console-bar">
+      <div class="console-dots">
+        <span class="cdot cdot-g"></span>
+        <span class="cdot cdot-y"></span>
+        <span class="cdot cdot-r"></span>
+        <span class="console-title">CONSOLE</span>
+      </div>
+      <button class="btn-clear" onclick="clearLog()">Clear</button>
+    </div>
+    <div id="console-log" class="console-log"></div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast hidden"></div>
+
+</div><!-- /lr-app-root -->

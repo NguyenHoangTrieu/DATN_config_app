@@ -447,13 +447,33 @@ function disconnectSelected() {
   if (devIdx === null || !state.connected[devIdx]) return;
   logInfo('Disconnecting idx=' + devIdx + '…');
 
+  var capturedIdx = devIdx;  /* capture before async — selectedIdx may change */
   enqueue(function () {
-    return sendCFBG('DISCONNECT', String(devIdx), 10000)
-      .then(function () {
-        /* Final cleanup happens when async DISCONNECTED event arrives in handleAsyncLine */
+    return sendCFBG('DISCONNECT', String(capturedIdx), 10000)
+      .then(function (resp) {
+        /* Parse the RPC response directly — on LAN the DISCONNECTED confirmation
+           arrives as the inline RPC reply rather than/in addition to a telemetry push.
+           handleDisconnected() is idempotent (guarded by !state.connected[devIdx]),
+           so calling it from both the inline path and handleAsyncLine is safe. */
+        var found = false;
+        splitLines(resp || '').forEach(function (line) {
+          if (/DISCONNECTED:\d+/.test(line)) {
+            handleAsyncLine(line);
+            found = true;
+          }
+        });
+        /* Optimistic cleanup: no DISCONNECTED line in the RPC response means the
+           firmware will send it asynchronously via telemetry — but if the telemetry
+           path is slow/unreliable (WAN), clean up immediately so user can reconnect. */
+        if (!found) {
+          handleDisconnected(capturedIdx);
+        }
       })
       .catch(function (err) {
-        logFail('Disconnect failed: ' + (err && err.message ? err.message : err));
+        /* Timeout almost always means the BLE stack already disconnected the peer.
+           Always clean up so the user can initiate a reconnect immediately. */
+        logFail('Disconnect RPC error: ' + (err && err.message ? err.message : err) + ' — cleaning up anyway');
+        handleDisconnected(capturedIdx);
       });
   });
 }

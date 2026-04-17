@@ -83,6 +83,8 @@ class GatewayInfo:
 class WanConfig:
     """WAN/Internet configuration"""
     internet_type: str = "WIFI"
+    internet_fallback: bool = False
+    internet_fallback_type: str = "WIFI"
     wifi_ssid: str = ""
     wifi_password: str = ""
     wifi_username: str = ""
@@ -261,6 +263,10 @@ class ConfigParser:
                     config.wan.mqtt_timeout_ms = int(value)
                 elif key == "http_port":
                     config.wan.http_port = int(value)
+                elif key == "internet_fallback":
+                    config.wan.internet_fallback = value.strip() in ("1", "true", "True")
+                elif key == "internet_fallback_type":
+                    config.wan.internet_fallback_type = value.strip().upper()
                 elif key == "http_use_tls":
                     config.wan.http_use_tls = value.strip() in ("1", "true", "True")
                 elif key == "http_verify_server":

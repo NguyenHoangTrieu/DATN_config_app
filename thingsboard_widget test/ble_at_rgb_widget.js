@@ -199,6 +199,19 @@ function parseConnectResult(resp) {
   return true;  // assume OK if any response received
 }
 
+/* Extract conn_idx from CONNECTED:<conn_idx>[:<extra>] response.
+   The gateway returns e.g. "CFBG:OK:CONNECTED:0:0x001234:AA:BB:..." —
+   conn_idx (0-based connection table index) must be used for DISC/NOTIFY,
+   NOT the scan result idx. */
+function extractConnIdx(resp) {
+  var lines = parseLines(resp);
+  for (var i = 0; i < lines.length; i++) {
+    var m = lines[i].match(/CONNECTED:(\d+)/i);
+    if (m) return parseInt(m[1]);
+  }
+  return null;
+}
+
 function parseDiscoverResult(resp) {
   var lines = parseLines(resp);
   var text = lines.join(' ');
@@ -322,6 +335,13 @@ function connectToMAC(mac, name, idx) {
       
       state.mac = mac;
       state.connected = true;
+      // Parse conn_idx from CONNECTED:<idx> response — MUST be used for DISC/NOTIFY
+      // (scan result idx ≠ connection table idx when multiple sessions exist)
+      var connIdx = extractConnIdx(resp);
+      if (connIdx !== null) {
+        state.devIdx = connIdx;
+        logInfo('Connection index from gateway: ' + connIdx);
+      }
       // Reset handles so discovery check forces a fresh DISC
       state.fff1_handle = null;
       state.fff2_handle = null;

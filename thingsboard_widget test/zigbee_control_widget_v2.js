@@ -301,8 +301,27 @@ function autoFind() {
   sendCFML('MODULE_AUTO_FIND_TARGET', 5000)
     .then(function () {
       /* AT+FIND returns OK immediately; FIND:<addr>,<ieee> events arrive
-         asynchronously via telemetry and are handled by handleAsyncEvent(). */
+         asynchronously via telemetry and are handled by handleAsyncEvent().
+         Also create binding for the selected node so AT+TURNON/TURNOFF work. */
       showToast('Finding… nodes will appear when discovered');
+      if (state.selectedNode) bindSelectedNode();
+    })
+    .catch(function () {});
+}
+
+/**
+ * bindSelectedNode — sets AT+DSTADDR and AT+DSTEP on the coordinator to
+ * the currently selected node.  This is required before AT+TURNON/TURNOFF
+ * can target a specific device in transparent-data mode.
+ * Note: AT+FIND already creates the ZCL binding needed for AT+TURNON.
+ */
+function bindSelectedNode() {
+  var t = getTarget();
+  sendCFML('AT+DSTADDR=' + t.s, 3000)
+    .then(function () { return sendCFML('AT+DSTEP=' + t.ep, 3000); })
+    .then(function () {
+      logOk('DSTADDR set → ' + t.s + '  EP:' + t.ep);
+      showToast('Bound to 0x' + t.s + ' ✓');
     })
     .catch(function () {});
 }
@@ -392,6 +411,9 @@ function getTarget() {
 
 /* ────────────────────────────────────────────────────────────────────
    ZCL On/Off (cluster 0006)
+   Uses AT+TURNON / AT+TURNOFF — native AT-mode commands that operate on
+   all devices bound via AT+FIND.  Run autoFind() once after the end-device
+   joins so the coordinator has the binding before toggling.
    ──────────────────────────────────────────────────────────────────── */
 function onOnOffToggle(checked) {
   if (!state.selectedNode) {
@@ -405,10 +427,16 @@ function onOnOffToggle(checked) {
   var wrap = ge('onoff-icon-wrap');
   if (wrap) wrap.setAttribute('data-on', checked ? 'true' : 'false');
   setEl('onoff-icon', checked ? '💡' : '🔦');
-  var t = getTarget();
-  /* ZCL On/Off cmd: 01=ON, 00=OFF */
-  sendCFML('MODULE_ZCL_SEND_CONTROL_CMD:' + t.s + ',' + t.ep + ',0006,' + (checked ? '01' : '00'), 15000)
-    .catch(function () {});
+  /* AT+TURNON / AT+TURNOFF — sends ZCL On/Off to all bound devices.
+     Requires AT+FIND to have been run first to create the binding.
+     Uses AT+ZCL= as fallback for direct addressed control. */
+  sendCFML(checked ? 'AT+TURNON' : 'AT+TURNOFF', 5000)
+    .catch(function () {
+      /* Fallback: addressed ZCL On/Off if binding not available */
+      var t = getTarget();
+      sendCFML('MODULE_ZCL_SEND_CONTROL_CMD:' + t.s + ',' + t.ep + ',0006,' + (checked ? '01' : '00'), 5000)
+        .catch(function () {});
+    });
 }
 
 /* ────────────────────────────────────────────────────────────────────
@@ -732,12 +760,13 @@ function rgbToXY(r, g, b) {
 /* ────────────────────────────────────────────────────────────────────
    Expose to ThingsBoard HTML onclick attributes
    ──────────────────────────────────────────────────────────────────── */
-window.onSlotChange   = function (v) { state.slot = v; saveLocalState(); };
-window.startNetwork   = startNetwork;
-window.stopNetwork    = stopNetwork;
-window.openPermitJoin = openPermitJoin;
-window.autoFind       = autoFind;
-window.selectNode     = selectNode;
+window.onSlotChange      = function (v) { state.slot = v; saveLocalState(); };
+window.startNetwork      = startNetwork;
+window.stopNetwork       = stopNetwork;
+window.openPermitJoin    = openPermitJoin;
+window.autoFind          = autoFind;
+window.bindSelectedNode  = bindSelectedNode;
+window.selectNode        = selectNode;
 window.deleteNode     = deleteNode;
 window.selectCluster  = selectCluster;
 window.onOnOffToggle  = onOnOffToggle;

@@ -17,7 +17,7 @@ x:  0        88     162        220     319
     +------------------------------------------+  y=24 (line -- ve boi ESP32)
     |WiFi           |||  LTE                   |  y=26..47  Header labels (CYAN)
     |  * Connected  |||   * Connected          |  y=50..71  dot + status
-    |  HomeNet      |||   v-internet           |  y=74..91  SSID / APN
+    |  HomeNet      |||   m-wap           |  y=74..91  SSID / APN
     |  -65dBm PERS  |||   A7600C1 18/31       |  y=94..111 detail (gray)
     +------------------------------------------+  y=116 (line -- ve boi ESP32)
     |ETH:  * Connected    192.168.1.50         |  y=119..137 ETH row

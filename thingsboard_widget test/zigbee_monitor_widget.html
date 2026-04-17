@@ -1,0 +1,60 @@
+<!-- =====================================================================
+     DA2 Zigbee Attribute Monitor — ThingsBoard Latest Values Widget
+     Type    : Latest Values (no controlApi needed — read-only)
+     Datasource: Entity → Gateway device → telemetry key "data"
+
+     Data flow:
+       Zigbee device sends ZCL attribute report
+       → E180-ZG120B module → firmware RPT:<addr>,<ep>,<cl>,<attr>,<t>,<val>
+       → MQTT → ThingsBoard telemetry key "data"
+       → WebSocket push → onDataUpdated() → render attribute cards
+
+     Add datasource: Gateway device, key "data" (Latest Telemetry)
+     Node names / IEEE addresses are read from localStorage key "da2_zb_v2"
+     which is written by the companion zigbee_control_widget_v2.
+     ===================================================================== -->
+
+<div id="zbm-root" class="zbm-root">
+
+  <!-- ── Header ── -->
+  <div class="zbm-header">
+    <div class="zbm-hdr-left">
+      <div class="zbm-logo">
+        <svg viewBox="0 0 24 24" fill="none">
+          <path d="M12 2L21 7V17L12 22L3 17V7L12 2Z"
+                stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+          <path d="M9 9L15 9M9 12L15 12M9 15L15 15"
+                stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div>
+        <div class="zbm-title">Zigbee Attribute Monitor</div>
+        <div class="zbm-sub">ZCL RPT — live attribute reports</div>
+      </div>
+    </div>
+    <div id="zbm-pill" class="zbm-pill" data-state="idle">
+      <span class="zbm-dot"></span>
+      <span id="zbm-pill-txt">Waiting</span>
+    </div>
+  </div>
+
+  <!-- ── Device attribute card grid ── -->
+  <div id="zbm-grid" class="zbm-grid">
+    <div id="zbm-hint" class="zbm-hint">
+      <div class="hint-icon">🔶</div>
+      <div class="hint-title">No attribute reports yet</div>
+      <div class="hint-sub">
+        Add datasource: Entity → Gateway device → key <code>data</code> (Latest Telemetry)<br>
+        Cards appear automatically when Zigbee devices push ZCL RPT events.<br>
+        Use the <strong>Zigbee Controller</strong> widget to start the network and permit devices to join.
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Footer ── -->
+  <div class="zbm-footer">
+    <span id="zbm-rx-count">0 reports received</span>
+    <span id="zbm-last-ts">—</span>
+  </div>
+
+</div>

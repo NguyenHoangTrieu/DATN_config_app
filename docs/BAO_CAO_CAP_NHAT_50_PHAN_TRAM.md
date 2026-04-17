@@ -478,7 +478,7 @@ flowchart TD
   "internet_type": 0,
   "server_type": 0,
   "wifi": { "ssid": "MyNetwork", "password": "***", "auth_mode": "PERSONAL" },
-  "lte": { "modem": "A7600C1", "apn": "v-internet" },
+  "lte": { "modem": "A7600C1", "apn": "m-wap" },
   "mqtt": { "broker": "mqtt://demo.thingsboard.io:1883", "token": "***" }
 }
 ```
