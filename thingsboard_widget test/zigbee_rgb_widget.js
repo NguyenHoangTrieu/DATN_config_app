@@ -6,7 +6,7 @@
 
    Commands used:
      AT+FIND                                      — auto-discover + bind end device
-     AT+UNBIND                                    — remove binding
+     AT+UNBIND?   / AT+UNBIND=%d                  — list / remove binding by index
      AT+TURNON / AT+TURNOFF / AT+TOGGLE           — on/off all bound devices
      AT+DSTADDR=<short>  +  AT+DSTEP=<ep>        — target specific device
      MODULE_ZCL_SEND_CONTROL_CMD:<s>,<ep>,0300,08,<xH>,<yH>,000A  — color XY
@@ -261,7 +261,39 @@ function findDevice() {
 }
 
 function unbindDevice() {
-  sendCFML('AT+UNBIND', 5000)
+  /* Step 1: AT+UNBIND? — query bound-device list to get indices.
+     Response format per spec:
+       "( %d ) ONOFF : SN=[...]\r\n"
+       "( %d )LEVEL: SN=[...]\r\n"
+       "( %d ) TRANS : SN=[...]\r\n"
+       "OK\r\n"
+     Step 2: AT+UNBIND=%d — delete each index found.                  */
+  logInfo('Querying bound device list…');
+  sendCFML('AT+UNBIND?', 5000)
+    .then(function (r) {
+      var lines   = splitResp(r);
+      /* Extract unique integer indices from "( N )" tokens */
+      var seen    = {};
+      var indices = [];
+      lines.forEach(function (l) {
+        var m = l.match(/\(\s*(\d+)\s*\)/);
+        if (m && !seen[m[1]]) { seen[m[1]] = true; indices.push(parseInt(m[1], 10)); }
+      });
+
+      if (!indices.length) {
+        /* Nothing bound — clear state immediately */
+        logInfo('No bound entries found, clearing state');
+        return Promise.resolve();
+      }
+
+      logInfo('Unbinding ' + indices.length + ' entr' + (indices.length > 1 ? 'ies' : 'y') + ': ' + indices.join(', '));
+      /* Chain sequential AT+UNBIND=%d calls for each index */
+      return indices.reduce(function (chain, idx) {
+        return chain.then(function () {
+          return sendCFML('AT+UNBIND=' + idx, 5000);
+        });
+      }, Promise.resolve());
+    })
     .then(function () {
       state.bound     = false;
       state.shortAddr = '';
@@ -296,9 +328,10 @@ function onLedToggle(checked) {
   sendCFML(checked ? 'AT+TURNON' : 'AT+TURNOFF', 5000)
     .then(function () { logOk('LED ' + (checked ? 'ON' : 'OFF')); })
     .catch(function () {
-      /* Fallback: addressed ZCL On/Off */
+      /* Fallback: send ZCL On/Off command directly (cluster 0x0006, cmd 0x01=On / 0x00=Off) */
       var t = getTarget();
-      sendCFML('MODULE_ZCL_SEND_CONTROL_CMD:' + t + ',0006,' + (checked ? '01' : '00'), 5000)
+      var cmd = checked ? '01' : '00';
+      sendCFML('MODULE_ZCL_SEND_CONTROL_CMD:' + t + ',0006,' + cmd, 5000)
         .catch(function () {});
     });
 }

@@ -502,6 +502,66 @@
             "gpio_end_control": [],
             "delay_end": 0,
             "is_async_event": true
+        },
+        {
+            "function_name": "MODULE_ENTER_P2P_MODE",
+            "command": "AT+NWM=0",
+            "is_prefix": false,
+            "is_hex": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 1000,
+            "gpio_end_control": [],
+            "delay_end": 200
+        },
+        {
+            "function_name": "MODULE_SET_P2P_FREQ",
+            "command": "AT+PFREQ=",
+            "is_prefix": true,
+            "is_hex": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 500,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "MODULE_SET_P2P_SF",
+            "command": "AT+PSF=",
+            "is_prefix": true,
+            "is_hex": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 500,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "MODULE_SEND_P2P_PKT",
+            "command": "AT+PSEND=",
+            "is_prefix": true,
+            "is_hex": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 5000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "MODULE_ENTER_P2P_RX",
+            "command": "AT+PRECV=65534",
+            "is_prefix": false,
+            "is_hex": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "OK",
+            "timeout": 1000,
+            "gpio_end_control": [],
+            "delay_end": 0
         }
     ]
 }

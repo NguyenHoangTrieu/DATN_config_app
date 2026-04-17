@@ -71,7 +71,14 @@ self.onDataUpdated = function () {
       /* Skip replayed stale data on widget reload */
       if (dataTs && (now - dataTs) > ZBM_STALE_MS) continue;
       var decoded = decodeHex(raw);
-      splitLines(decoded).forEach(function (line) { parseLine(line, dataTs || now); });
+      splitLines(decoded).forEach(function (line) {
+        parseLine(line, dataTs || now);
+        /* Bridge: forward raw lines to control widget via localStorage */
+        try {
+          localStorage.setItem('da2_zb_bridge',
+            JSON.stringify({ ts: dataTs || now, line: line }));
+        } catch (be) { /* ignore storage errors */ }
+      });
     }
   } catch (e) { /* silent — monitor widget must not crash */ }
 };

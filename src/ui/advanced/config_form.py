@@ -298,9 +298,6 @@ class FunctionItem(ttk.Frame):
             self._add_field(body, "CMD Type", self._cmd_type_var, width=15)
             self._cmd_code_var = tk.StringVar(value=fd.get("cmd_code", ""))
             self._add_field(body, "CMD Code", self._cmd_code_var, width=15)
-            self._resp_format_var = tk.StringVar(value=fd.get("resp_format", "ascii"))
-            self._add_field(body, "Resp Format", self._resp_format_var,
-                            "combo", options=["ascii", "hex"])
 
         # GPIO start
         self._gpio_start = GpioListWidget(
@@ -358,13 +355,10 @@ class FunctionItem(ttk.Frame):
         if self._module_type == "ZIGBEE":
             ct = getattr(self, "_cmd_type_var", None)
             cc = getattr(self, "_cmd_code_var", None)
-            rf = getattr(self, "_resp_format_var", None)
             if ct is not None:
                 d["cmd_type"] = ct.get()
             if cc is not None:
                 d["cmd_code"] = cc.get()
-            if rf is not None:
-                d["resp_format"] = rf.get()
 
         d["gpio_start_control"] = self._gpio_start.get_data()
         d["delay_start"] = self._safe_int(self._delay_start_var.get())
@@ -397,8 +391,6 @@ class FunctionItem(ttk.Frame):
                 self._cmd_type_var.set(func_data.get("cmd_type", ""))
             if hasattr(self, "_cmd_code_var"):
                 self._cmd_code_var.set(func_data.get("cmd_code", ""))
-            if hasattr(self, "_resp_format_var"):
-                self._resp_format_var.set(func_data.get("resp_format", "ascii"))
 
     @staticmethod
     def _parse_hex_val(text: str) -> int:

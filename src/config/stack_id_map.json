@@ -3,16 +3,16 @@
     "none": { "type": "NONE", "label": "No adapter (TCA not found)" },
     "000": {
       "type":              "ZIGBEE",
-      "label":             "Zigbee (E18)",
+      "label":             "Zigbee (E18 HEX)",
       "cmd_prefix":        "CFZB",
-      "gateway_json":      "stack_001_config.json",
+      "gateway_json":      "stack_011_config.json",
       "app_commands_json": "stack_001_app_commands.json"
     },
     "001": {
       "type":              "ZIGBEE",
-      "label":             "Zigbee (E180-ZG120B)",
+      "label":             "Zigbee (E180-ZG120B HEX)",
       "cmd_prefix":        "CFZB",
-      "gateway_json":      "stack_001_config.json",
+      "gateway_json":      "stack_011_config.json",
       "app_commands_json": "stack_001_app_commands.json"
     },
     "002": {
@@ -73,6 +73,12 @@
       "label":             "Zigbee (E180-ZG120B HEX)",
       "cmd_prefix":        "CFZB",
       "gateway_json":      "stack_010_config.json"
+    },
+    "011": {
+      "type":              "ZIGBEE",
+      "label":             "Zigbee (E180-ZG120B HEX native)",
+      "cmd_prefix":        "CFZB",
+      "gateway_json":      "stack_011_config.json"
     },
     "015": {
       "type":              "LORA",

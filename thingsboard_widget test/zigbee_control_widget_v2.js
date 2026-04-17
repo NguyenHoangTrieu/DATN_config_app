@@ -32,6 +32,11 @@ var state = {
 /* ── Widget-root reference for scoped querySelectorAll ── */
 var _root = null;
 
+/* ── Telemetry subscription (programmatic — no datasource needed) ── */
+var g_teleSubscriber = null;
+var g_lastTeleTs    = 0;
+var g_storageListener = null;
+
 /* ────────────────────────────────────────────────────────────────────
    ThingsBoard Lifecycle
    ──────────────────────────────────────────────────────────────────── */
@@ -44,16 +49,51 @@ self.onInit = function () {
     updateControlPanel();
     updateClusterTabs();
     logInfo('Widget ready — slot ' + state.slot);
-    /* Defer network status query so DOM is ready */
-    setTimeout(function () { queryNetStatus(); }, 600);
+    /* Listen for async Zigbee events forwarded by the monitor widget via localStorage bridge */
+    setupStorageBridge();
   } catch (e) {
     console.error('[ZB Widget] onInit error:', e);
   }
 };
 
-self.onDestroy = function () {};
+self.onDestroy = function () {
+  try {
+    if (g_storageListener) {
+      window.removeEventListener('storage', g_storageListener);
+      g_storageListener = null;
+    }
+    if (g_teleSubscriber && self.ctx.telemetryWsService) {
+      self.ctx.telemetryWsService.unsubscribe(g_teleSubscriber);
+      g_teleSubscriber = null;
+    }
+  } catch (e) { /* ignore */ }
+};
 
-/* Telemetry uplink — receives async Zigbee events pushed by gateway */
+/* ────────────────────────────────────────────────────────────────────
+   localStorage bridge — receives async events forwarded by monitor widget
+   Monitor widget writes: localStorage.setItem('da2_zb_bridge', JSON.stringify({ts, line}))
+   Control widget listens via 'storage' event (cross-iframe, same origin)
+   ──────────────────────────────────────────────────────────────────── */
+function setupStorageBridge() {
+  try {
+    g_storageListener = function (e) {
+      if (e.key !== 'da2_zb_bridge' || !e.newValue) return;
+      try {
+        var pkg = JSON.parse(e.newValue);
+        if (!pkg || !pkg.line) return;
+        if (pkg.ts && pkg.ts <= g_lastTeleTs) return;
+        g_lastTeleTs = pkg.ts || Date.now();
+        dispatchLine(pkg.line);
+      } catch (pe) { /* ignore bad JSON */ }
+    };
+    window.addEventListener('storage', g_storageListener);
+    logInfo('Bridge active — waiting for monitor widget events');
+  } catch (e) {
+    logFail('setupStorageBridge: ' + (e && e.message ? e.message : e));
+  }
+}
+
+/* onDataUpdated: fires if a Latest Values datasource is ever added to this widget */
 self.onDataUpdated = function () {
   try {
     var data = self.ctx.data;
@@ -61,27 +101,19 @@ self.onDataUpdated = function () {
     for (var k = 0; k < data.length; k++) {
       var keyCtx = data[k];
       if (!keyCtx.data || !keyCtx.data.length) continue;
-      var latest  = keyCtx.data[keyCtx.data.length - 1];
-      var rawVal  = latest[1];
-      var decoded = rawVal;
-
-      if (typeof rawVal === 'object' && rawVal !== null && rawVal.data !== undefined) {
-        decoded = hexToString(String(rawVal.data));
-      } else if (typeof rawVal === 'string') {
-        try {
-          var parsed = JSON.parse(rawVal);
-          if (parsed && parsed.data !== undefined) decoded = hexToString(String(parsed.data));
-        } catch (e2) {
-          if (/^[0-9A-Fa-f]+$/.test(rawVal) && rawVal.length % 2 === 0) {
-            decoded = hexToString(rawVal);
-          }
-        }
+      var latest = keyCtx.data[keyCtx.data.length - 1];
+      var ts = latest[0];
+      if (ts <= g_lastTeleTs) return;
+      g_lastTeleTs = ts;
+      /* Decode hex-wrapped telemetry value and dispatch each line */
+      var raw = latest[1], decoded = raw;
+      if (typeof raw === 'object' && raw !== null && raw.data !== undefined) {
+        decoded = hexToString(String(raw.data));
+      } else if (typeof raw === 'string') {
+        try { var p = JSON.parse(raw); if (p && p.data) decoded = hexToString(String(p.data)); }
+        catch (e2) { if (/^[0-9A-Fa-f]+$/.test(raw) && raw.length % 2 === 0) decoded = hexToString(raw); }
       }
-
-      splitResp(decoded).forEach(function (line) {
-        logEvt('Uplink: ' + line);
-        handleAsyncEvent(line);
-      });
+      splitResp(decoded).forEach(function (line) { dispatchLine(line); });
       break;
     }
   } catch (e) {
@@ -165,40 +197,103 @@ function splitResp(resp) {
 
 function logCFMLResponse(resp) {
   splitResp(resp).forEach(function (line) {
-    if (/^JOIN:|^\+NWINFO:|^FIND:|^RPT:|^LEAVE:|^NODE:|^RSP:/.test(line)) {
+    if (/^FAIL:|INVALID|ERROR/i.test(line)) {
+      logFail(line);
+    } else if (/^JOIN:|^\+NWINFO:|^FIND:|^RPT:|^LEAVE:|^NODE:|^RSP:|^NET:|^NETOPEN|:EVT:/i.test(line)) {
       logEvt(line);
-      handleAsyncEvent(line);
+      dispatchLine(line);
     } else {
       logOk(line);
     }
   });
 }
 
+/**
+ * dispatchLine — decode CFZB EVT wrapper then forward to handleAsyncEvent.
+ * Gateway sends async Zigbee listener data as:
+ *   ZIG<ts>CFZB:<slot>:EVT:<space-separated hex bytes>
+ * The hex payload contains the raw AT output, e.g.
+ *   JOIN:MAC=0x...<CR><LF>NODE:MAC=...,ADDR=0x...<CR><LF>
+ */
+function dispatchLine(line) {
+  /* Match :EVT: followed by space-separated hex bytes at end of line */
+  var evtM = line.match(/:EVT:((?:[0-9A-Fa-f]{2}\s*)+)$/i);
+  if (evtM) {
+    /* Remove spaces and decode to ASCII string */
+    var inner = hexToString(evtM[1].replace(/\s+/g, ''));
+    inner.split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean)
+      .forEach(function (subLine) {
+        logEvt(subLine);
+        handleAsyncEvent(subLine);
+      });
+    return;
+  }
+  handleAsyncEvent(line);
+}
+
 function handleAsyncEvent(line) {
   var m;
 
+  /* ── E180 firmware-wrapped format (CFZB processed) ── */
   /* JOIN:<short4>,<ieee16>,<type>  (type: 0=coord,1=router,2=end) */
   m = line.match(/^JOIN:([0-9A-Fa-f]{4}),([0-9A-Fa-f]{16}),(\d)/);
   if (m) { addNode(m[1].toUpperCase(), m[2].toUpperCase(), m[3]); return; }
 
-  /* NODE:<short4>,<ieee16>  (device announce) */
+  /* ── E180 native AT-mode format ── */
+  /* JOIN:MAC=0x<ieee16>  (E180 coordinator: node joined) */
+  m = line.match(/^JOIN:MAC=0x([0-9A-Fa-f]{16})/i);
+  if (m) { addNode('????', m[1].toUpperCase(), '?'); return; }
+
+  /* NODE:<short4>,<ieee16>  (firmware device announce) */
   m = line.match(/^NODE:([0-9A-Fa-f]{4}),([0-9A-Fa-f]{16})/);
   if (m) { addNode(m[1].toUpperCase(), m[2].toUpperCase(), '?'); return; }
+
+  /* NODE:MAC=0x<ieee16>,ADDR=0x<short4>  (E180 native device announce) */
+  m = line.match(/^NODE:MAC=0x([0-9A-Fa-f]{16}),ADDR=0x([0-9A-Fa-f]{4})/i);
+  if (m) { addNode(m[2].toUpperCase(), m[1].toUpperCase(), '?'); return; }
 
   /* FIND:<short4>,<ieee16>  (auto-find result) */
   m = line.match(/^FIND:([0-9A-Fa-f]{4}),([0-9A-Fa-f]{16})/);
   if (m) { addNode(m[1].toUpperCase(), m[2].toUpperCase(), '?'); return; }
 
+  /* NETOPEN:<duration>  (E180 coordinator opened network) */
+  m = line.match(/^NETOPEN:(.*)/i);
+  if (m) { setNetState('on'); setEl('net-info-bar', 'Open: ' + m[1]); showToast('Network open ✓'); return; }
+
+  /* NET:JOIN  /  NET:OPEN  /  NET:IDLE */
+  m = line.match(/^NET:(JOIN|OPEN|IDLE|CLOSE)/i);
+  if (m) {
+    var s = m[1].toUpperCase();
+    if (s === 'JOIN' || s === 'OPEN') { setNetState('on'); setEl('net-info-bar', 'NET:' + s); }
+    else { setNetState('off'); }
+    return;
+  }
+
   /* +NWINFO:<data>  (network status — extended firmware) */
   m = line.match(/^\+NWINFO:(.*)/);
   if (m) { setEl('net-info-bar', m[1]); setNetState('on'); return; }
 
-  /* LEAVE:<short4>  (node left network) */
+  /* LEAVE:<short4>  (firmware-wrapped leave) */
   m = line.match(/^LEAVE:([0-9A-Fa-f]{4})/);
   if (m) {
     var gone = m[1].toUpperCase();
     delete state.nodes[gone];
     if (state.selectedNode === gone) { state.selectedNode = null; updateControlPanel(); }
+    renderNodeList(); saveLocalState();
+    logInfo('Node ' + gone + ' left network');
+    return;
+  }
+
+  /* LEAVE:MAC=0x<ieee16>  (E180 native leave) */
+  m = line.match(/^LEAVE:MAC=0x([0-9A-Fa-f]{16})/i);
+  if (m) {
+    var ieeeGone = m[1].toUpperCase();
+    Object.keys(state.nodes).forEach(function (addr) {
+      if (state.nodes[addr].ieee === ieeeGone) {
+        delete state.nodes[addr];
+        if (state.selectedNode === addr) { state.selectedNode = null; updateControlPanel(); }
+      }
+    });
     renderNodeList(); saveLocalState(); return;
   }
 
@@ -206,7 +301,31 @@ function handleAsyncEvent(line) {
   m = line.match(/^RPT:([0-9A-Fa-f]{4}),([0-9A-Fa-f]{2}),([0-9A-Fa-f]{4}),([0-9A-Fa-f]{4}),([0-9A-Fa-f]{2}),(.*)/i);
   if (m) { handleAttrReport(m[1].toUpperCase(), m[3].toUpperCase(), m[4].toUpperCase(), m[6]); return; }
 
-  /* RSP:<short>,<ep>,...  (ZCL command response) */
+  /* E180 native RPT: 0xADDR-EP ONOFF=0|1 */
+  m = line.match(/^RPT:0x([0-9A-Fa-f]{4})-([0-9]+) ONOFF=(\d+)/i);
+  if (m) { handleAttrReport(m[1].toUpperCase(), '0006', '0000', m[3]); return; }
+
+  /* E180 native RPT: 0xADDR-EP LEVEL=<val> */
+  m = line.match(/^RPT:0x([0-9A-Fa-f]{4})-([0-9]+) LEVEL=(\d+)/i);
+  if (m) {
+    handleAttrReport(m[1].toUpperCase(), '0008', '0000',
+      parseInt(m[3], 10).toString(16).toUpperCase());
+    return;
+  }
+
+  /* DEVICE_JOIN:SN=[0x<ieee-LE>] ProfileID=<pid> DeviceID=<did> */
+  m = line.match(/^DEVICE_JOIN:SN=\[0x([0-9A-Fa-f]+)\]\s+ProfileID=([0-9A-Fa-f]+)\s+DeviceID=([0-9A-Fa-f]+)/i);
+  if (m) {
+    logInfo('Device joined — Profile:0x' + m[2].toUpperCase() + ' Type:0x' + m[3].toUpperCase());
+    showToast('New device joined ✓');
+    return;
+  }
+
+  /* FAIL:<reason>  */
+  m = line.match(/^FAIL:(.*)/i);
+  if (m) { logFail('Module error: ' + m[1]); showToast('⚠ ' + m[1]); return; }
+
+  /* RSP:<data>  (ZCL command response) */
   m = line.match(/^RSP:(.*)/);
   if (m) { logOk('ZCL response: ' + m[1]); return; }
 }
@@ -266,33 +385,77 @@ function queryNetStatus() {
 }
 
 function startNetwork() {
+  /* E180-ZG120B defaults to Coordinator — no DEVTYPE/RESET needed.
+     Go straight to AT+JOIN (MODULE_START_NETWORK).                  */
   setNetState('starting');
-  sendCFML('MODULE_START_NETWORK', 15000)
+  logInfo('Starting network…');
+  doNetworkJoin()
+    .catch(function (err) {
+      logFail('Start network failed: ' + (err && err.message ? err.message : err));
+      setNetState('off');
+      showToast('⚠ Start failed');
+    });
+}
+
+/**
+ * doNetworkJoin — sends AT+JOIN (MODULE_START_NETWORK).
+ * E180 responds with OK immediately then fires async NETOPEN:<duration-Sec>
+ * via telemetry.  Treat any OK/+CREATENW response as success; NETOPEN will
+ * arrive later and call setNetState('on') via handleAsyncEvent().
+ */
+function doNetworkJoin() {
+  return sendCFML('MODULE_START_NETWORK', 15000)
     .then(function (r) {
       var lines = splitResp(r);
-      var ok    = lines.some(function (l) { return /\+CREATENW:0|NETWORK UP/i.test(l); });
-      state.networkUp = ok;
-      setNetState(ok ? 'on' : 'off');
+      var failed  = lines.some(function (l) { return /^FAIL:|INVALID/i.test(l); });
+      if (failed) {
+        setNetState('off');
+        showToast('⚠ Network join failed');
+        return;
+      }
+      /* OK or +CREATENW means command accepted; wait for async NETOPEN event */
+      var confirmed = lines.some(function (l) {
+        return /NETOPEN|\+CREATENW:0|NETWORK UP/i.test(l);
+      });
+      if (confirmed) {
+        setNetState('on');
+        showToast('Network started ✓');
+      } else {
+        /* Command accepted, waiting for async NETOPEN telemetry */
+        setNetState('starting');
+        showToast('Joining… await NETOPEN event');
+      }
       parseNetStatus(lines);
-      showToast(ok ? 'Network started ✓' : 'Start failed');
-    })
-    .catch(function () { setNetState('off'); });
+    });
 }
 
 function stopNetwork() {
-  sendCFML('MODULE_LEAVE_NETWORK', 15000)
+  /* E180: AT+STOP closes the Zigbee network on coordinator side */
+  sendCFML('MODULE_STOP_NETWORK', 15000)
     .then(function () {
       state.networkUp = false;
       setNetState('off');
       setEl('net-info-bar', '—');
       showToast('Network stopped');
     })
-    .catch(function () {});
+    .catch(function () {
+      /* Always reflect stopped state in UI even on timeout/error */
+      state.networkUp = false;
+      setNetState('off');
+    });
 }
 
 function openPermitJoin() {
-  sendCFML('MODULE_SET_PERMIT_JOIN:60', 15000)
-    .then(function () { showToast('Permit join: 60 s — waiting for nodes…'); })
+  /* E180 AT+JOIN opens the network for 180 s (fixed, no duration arg).    
+     MODULE_SET_PERMIT_JOIN maps to AT+JOIN — do not append duration param. */
+  logInfo('Opening permit join window (180 s)…');
+  sendCFML('MODULE_SET_PERMIT_JOIN', 15000)
+    .then(function (r) {
+      var lines = splitResp(r);
+      var opened = lines.some(function (l) { return /NETOPEN|OK/i.test(l); });
+      showToast(opened ? 'Permit join open — 180 s ✓' : 'Permit join sent');
+      if (opened) setNetState('on');
+    })
     .catch(function () {});
 }
 
@@ -317,10 +480,12 @@ function autoFind() {
  */
 function bindSelectedNode() {
   var t = getTarget();
+  /* AT+DSTADDR takes short address (hex); AT+DSTEP takes decimal endpoint */
+  var epDec = String(parseInt(t.ep, 16));
   sendCFML('AT+DSTADDR=' + t.s, 3000)
-    .then(function () { return sendCFML('AT+DSTEP=' + t.ep, 3000); })
+    .then(function () { return sendCFML('AT+DSTEP=' + epDec, 3000); })
     .then(function () {
-      logOk('DSTADDR set → ' + t.s + '  EP:' + t.ep);
+      logOk('DSTADDR=0x' + t.s + '  DSTEP=' + epDec + ' (EP:' + t.ep + ')');
       showToast('Bound to 0x' + t.s + ' ✓');
     })
     .catch(function () {});
@@ -383,8 +548,12 @@ function deleteNode() {
       showToast('Node ' + addr + ' removed');
     })
     .catch(function () {
+      /* Hide overlay and spinner on failure so UI is not stuck */
       var ov2 = ge('ctrl-overlay');
       if (ov2) ov2.classList.add('hidden');
+      var sp2 = ge('overlay-spinner');
+      if (sp2) sp2.classList.add('hidden');
+      showToast('⚠ Delete failed');
     });
 }
 
@@ -489,8 +658,8 @@ function sendFixedColor(hexStr, btnEl) {
   var cp = ge('color-preview');
   if (cp) { cp.style.background = '#' + hexStr; cp.style.boxShadow = '0 0 14px #' + hexStr + '88'; }
   setEl('color-hex-label', '#' + hexStr.toUpperCase());
-  /* Mark active button */
-  var btns = document.querySelectorAll('.btn-color');
+  /* Mark active button — scoped to _root to avoid cross-widget conflicts */
+  var btns = (_root || document).querySelectorAll('.btn-color');
   for (var i = 0; i < btns.length; i++) btns[i].classList.remove('active');
   if (btnEl) btnEl.classList.add('active');
   logInfo('Sending color #' + hexStr.toUpperCase());
@@ -707,6 +876,7 @@ function logTx  (m) { logToConsole('log-tx',   '→ ' + m); }
 function logOk  (m) { logToConsole('log-ok',   '✓ ' + m); }
 function logFail(m) { logToConsole('log-fail',  '✗ ' + m); }
 function logInfo(m) { logToConsole('log-info',  'ℹ ' + m); }
+function logWarn(m) { logToConsole('log-info',  '⚠ ' + m); }
 function logEvt (m) { logToConsole('log-evt',   '⚡ ' + m); }
 function clearLog() { var el = ge('console-log'); if (el) el.innerHTML = ''; }
 

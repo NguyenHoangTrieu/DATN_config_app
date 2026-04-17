@@ -293,6 +293,8 @@ function connectDevice(scanIdx, mac, name) {
           connId: info.connId, chars: {}, aa11Handle: null, cccdHandle: null, fff2Handle: null
         };
         initDeviceData(devIdx, type);
+        /* Save to storage so monitor widget can read device types */
+        saveDeviceToStorage({ idx: devIdx, mac: mac, name: name, type: type });
         logInfo('Connected: ' + name + ' idx=' + devIdx);
         setConnectedCount();
         renderGrid();
@@ -566,6 +568,8 @@ function handleAsyncLine(line) {
           connId: parseInt(m[2], 16), chars: {}, aa11Handle: null, cccdHandle: null, fff2Handle: null
         };
         initDeviceData(asyncDevIdx, asyncType);
+        /* Save to storage so monitor widget can read device types */
+        saveDeviceToStorage({ idx: asyncDevIdx, mac: asyncMac, name: asyncName, type: asyncType });
         setConnectedCount();
         renderGrid();
         markScanItemConnected(asyncMac);
@@ -900,8 +904,8 @@ function loadSavedDevices() {
 
 function saveDeviceToStorage(dev) {
   try {
-    var arr = state.savedDevices.filter(function (d) { return d.mac !== dev.mac; });
-    arr.unshift({ mac: dev.mac, name: dev.name, type: dev.type, lastSeen: new Date().toISOString() });
+    var arr = state.savedDevices.filter(function (d) { return d.idx !== dev.idx; });
+    arr.unshift({ idx: dev.idx, mac: dev.mac, name: dev.name, type: dev.type, lastSeen: new Date().toISOString() });
     if (arr.length > 10) arr = arr.slice(0, 10);
     state.savedDevices = arr;
     localStorage.setItem(LS_KEY, JSON.stringify(arr));

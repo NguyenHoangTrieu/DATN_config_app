@@ -468,6 +468,54 @@
             "gpio_end_control": [],
             "delay_end": 0,
             "is_async_event": true
+        },
+        {
+            "function_name": "MODULE_ENTER_P2P_MODE",
+            "command": "AT+MODE=TEST",
+            "is_prefix": false,
+            "is_hex": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "+MODE: TEST",
+            "timeout": 1500,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "MODULE_SET_P2P_CONFIG",
+            "command": "AT+TEST=RFCFG,",
+            "is_prefix": true,
+            "is_hex": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "+TEST: RFCFG",
+            "timeout": 2000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "MODULE_SEND_P2P_PKT",
+            "command": "AT+TEST=TXLRPKT,",
+            "is_prefix": true,
+            "is_hex": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "+TEST: TXLRPKT",
+            "timeout": 5000,
+            "gpio_end_control": [],
+            "delay_end": 0
+        },
+        {
+            "function_name": "MODULE_ENTER_P2P_RX",
+            "command": "AT+TEST=RXLRPKT",
+            "is_prefix": false,
+            "is_hex": false,
+            "gpio_start_control": [],
+            "delay_start": 0,
+            "expect_response": "+TEST: RXLRPKT",
+            "timeout": 1500,
+            "gpio_end_control": [],
+            "delay_end": 0
         }
     ]
 }

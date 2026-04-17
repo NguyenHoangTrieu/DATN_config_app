@@ -1,19 +1,24 @@
 /* =====================================================================
-   DA2 Zigbee Gateway Control — ThingsBoard Widget CSS v2
-   Style follows ble_gatt_app_widget.css pattern exactly.
-   Brand color: amber #f59e0b (Zigbee vs. BLE purple).
+   DA2 Zigbee Gateway Control — ThingsBoard Widget CSS v3
+   Glassmorphism dark theme + E180 amber (#f59e0b) brand accent.
    ===================================================================== */
 
+*, *::before, *::after { box-sizing: border-box; }
+
 .zb-app-root {
-  --bg:          #0b0d14;
-  --surface:     #13161f;
-  --surface2:    #1c2030;
-  --surface3:    #252a3a;
+  --bg:          #080b12;
+  --glass:       rgba(255,255,255,0.03);
+  --glass-hi:    rgba(255,255,255,0.06);
+  --surface:     #0f1420;
+  --surface2:    #151c2d;
+  --surface3:    #1e2840;
   --accent:      #6c63ff;
-  --accent-glow: rgba(108,99,255,0.35);
+  --accent-glow: rgba(108,99,255,0.3);
   --zb:          #f59e0b;
-  --zb-glow:     rgba(245,158,11,0.3);
+  --zb-dim:      rgba(245,158,11,0.12);
+  --zb-glow:     rgba(245,158,11,0.35);
   --green:       #22c55e;
+  --green-dim:   rgba(34,197,94,0.12);
   --green-glow:  rgba(34,197,94,0.3);
   --red:         #ef4444;
   --warn:        #f59e0b;
@@ -21,6 +26,7 @@
   --text-dim:    #6b7280;
   --text-muted:  #374151;
   --border:      rgba(255,255,255,0.07);
+  --border-hi:   rgba(255,255,255,0.13);
   --radius:      18px;
   --radius-sm:   10px;
   --radius-xs:   6px;
@@ -44,20 +50,23 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 18px 12px;
-  background: linear-gradient(135deg, #131828 0%, #0e1120 100%);
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(245,158,11,0.05) 0%, rgba(108,99,255,0.04) 100%);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  backdrop-filter: blur(12px);
 }
 .zb-app-root .app-header-left { display: flex; align-items: center; gap: 10px; }
 .zb-logo {
   width: 34px; height: 34px;
-  background: linear-gradient(135deg, #b45309, #d97706);
+  background: linear-gradient(135deg, #b45309 0%, #f59e0b 100%);
   border-radius: 10px;
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 0 16px rgba(245,158,11,0.4);
+  box-shadow: 0 0 20px rgba(245,158,11,0.45), 0 4px 12px rgba(0,0,0,0.4);
   flex-shrink: 0;
+  transition: box-shadow 0.3s;
 }
+.zb-logo:hover { box-shadow: 0 0 30px rgba(245,158,11,0.65), 0 4px 12px rgba(0,0,0,0.4); }
 .zb-logo svg { width: 20px; height: 20px; color: #fff; }
 .zb-app-root .app-title    { font-size: 15px; font-weight: 700; line-height: 1.2; letter-spacing: -0.2px; }
 .zb-app-root .app-subtitle { font-size: 10px; color: var(--text-dim); letter-spacing: 0.3px; margin-top: 1px; }
@@ -75,20 +84,22 @@
   display: flex; align-items: center; gap: 6px;
   padding: 5px 12px; border-radius: 20px;
   background: var(--surface2); border: 1px solid var(--border);
-  font-size: 11px; font-weight: 600; color: var(--text-dim);
-  transition: all 0.4s ease;
+  font-size: 10px; font-weight: 700; color: var(--text-dim);
+  transition: all 0.35s ease; white-space: nowrap; letter-spacing: 0.3px;
 }
 .zb-app-root .status-pill[data-state="on"] {
-  background: rgba(34,197,94,0.1); border-color: rgba(34,197,94,0.4); color: var(--green);
+  background: var(--green-dim); border-color: rgba(34,197,94,0.4); color: var(--green);
+  box-shadow: 0 0 14px rgba(34,197,94,0.15);
 }
 .zb-app-root .status-pill[data-state="starting"] {
-  background: rgba(245,158,11,0.1); border-color: rgba(245,158,11,0.4); color: var(--warn);
+  background: var(--zb-dim); border-color: rgba(245,158,11,0.4); color: var(--warn);
+  box-shadow: 0 0 14px rgba(245,158,11,0.12);
 }
 .zb-app-root .status-dot-sm {
-  width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); transition: all 0.4s;
+  width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); transition: all 0.35s; flex-shrink: 0;
 }
 .zb-app-root .status-pill[data-state="on"]       .status-dot-sm { background: var(--green); box-shadow: 0 0 6px var(--green); }
-.zb-app-root .status-pill[data-state="starting"] .status-dot-sm { background: var(--warn); animation: zb-pulse 1s infinite; }
+.zb-app-root .status-pill[data-state="starting"] .status-dot-sm { background: var(--warn); animation: zb-pulse 0.9s infinite; }
 
 /* ── Main Content ── */
 .zb-app-root .main-content {
@@ -117,22 +128,33 @@
   background: var(--surface2); border: 1px solid var(--border);
   color: var(--text-dim); letter-spacing: 0.6px; text-transform: uppercase; transition: all 0.3s;
 }
-.net-badge[data-state="on"]       { background: rgba(34,197,94,0.15);  border-color: var(--green); color: var(--green); }
-.net-badge[data-state="starting"] { background: rgba(245,158,11,0.15); border-color: var(--warn);  color: var(--warn); animation: zb-pulse 1s infinite; }
+.net-badge[data-state="on"]       { background: var(--green-dim);  border-color: var(--green); color: var(--green); box-shadow: 0 0 8px rgba(34,197,94,0.2); }
+.net-badge[data-state="starting"] { background: var(--zb-dim); border-color: var(--warn);  color: var(--warn); animation: zb-pulse 0.9s infinite; }
 
-.net-actions { margin-bottom: 10px; flex-shrink: 0; }
-.net-row { display: flex; gap: 5px; margin-bottom: 5px; }
-.btn-net {
-  flex: 1; padding: 7px 4px; border-radius: var(--radius-xs);
-  background: var(--surface2); border: 1px solid var(--border);
-  color: var(--text-dim); font-size: 10px; font-weight: 600;
-  cursor: pointer; transition: all 0.2s; text-align: center; white-space: nowrap;
+/* ── Action Chip Grid (replaces old net-actions rows) ── */
+.action-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  margin-bottom: 10px;
+  flex-shrink: 0;
 }
-.btn-net:hover    { border-color: var(--zb);   color: var(--zb); }
-.btn-start:hover  { border-color: var(--green); color: var(--green); }
-.btn-stop:hover   { border-color: var(--red);   color: var(--red); }
-.btn-join:hover   { border-color: var(--warn);  color: var(--warn); }
-.btn-find:hover   { border-color: var(--zb);    color: var(--zb); }
+.chip {
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  padding: 8px 5px;
+  background: var(--glass); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); color: var(--text-dim);
+  font-size: 10px; font-weight: 700; cursor: pointer;
+  transition: all 0.2s; white-space: nowrap;
+  backdrop-filter: blur(6px);
+}
+.chip:hover  { border-color: var(--border-hi); color: var(--text); background: var(--glass-hi); }
+.chip:active { transform: scale(0.95); }
+.chip-icon   { font-size: 9px; }
+.chip-start:hover { border-color: var(--green); color: var(--green); background: var(--green-dim); box-shadow: 0 0 10px rgba(34,197,94,0.15); }
+.chip-stop:hover  { border-color: var(--red);   color: var(--red);   background: rgba(239,68,68,0.1); }
+.chip-join:hover  { border-color: var(--zb);    color: var(--zb);    background: var(--zb-dim); box-shadow: 0 0 10px rgba(245,158,11,0.15); }
+.chip-find:hover  { border-color: var(--accent); color: var(--accent); background: rgba(108,99,255,0.1); }
 
 .net-info-bar {
   font-size: 9px; color: var(--text-dim); font-family: 'Consolas', monospace;
@@ -141,13 +163,12 @@
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;
 }
 
-.node-count-label {
-  font-size: 9px; color: var(--text-dim); text-transform: uppercase;
-  letter-spacing: 0.5px; margin-bottom: 8px; flex-shrink: 0;
-  display: flex; align-items: center; gap: 6px;
+.node-list-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 8px; flex-shrink: 0;
 }
 .zb-app-root .count-badge {
-  background: var(--surface3); border-radius: 8px; padding: 1px 6px; font-weight: 700; font-size: 9px;
+  background: var(--surface3); border-radius: 8px; padding: 1px 7px; font-weight: 700; font-size: 9px; color: var(--text-dim);
 }
 
 .node-list {
@@ -166,11 +187,12 @@
 .node-item {
   display: flex; align-items: center; gap: 8px;
   padding: 8px 10px; border-radius: var(--radius-sm);
-  background: var(--surface2); cursor: pointer;
-  border: 1px solid transparent; transition: all 0.2s;
+  background: var(--glass); cursor: pointer;
+  border: 1px solid var(--border); transition: all 0.2s;
+  backdrop-filter: blur(4px);
 }
-.node-item:hover    { border-color: var(--zb);   background: rgba(245,158,11,0.07); }
-.node-item.selected { border-color: var(--green); background: rgba(34,197,94,0.07); }
+.node-item:hover    { border-color: rgba(245,158,11,0.4); background: var(--zb-dim); }
+.node-item.selected { border-color: var(--green); background: var(--green-dim); box-shadow: 0 0 10px rgba(34,197,94,0.1); }
 .node-icon { font-size: 14px; flex-shrink: 0; }
 .node-info { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .node-name { font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -189,10 +211,13 @@
 /* Node Hero */
 .node-hero {
   display: flex; align-items: center; gap: 12px;
-  background: linear-gradient(135deg, #151a2e 0%, #1a1f36 100%);
+  background: linear-gradient(135deg, rgba(245,158,11,0.05) 0%, rgba(108,99,255,0.04) 100%);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm); padding: 12px 14px; flex-shrink: 0;
+  backdrop-filter: blur(10px);
+  transition: border-color 0.3s;
 }
+.node-hero:hover { border-color: var(--border-hi); }
 .hero-icon {
   width: 40px; height: 40px; flex-shrink: 0;
   background: var(--surface2); border: 1px solid var(--border);
@@ -232,13 +257,15 @@
 .btn-cluster-tab:hover { border-color: var(--zb); color: var(--zb); }
 .btn-cluster-tab.active { background: rgba(245,158,11,0.12); border-color: var(--zb); color: var(--zb); }
 
-/* Control Card */
+/* Control Card — glassmorphism */
 .zb-app-root .control-card {
-  background: var(--surface); border: 1px solid var(--border);
+  background: var(--glass);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm); padding: 14px 16px;
-  transition: border-color 0.3s; flex-shrink: 0;
+  backdrop-filter: blur(8px);
+  transition: border-color 0.25s, box-shadow 0.25s; flex-shrink: 0;
 }
-.zb-app-root .control-card:hover { border-color: rgba(255,255,255,0.12); }
+.zb-app-root .control-card:hover { border-color: var(--border-hi); box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
 .zb-app-root .card-header { display: flex; align-items: center; gap: 12px; }
 .zb-app-root .card-icon-wrap {
   width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0;
@@ -254,45 +281,47 @@
 .zb-app-root .card-title    { font-size: 13px; font-weight: 700; }
 .zb-app-root .card-subtitle { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
 
-/* iOS Toggle */
+/* iOS Toggle — spring animation */
 .zb-app-root .toggle-wrap  { flex-shrink: 0; }
 .zb-app-root .toggle-input { display: none; }
 .zb-app-root .toggle-label {
   display: block; width: 50px; height: 28px;
   background: var(--surface3); border-radius: 14px;
-  cursor: pointer; position: relative; transition: background 0.3s;
-  border: 2px solid rgba(255,255,255,0.08);
+  cursor: pointer; position: relative; transition: background 0.3s, border-color 0.3s;
+  border: 1px solid rgba(255,255,255,0.08);
 }
 .zb-app-root .toggle-label::after {
   content: ''; position: absolute; width: 22px; height: 22px; border-radius: 50%;
-  background: #fff; top: 1px; left: 1px;
-  transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
-  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+  background: #9ca3af; top: 2px; left: 2px;
+  transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1), background 0.3s;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.5);
 }
-.zb-app-root .toggle-input:checked + .toggle-label { background: #22c55e; border-color: rgba(34,197,94,0.4); }
-.zb-app-root .toggle-input:checked + .toggle-label::after { transform: translateX(22px); }
+.zb-app-root .toggle-input:checked + .toggle-label { background: var(--green); border-color: rgba(34,197,94,0.5); box-shadow: 0 0 14px rgba(34,197,94,0.25); }
+.zb-app-root .toggle-input:checked + .toggle-label::after { transform: translateX(22px); background: #fff; }
 
 /* Level Card */
 .level-card { flex-direction: column; gap: 12px; }
 .level-header { display: flex; align-items: center; justify-content: space-between; }
 .level-val-display {
-  font-size: 18px; font-weight: 900; color: var(--zb);
+  font-size: 20px; font-weight: 900; color: var(--zb);
   font-variant-numeric: tabular-nums; font-family: 'Consolas', monospace;
+  min-width: 52px; text-align: right;
 }
 .level-slider {
   -webkit-appearance: none; appearance: none;
-  width: 100%; height: 10px; border-radius: 5px; outline: none; cursor: pointer;
-  border: 1px solid rgba(255,255,255,0.08);
+  width: 100%; height: 6px; border-radius: 3px; outline: none; cursor: pointer;
+  border: none;
 }
 .level-slider::-webkit-slider-thumb {
   -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%;
-  background: #fff; border: 3px solid rgba(255,255,255,0.9);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.5); cursor: pointer; transition: transform 0.15s;
+  background: var(--zb); border: 3px solid rgba(255,255,255,0.15);
+  box-shadow: 0 0 10px var(--zb-glow), 0 2px 6px rgba(0,0,0,0.5);
+  cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;
 }
-.level-slider::-webkit-slider-thumb:hover { transform: scale(1.15); }
+.level-slider::-webkit-slider-thumb:hover { transform: scale(1.2); box-shadow: 0 0 16px var(--zb-glow), 0 2px 6px rgba(0,0,0,0.5); }
 .level-slider::-moz-range-thumb {
-  width: 20px; height: 20px; border-radius: 50%;
-  background: #fff; border: 3px solid rgba(255,255,255,0.9); cursor: pointer;
+  width: 20px; height: 20px; border-radius: 50%; border: none;
+  background: var(--zb); box-shadow: 0 0 10px var(--zb-glow); cursor: pointer;
 }
 
 /* Color Card */
@@ -308,21 +337,21 @@
 .zb-app-root .color-hex-label { font-size: 11px; font-family: 'Consolas', monospace; color: var(--text-dim); font-weight: 600; }
 
 /* 5-Color Fixed Buttons */
-.color-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.color-buttons { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }
 .btn-color {
   flex: 1; min-width: 60px; padding: 8px 4px;
   border-radius: var(--radius-sm); border: 2px solid transparent;
-  font-size: 11px; font-weight: 700; cursor: pointer;
+  font-size: 10px; font-weight: 700; cursor: pointer;
   transition: all 0.2s; text-align: center;
 }
-.btn-color:hover  { filter: brightness(1.15); transform: translateY(-1px); }
-.btn-color:active { transform: translateY(0); }
-.btn-color.active { box-shadow: 0 0 0 3px rgba(255,255,255,0.45); }
-.btn-color-red    { background: #FF0000; color: #fff; border-color: #FF0000; }
-.btn-color-green  { background: #00FF00; color: #000; border-color: #00FF00; }
-.btn-color-blue   { background: #0000FF; color: #fff; border-color: #0000FF; }
-.btn-color-yellow { background: #FFFF00; color: #000; border-color: #FFFF00; }
-.btn-color-white  { background: #FFFFFF; color: #000; border-color: #ccc; }
+.btn-color:hover  { filter: brightness(1.15); transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.35); }
+.btn-color:active { transform: translateY(0) scale(0.97); }
+.btn-color.active { box-shadow: 0 0 0 3px rgba(255,255,255,0.4), 0 4px 14px rgba(0,0,0,0.3); }
+.btn-color-red    { background: #dc2626; color: #fff; }
+.btn-color-green  { background: #16a34a; color: #fff; }
+.btn-color-blue   { background: #2563eb; color: #fff; }
+.btn-color-yellow { background: #ca8a04; color: #fff; }
+.btn-color-white  { background: #e5e7eb; color: #111; }
 
 /* Sensor / read-only display */
 .sensor-card { flex-direction: column; gap: 8px; }
@@ -333,10 +362,12 @@
 }
 .sensor-unit { font-size: 14px; font-weight: 600; color: var(--text-dim); }
 
-/* Advanced Section */
+/* Advanced Section — glassmorphism */
 .adv-section {
-  background: var(--surface); border: 1px solid var(--border);
+  background: var(--glass);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm); padding: 12px 14px; flex-shrink: 0;
+  backdrop-filter: blur(6px);
 }
 .adv-title {
   font-size: 10px; font-weight: 700; text-transform: uppercase;
@@ -380,12 +411,14 @@
 
 /* ── Console ── */
 .zb-app-root .console-panel {
-  background: var(--surface); border-top: 1px solid var(--border);
+  background: #06080f;
+  border-top: 1px solid var(--border);
   display: flex; flex-direction: column; height: 110px; flex-shrink: 0;
 }
 .zb-app-root .console-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 5px 12px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+  padding: 4px 12px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+  background: rgba(255,255,255,0.015);
 }
 .console-header-left { display: flex; align-items: center; gap: 6px; }
 .console-dot        { width: 9px; height: 9px; border-radius: 50%; }
@@ -404,20 +437,22 @@
 }
 .console-log::-webkit-scrollbar      { width: 3px; }
 .console-log::-webkit-scrollbar-thumb { background: var(--surface3); border-radius: 2px; }
-.log-tx   { color: var(--zb); }
-.log-ok   { color: var(--green); }
-.log-fail { color: var(--red); }
-.log-info { color: #60a5fa; }
-.log-evt  { color: #c084fc; }
+.log-tx   { color: #93c5fd; }   /* blue — outgoing command */
+.log-ok   { color: #86efac; }   /* green — success response */
+.log-fail { color: #fca5a5; }   /* red — errors */
+.log-info { color: #c4b5fd; }   /* purple — info */
+.log-evt  { color: #fde68a; }   /* amber — async events */
 
 /* ── Toast ── */
 .zb-app-root .toast {
-  position: absolute; bottom: 130px; left: 50%; transform: translateX(-50%);
-  background: var(--surface2); border: 1px solid var(--border);
+  position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%);
+  background: rgba(21,28,45,0.92); border: 1px solid var(--border-hi);
   color: var(--text); font-size: 11px; font-weight: 600;
-  padding: 8px 16px; border-radius: 20px;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
-  z-index: 100; pointer-events: none; animation: zb-fadeup 0.3s ease;
+  padding: 8px 18px; border-radius: 20px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+  z-index: 100; pointer-events: none; white-space: nowrap;
+  animation: zb-fadeup 0.25s ease;
+  backdrop-filter: blur(12px);
 }
 .zb-app-root .toast.hidden { display: none !important; }
 

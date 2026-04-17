@@ -21,7 +21,7 @@
       </div>
       <div>
         <div class="app-title">Zigbee Controller</div>
-        <div class="app-subtitle">DA2 ZCL Gateway</div>
+        <div class="app-subtitle">E180-ZG120B · DA2 Gateway</div>
       </div>
     </div>
     <div class="header-right">
@@ -46,24 +46,29 @@
         <div class="net-badge" id="net-badge" data-state="off">OFF</div>
       </div>
 
-      <!-- Network controls -->
-      <div class="net-actions">
-        <div class="net-row">
-          <button class="btn-net btn-start" onclick="startNetwork()">▶ Start</button>
-          <button class="btn-net btn-stop"  onclick="stopNetwork()">■ Stop</button>
-        </div>
-        <div class="net-row">
-          <button class="btn-net btn-join" onclick="openPermitJoin()">⚡ Join</button>
-          <button class="btn-net btn-find" onclick="autoFind()">⊕ Find</button>
-        </div>
+      <!-- Network action chips -->
+      <div class="action-grid">
+        <button class="chip chip-start" onclick="startNetwork()">
+          <span class="chip-icon">▶</span><span>Start</span>
+        </button>
+        <button class="chip chip-stop" onclick="stopNetwork()">
+          <span class="chip-icon">■</span><span>Stop</span>
+        </button>
+        <button class="chip chip-join" onclick="openPermitJoin()">
+          <span class="chip-icon">⚡</span><span>Permit Join</span>
+        </button>
+        <button class="chip chip-find" onclick="autoFind()">
+          <span class="chip-icon">⊕</span><span>Find</span>
+        </button>
       </div>
 
       <!-- Network info bar -->
       <div class="net-info-bar" id="net-info-bar">—</div>
 
       <!-- Node count -->
-      <div class="node-count-label">
-        Nodes <span id="node-count" class="count-badge">0</span>
+      <div class="node-list-header">
+        <span class="section-label">Nodes</span>
+        <span id="node-count" class="count-badge">0</span>
       </div>
 
       <!-- Scrollable node list -->
@@ -139,11 +144,11 @@
         </div>
         <!-- 5 Fixed Color Buttons -->
         <div class="color-buttons">
-          <button class="btn-color btn-color-red"    id="btn-c-red"    onclick="sendFixedColor('FF0000',this)">Đỏ</button>
-          <button class="btn-color btn-color-green"  id="btn-c-green"  onclick="sendFixedColor('00FF00',this)">Xanh lá</button>
-          <button class="btn-color btn-color-blue"   id="btn-c-blue"   onclick="sendFixedColor('0000FF',this)">Xanh dương</button>
-          <button class="btn-color btn-color-yellow" id="btn-c-yellow" onclick="sendFixedColor('FFFF00',this)">Vàng</button>
-          <button class="btn-color btn-color-white"  id="btn-c-white"  onclick="sendFixedColor('FFFFFF',this)">Trắng</button>
+          <button class="btn-color btn-color-red"    onclick="sendFixedColor('FF0000',this)">🔴 Đỏ</button>
+          <button class="btn-color btn-color-green"  onclick="sendFixedColor('00FF00',this)">🟢 Xanh lá</button>
+          <button class="btn-color btn-color-blue"   onclick="sendFixedColor('0000FF',this)">🔵 Xanh dương</button>
+          <button class="btn-color btn-color-yellow" onclick="sendFixedColor('FFFF00',this)">🟡 Vàng</button>
+          <button class="btn-color btn-color-white"  onclick="sendFixedColor('FFFFFF',this)">⚪ Trắng</button>
         </div>
       </div>
 

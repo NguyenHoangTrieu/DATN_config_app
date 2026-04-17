@@ -1,14 +1,13 @@
 /* =====================================================================
-   DA2 LoRa WiOe5 Monitor Widget — ThingsBoard Latest Values Widget JS
+   DA2 LoRa Wio-E5 Monitor Widget — ThingsBoard Latest Values Widget JS
    Type    : Latest Values (datasource only — no controlApi / RPC)
    Datasource: Gateway device → key "data" (Latest Telemetry)
 
-   Handles these async events from telemetry:
-     CFLR:<slot>:EVT:+EVT:RX1:<port>:<len>:<hex>   — downlink received
-     CFLR:<slot>:EVT:+EVT:RX2:<port>:<len>:<hex>   — downlink received
-     CFLR:<slot>:EVT:+EVT:SEND_CONFIRMED            — uplink acknowledged
-     CFLR:<slot>:EVT:+EVT:JOINED                    — session status
-     CFLR:<slot>:EVT:+EVT:JOIN_FAILED               — session status
+   Handles async events from telemetry (Wio-E5 P2P TEST mode):
+     CFLR:<slot>:EVT:+TEST: RXLRPKT <len>, <rssi>, <snr>, <hexdata>
+     CFLR:<slot>:EVT:+TEST: TXLRPKT       — TX done ACK
+     CFLR:<slot>:EVT:+TEST: RFCFG ...     — RF config info
+     CFLR:<slot>:EVT:+MODE: TEST          — module mode
 
    IMPORTANT THINGSBOARD NOTES:
      - Avoid .finally() — not polyfilled in all TB versions
@@ -20,7 +19,7 @@ var lrmState = {
   rxCount:    0,
   txAckCount: 0,
   history:    [],     /* max LRM_HIST_MAX rows, newest first */
-  joined:     null    /* null=unknown, true, false */
+  lastRfCfg:  ''      /* last +TEST: RFCFG value seen */
 };
 
 var LRM_HIST_MAX = 40;
@@ -57,51 +56,47 @@ self.onDataUpdated = function () {
 };
 
 /* ═══════════════════════════════════════════════════════════════════
-   Line Parser
+   Line Parser (Wio-E5 P2P TEST mode events)
    ═══════════════════════════════════════════════════════════════════ */
 function lrmParseLine(line) {
-  /* Extract slot and inner event from CFLR:<slot>:(EVT:|OK:|FAIL:…:) */
+  /* Extract slot from CFLR:<slot>:... */
   var slotMatch = line.match(/^CFLR:(\d):/);
   var lineSlot  = slotMatch ? slotMatch[1] : null;
 
-  /* Slot filter — skip lines from other slots if a specific slot is selected */
+  /* Slot filter */
   if (lrmState.slot && lineSlot && lineSlot !== lrmState.slot) return;
 
-  /* Strip CFLR:<slot>:EVT: prefix */
+  /* Strip CFLR:<slot>:EVT:/OK:/FAIL: prefix */
   var l = line.replace(/^CFLR:\d+:(EVT:|OK:|FAIL:[^:]*:)/, '');
+  var m;
 
-  /* +EVT:RX1:<port>:<len>:<hex>  or  +EVT:RX2:<port>:<len>:<hex> */
-  var m = l.match(/^\+EVT:(RX[12]):(\d+):(\d+):([0-9A-Fa-f]*)/i);
+  /* +TEST: RXLRPKT <len>, <rssi>, <snr>, <hexdata>
+     Wio-E5 P2P received-packet event.
+     Example: "+TEST: RXLRPKT 8, -60, 10, AABBCCDD11223344" */
+  m = l.match(/^\+TEST:\s*RXLRPKT\s+(\d+),\s*(-?\d+),\s*(-?\d+),\s*([0-9A-Fa-f]+)/i);
   if (m) {
-    var win  = m[1].toUpperCase();
-    var port = parseInt(m[2], 10);
-    var len  = parseInt(m[3], 10);
-    var hex  = m[4].toUpperCase();
-    lrmHandleRx(win, port, len, hex, lineSlot);
+    lrmHandleP2PRx(parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10), m[4].toUpperCase(), lineSlot);
     return;
   }
 
-  /* +EVT:SEND_CONFIRMED */
-  if (/^\+EVT:SEND_CONFIRMED/i.test(l)) {
+  /* +TEST: TXLRPKT — P2P TX acknowledged by module */
+  if (/^\+TEST:\s*TXLRPKT/i.test(l)) {
     lrmState.txAckCount++;
     setEl('lrm-tx-count', String(lrmState.txAckCount));
     setPill('active', 'TX ACK');
     return;
   }
 
-  /* +EVT:JOINED */
-  if (/^\+EVT:JOINED/i.test(l)) {
-    lrmState.joined = true;
-    setEl('lrm-join-status', '✓ Joined');
-    setPill('joined', 'Joined');
+  /* +TEST: RFCFG ... — RF config info */
+  if (/^\+TEST:\s*RFCFG/i.test(l)) {
+    lrmState.lastRfCfg = l.replace(/^\+TEST:\s*RFCFG\s*/i, '');
+    setEl('lrm-rf-cfg', escHtml(lrmState.lastRfCfg));
     return;
   }
 
-  /* +EVT:JOIN_FAILED (not JOIN_FAILED_<n> retries) */
-  if (/^\+EVT:JOIN_FAILED(?!_)/i.test(l)) {
-    lrmState.joined = false;
-    setEl('lrm-join-status', '✗ Failed');
-    setPill('failed', 'Not Joined');
+  /* +MODE: TEST — module in TEST mode */
+  if (/^\+MODE:\s*TEST/i.test(l)) {
+    setPill('joined', 'TEST Mode');
     return;
   }
 }
@@ -153,6 +148,40 @@ function lrmHandleRx(win, port, len, hex, slot) {
   setEl('lrm-rx-count', String(lrmState.rxCount));
   setEl('lrm-last-ts',  'Last: ' + ts);
   setPill('active', 'RX ' + win);
+  renderHistory();
+  saveState();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Handle a received P2P packet (+TEST: RXLRPKT)
+   ═══════════════════════════════════════════════════════════════════ */
+function lrmHandleP2PRx(len, rssi, snr, hex, slot) {
+  var ts    = new Date().toLocaleTimeString('en-GB', { hour12: false });
+  var ascii = lrmHexToAscii(hex);
+  var card  = ge('lrm-latest');
+  if (card) {
+    card.setAttribute('data-empty', 'false');
+    card.innerHTML =
+      '<div class="lrm-rx-meta">' +
+        '<div class="lrm-rx-meta-item"><span class="lrm-rx-label">RSSI</span><span class="lrm-rx-val">' + rssi + ' dBm</span></div>' +
+        '<div class="lrm-rx-meta-item"><span class="lrm-rx-label">SNR</span><span class="lrm-rx-val">' + snr + ' dB</span></div>' +
+        '<div class="lrm-rx-meta-item"><span class="lrm-rx-label">Size</span><span class="lrm-rx-val">' + len + ' B</span></div>' +
+        (slot ? '<div class="lrm-rx-meta-item"><span class="lrm-rx-label">Slot</span><span class="lrm-rx-val">' + slot + '</span></div>' : '') +
+        '<div class="lrm-rx-meta-item"><span class="lrm-rx-label">Time</span><span class="lrm-rx-val">' + ts + '</span></div>' +
+      '</div>' +
+      '<div class="lrm-data-row">' +
+        '<div class="lrm-data-label">Hex</div>' +
+        '<div class="lrm-data-hex">' + escHtml(hex || '(empty)') + '</div>' +
+        '<div class="lrm-data-label" style="margin-top:6px">ASCII</div>' +
+        '<div class="lrm-data-ascii">' + escHtml(ascii || '(binary)') + '</div>' +
+      '</div>';
+  }
+  lrmState.history.unshift({ win: 'P2P', port: 0, len: len, hex: hex, ts: ts, slot: slot || '', rssi: rssi, snr: snr });
+  if (lrmState.history.length > LRM_HIST_MAX) lrmState.history.pop();
+  lrmState.rxCount++;
+  setEl('lrm-rx-count', String(lrmState.rxCount));
+  setEl('lrm-last-ts',  'Last: ' + ts);
+  setPill('active', 'P2P RX');
   renderHistory();
   saveState();
 }

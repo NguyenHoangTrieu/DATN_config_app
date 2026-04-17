@@ -1,10 +1,10 @@
 <!-- =====================================================================
-     DA2 LoRa WiOe5 (RAK3172) Gateway Test Widget — ThingsBoard HTML
+     DA2 LoRa Wio-E5 P2P Control Widget — ThingsBoard HTML
      Protocol: CFML:CFLR:<slot>:<MODULE_FUNCTION>[:<params>]  hex-encoded
      Response: CFLR:<slot>:OK:<resp> | CFLR:<slot>:FAIL:<err>:<resp>
-     Async:    CFLR:<slot>:EVT:+EVT:<data>  via ThingsBoard telemetry key "data"
+     Async:    CFLR:<slot>:EVT:+TEST: RXLRPKT ...  via ThingsBoard telemetry key "data"
 
-     Target module : RAK3172 LoRaWAN module (AT command mode, always on)
+     Target module : Seeed Wio-E5 in TEST (P2P LoRa) mode
      Gateway stack : CFLR slot 0 (default, user-selectable)
 
      Paste: HTML → "HTML" tab | CSS → "CSS" tab | JS → "JavaScript" tab
@@ -28,8 +28,8 @@
         </svg>
       </div>
       <div>
-        <div class="app-title">LoRa WiOe5 Test</div>
-        <div class="app-subtitle">RAK3172 — LoRaWAN Gateway</div>
+        <div class="app-title">LoRa Wio-E5 P2P</div>
+        <div class="app-subtitle">Wio-E5 — Point-to-Point TEST Mode</div>
       </div>
     </div>
     <div class="header-right">
@@ -39,7 +39,7 @@
       </select>
       <div class="status-pill" id="status-pill" data-state="offline">
         <div class="status-dot-sm"></div>
-        <span id="status-text">Not Joined</span>
+        <span id="status-text">Idle</span>
       </div>
       <button class="btn-info" id="btn-info" onclick="queryModuleInfo()" title="Read module info">ℹ</button>
     </div>
@@ -51,117 +51,55 @@
     <!-- ── LEFT: Config + Keys Panel ── -->
     <div class="panel-left">
 
-      <!-- Mode selector -->
-      <div class="section-hdr">
-        <span>Join Mode</span>
-        <div class="mode-tabs" id="mode-tabs">
-          <button class="btn-mode-tab active" id="tab-otaa" onclick="selectMode('OTAA')">OTAA</button>
-          <button class="btn-mode-tab"        id="tab-abp"  onclick="selectMode('ABP')">ABP</button>
-        </div>
-      </div>
+      <!-- ── P2P Configuration ── -->
+      <div class="section-hdr">P2P Configuration</div>
+      <div class="keys-panel">
+        <label class="inp-label">Frequency (MHz)</label>
+        <input id="inp-p2p-freq" class="lr-input" type="text" value="868"
+               placeholder="e.g. 868" style="font-family:monospace">
 
-      <!-- OTAA Keys panel -->
-      <div id="panel-otaa" class="keys-panel">
-        <label class="inp-label">Device EUI (16 hex)</label>
+        <label class="inp-label">Spreading Factor (SF)</label>
+        <select id="inp-p2p-sf" class="lr-select">
+          <option value="SF7" selected>SF7</option>
+          <option value="SF8">SF8</option>
+          <option value="SF9">SF9</option>
+          <option value="SF10">SF10</option>
+          <option value="SF11">SF11</option>
+          <option value="SF12">SF12</option>
+        </select>
+
+        <label class="inp-label">Bandwidth (BW kHz)</label>
+        <select id="inp-p2p-bw" class="lr-select">
+          <option value="125">125 kHz</option>
+          <option value="250">250 kHz</option>
+          <option value="500">500 kHz</option>
+        </select>
+
+        <label class="inp-label">TX Power (dBm)</label>
+        <input id="inp-p2p-txp" class="lr-input" type="number" min="1" max="22" value="14"
+               style="font-family:monospace">
+
+        <label class="inp-label">TX Preamble / RX Preamble</label>
         <div class="inp-row">
-          <input id="inp-deveui" class="lr-input" type="text" maxlength="16"
-                 placeholder="0000000000000000" oninput="formatHexInput(this,16)">
-          <button class="btn-get" onclick="readDevEui()" title="Read from module">↓</button>
+          <input id="inp-p2p-txpr" class="lr-input" type="number" min="2" max="65535" value="12"
+                 placeholder="TXPR" style="font-family:monospace">
+          <input id="inp-p2p-rxpr" class="lr-input" type="number" min="2" max="65535" value="15"
+                 placeholder="RXPR" style="font-family:monospace">
         </div>
-        <label class="inp-label">App EUI (16 hex)</label>
-        <input id="inp-appeui" class="lr-input" type="text" maxlength="16"
-               placeholder="0000000000000000" oninput="formatHexInput(this,16)">
-        <label class="inp-label">App Key (32 hex)</label>
-        <input id="inp-appkey" class="lr-input" type="text" maxlength="32"
-               placeholder="00000000000000000000000000000000" oninput="formatHexInput(this,32)">
-        <div class="key-actions">
-          <button class="btn-set-keys" onclick="setOtaaKeys()">💾 Set Keys</button>
+
+        <div class="key-actions" style="gap:6px; justify-content:space-between">
+          <button class="btn-set-keys" onclick="p2pEnterMode()">⚙ Enter TEST Mode</button>
+          <button class="btn-set-keys" onclick="p2pSetConfig()">💾 Apply RF Config</button>
         </div>
       </div>
 
-      <!-- ABP Keys panel -->
-      <div id="panel-abp" class="keys-panel hidden">
-        <label class="inp-label">Dev Addr (8 hex)</label>
-        <input id="inp-devaddr" class="lr-input" type="text" maxlength="8"
-               placeholder="00000000" oninput="formatHexInput(this,8)">
-        <label class="inp-label">NwkSKey (32 hex)</label>
-        <input id="inp-nwkskey" class="lr-input" type="text" maxlength="32"
-               placeholder="00000000000000000000000000000000" oninput="formatHexInput(this,32)">
-        <label class="inp-label">AppSKey (32 hex)</label>
-        <input id="inp-appskey" class="lr-input" type="text" maxlength="32"
-               placeholder="00000000000000000000000000000000" oninput="formatHexInput(this,32)">
-        <div class="key-actions">
-          <button class="btn-set-keys" onclick="setAbpKeys()">💾 Set Keys</button>
-        </div>
-      </div>
-
-      <!-- Join/Leave -->
+      <!-- RX / Listen controls -->
+      <div class="section-hdr" style="margin-top:8px">Receiver</div>
       <div class="join-row">
-        <button class="btn-join" id="btn-join" onclick="doJoin()">
-          <span id="join-btn-text">⚡ Join Network</span>
+        <button class="btn-join" id="btn-rx" onclick="p2pStartRx()">
+          <span id="rx-btn-text">📡 Start RX</span>
         </button>
-        <button class="btn-leave" id="btn-leave" onclick="doLeave()">✕ Leave</button>
-      </div>
-
-      <!-- ── Radio Config ── -->
-      <div class="section-hdr" style="margin-top:10px">Radio Config</div>
-      <div class="cfg-grid">
-        <div class="cfg-item">
-          <label class="cfg-label">Region (Band)</label>
-          <select id="inp-region" class="lr-select" onchange="setRegion(this.value)">
-            <option value="8">AS923 (8)</option>
-            <option value="5">EU868 (5)</option>
-            <option value="1">EU433 (1)</option>
-            <option value="0">EU863 (0)</option>
-            <option value="2">CN470 (2)</option>
-            <option value="3">US915 (3)</option>
-            <option value="4">AU915 (4)</option>
-            <option value="6">KR920 (6)</option>
-            <option value="7">IN865 (7)</option>
-          </select>
-        </div>
-        <div class="cfg-item">
-          <label class="cfg-label">Data Rate</label>
-          <select id="inp-dr" class="lr-select" onchange="setDR(this.value)">
-            <option value="0">DR0 (SF12/125)</option>
-            <option value="1">DR1 (SF11/125)</option>
-            <option value="2">DR2 (SF10/125)</option>
-            <option value="3" selected>DR3 (SF9/125)</option>
-            <option value="4">DR4 (SF8/125)</option>
-            <option value="5">DR5 (SF7/125)</option>
-          </select>
-        </div>
-        <div class="cfg-item">
-          <label class="cfg-label">TX Power</label>
-          <select id="inp-txp" class="lr-select" onchange="setTxPower(this.value)">
-            <option value="0" selected>0 (Max)</option>
-            <option value="2">2</option>
-            <option value="5">5</option>
-            <option value="8">8</option>
-            <option value="12">12</option>
-            <option value="15">15 (Min)</option>
-          </select>
-        </div>
-        <div class="cfg-item">
-          <label class="cfg-label">ADR</label>
-          <div class="toggle-wrap">
-            <label class="toggle">
-              <input type="checkbox" id="chk-adr" onchange="setADR(this.checked)">
-              <span class="toggle-slider"></span>
-            </label>
-            <span id="adr-label" class="toggle-label">OFF</span>
-          </div>
-        </div>
-        <div class="cfg-item">
-          <label class="cfg-label">Confirmed</label>
-          <div class="toggle-wrap">
-            <label class="toggle">
-              <input type="checkbox" id="chk-cfm" onchange="setConfirm(this.checked)">
-              <span class="toggle-slider"></span>
-            </label>
-            <span id="cfm-label" class="toggle-label">OFF</span>
-          </div>
-        </div>
+        <button class="btn-leave" onclick="p2pStopRx()">■ Stop</button>
       </div>
 
     </div><!-- /panel-left -->
@@ -171,47 +109,17 @@
 
       <!-- TX Panel -->
       <div class="section-hdr">
-        <span>📤 Send Uplink</span>
-        <div class="tx-type-tabs">
-          <button class="btn-txtype active" id="btn-unconfirmed" onclick="selectTxType('unconfirmed')">Unconfirmed</button>
-          <button class="btn-txtype"        id="btn-confirmed"   onclick="selectTxType('confirmed')">Confirmed</button>
-        </div>
+        <span>📤 Send P2P Packet</span>
       </div>
       <div class="tx-panel">
-        <div class="tx-row">
-          <label class="inp-label">Port (1–223)</label>
-          <input id="inp-port" class="lr-input-sm" type="number" min="1" max="223" value="2">
-        </div>
         <label class="inp-label">Payload (text or hex, prefix 0x for hex)</label>
         <textarea id="inp-payload" class="lr-textarea"
-                  placeholder="Hello LoRa&#10;or: 0xDEADBEEF"></textarea>
+                  placeholder="Hello P2P&#10;or: 0xDEADBEEF"></textarea>
         <div class="tx-actions">
-          <button class="btn-send" id="btn-send" onclick="sendUplink()">
-            <span id="send-btn-text">▶ Send</span>
+          <button class="btn-send" id="btn-send" onclick="sendP2P()">
+            <span id="send-btn-text">▶ Send TXLRPKT</span>
           </button>
           <span id="tx-status" class="tx-status"></span>
-        </div>
-      </div>
-
-      <!-- RX Panel -->
-      <div class="section-hdr" style="margin-top:10px">
-        <span>📥 Last Downlink</span>
-        <button class="btn-readrecv" onclick="readRecv()">⟳ Read</button>
-      </div>
-      <div class="rx-panel" id="rx-panel">
-        <div class="rx-row">
-          <span class="rx-label">Port</span><span id="rx-port" class="rx-val">—</span>
-          <span class="rx-label">Size</span><span id="rx-size" class="rx-val">—</span>
-          <span class="rx-label">Window</span><span id="rx-window" class="rx-val">—</span>
-          <span class="rx-label">Time</span><span id="rx-time" class="rx-val">—</span>
-        </div>
-        <div class="rx-hex-wrap">
-          <span class="rx-label">Hex</span>
-          <div id="rx-hex" class="rx-hex">—</div>
-        </div>
-        <div class="rx-hex-wrap">
-          <span class="rx-label">ASCII</span>
-          <div id="rx-ascii" class="rx-ascii">—</div>
         </div>
       </div>
 
@@ -219,8 +127,8 @@
       <div class="section-hdr" style="margin-top:10px">Module Info</div>
       <div class="info-panel" id="info-panel">
         <div class="info-row"><span class="info-key">Firmware</span><span id="inf-fw" class="info-val">—</span></div>
-        <div class="info-row"><span class="info-key">DevEUI</span><span id="inf-deveui" class="info-val">—</span></div>
-        <div class="info-row"><span class="info-key">Join Status</span><span id="inf-njs" class="info-val">—</span></div>
+        <div class="info-row"><span class="info-key">Mode</span><span id="inf-njs" class="info-val">—</span></div>
+        <div class="info-row"><span class="info-key">RF Config</span><span id="inf-deveui" class="info-val">—</span></div>
       </div>
 
     </div><!-- /panel-right -->

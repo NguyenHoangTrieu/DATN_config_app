@@ -24,29 +24,30 @@ var monState = {
 };
 
 /* Shared localStorage key — written by ble_gatt_control_widget.js */
-var LS_NAMES_KEY = 'ble_gatt_dev_names_v1';
+var LS_SAVED_KEY = 'ble_gatt_saved_devices_v2';
 
-function loadDeviceNames() {
+function loadSavedDevices() {
   try {
-    var raw = localStorage.getItem(LS_NAMES_KEY);
-    if (raw) monState.devNames = JSON.parse(raw);
+    var raw = localStorage.getItem(LS_SAVED_KEY);
+    if (raw) return JSON.parse(raw);
   } catch (e) {}
+  return [];
 }
 
 function resolveDeviceName(idx) {
-  /* Refresh from localStorage in case control widget updated it after init */
-  loadDeviceNames();
-  var entry = monState.devNames[String(idx)];
-  if (!entry) return 'Sensor #' + idx;
-  /* Support both legacy string format and new {name,type} object format */
-  return (typeof entry === 'object') ? (entry.name || 'Sensor #' + idx) : entry;
+  var saved = loadSavedDevices();
+  for (var i = 0; i < saved.length; i++) {
+    if (saved[i].idx === idx) return saved[i].name || 'Device #' + idx;
+  }
+  return 'Sensor #' + idx;
 }
 
 function resolveDeviceType(idx) {
-  loadDeviceNames();   /* always refresh — type may be written after widget init */
-  var entry = monState.devNames[String(idx)];
-  if (!entry) return 'unknown';
-  return (typeof entry === 'object') ? (entry.type || 'unknown') : 'unknown';
+  var saved = loadSavedDevices();
+  for (var i = 0; i < saved.length; i++) {
+    if (saved[i].idx === idx) return saved[i].type || 'unknown';
+  }
+  return 'unknown';
 }
 
 /* A card is considered stale after this many ms with no new NOTIFY.
@@ -59,7 +60,6 @@ var STALE_MS = 30000;
 var _staleTimer = null;
 
 self.onInit = function () {
-  loadDeviceNames();
   renderSensors();
   /* Sweep every 10 s — removes cards for sensors that stopped sending */
   _staleTimer = setInterval(function () {

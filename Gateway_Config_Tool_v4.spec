@@ -13,6 +13,7 @@ _CONFIG_FILES = [
     'src/config/stack_004_config.json',
     'src/config/stack_005_config.json',
     'src/config/stack_006_config.json',
+    'src/config/stack_011_config.json',
 ]
 
 a = Analysis(

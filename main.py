@@ -496,7 +496,7 @@ class GatewayConfigApp:
         json_path = _resource_path(rel_path)
         if not os.path.exists(json_path):
             self._log(
-                f"[auto-JSON] Default JSON not found: {json_path}", "ERROR")
+                f"[auto-JSON] Default JSON not found: {json_path} — skipping auto-send", "WARN")
             return
 
         try:

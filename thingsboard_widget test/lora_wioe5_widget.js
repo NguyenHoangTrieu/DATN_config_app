@@ -1,41 +1,28 @@
 /* =====================================================================
-   DA2 LoRa WiOe5 (RAK3172) Widget — ThingsBoard JavaScript
+   DA2 LoRa Wio-E5 P2P Widget — ThingsBoard JavaScript
    Protocol (from firmware: DA2_esp_LAN/Application/LoRa_Handler/):
      TX: CFML:CFLR:<slot>:<FUNCTION_NAME>[:<params>]  (hex-encoded via sendCommand RPC)
      RX: CFLR:<slot>:OK:<response>                    (lines split by \x1E)
          CFLR:<slot>:FAIL:<err>:<response_or_NOREPLY>
-     Async: CFLR:<slot>:EVT:+EVT:<data>               via ThingsBoard telemetry key "data"
+     Async: CFLR:<slot>:EVT:<raw_module_line>          via ThingsBoard telemetry key "data"
 
-   Module: RAK3172 — always in AT command mode, no mode-switch needed.
+   Module: Seeed Wio-E5 (STM32WL) — P2P TEST mode.
 
-   CFML Functions → AT commands → Expected responses:
-     MODULE_GET_INFO               → AT+VER=?          → OK + version string
-     MODULE_GET_DEVEUI             → AT+DEVEUI=?        → +DEVEUI:<16hex>
-     MODULE_GET_JOIN_STATUS        → AT+NJS=?           → +NJS:0 (not joined) | +NJS:1 (joined)
-     MODULE_SET_DEVEUI:<16hex>     → AT+DEVEUI=<val>    → OK
-     MODULE_SET_APPEUI:<16hex>     → AT+APPEUI=<val>    → OK
-     MODULE_SET_APPKEY:<32hex>     → AT+APPKEY=<val>    → OK
-     MODULE_SET_DEVADDR:<8hex>     → AT+DEVADDR=<val>   → OK
-     MODULE_SET_NWKSKEY:<32hex>    → AT+NWKSKEY=<val>   → OK
-     MODULE_SET_APPSKEY:<32hex>    → AT+APPSKEY=<val>   → OK
-     MODULE_SET_JOIN_MODE:<0|1>    → AT+NJM=<val>       → OK  (0=ABP, 1=OTAA)
-     MODULE_JOIN                   → AT+JOIN=1:0:10:8   → OK (30 000 ms) + async +EVT:JOINED
-     MODULE_SET_REGION:<0-8>       → AT+BAND=<val>      → OK
-     MODULE_SET_DR:<0-5>           → AT+DR=<val>        → OK
-     MODULE_SET_ADR:<0|1>          → AT+ADR=<val>       → OK
-     MODULE_SET_TXP:<0-15>         → AT+TXP=<val>       → OK
-     MODULE_SET_CONFIRM:<0|1>      → AT+CFM=<val>       → OK
-     MODULE_SEND_UNCONFIRMED:<p:hex> → AT+SEND=<val>    → (30 000 ms) + async +EVT:SEND_CONFIRMED
-     MODULE_SEND_CONFIRMED:<p:hex>   → AT+SEND=<val>    → (30 000 ms) + async +EVT:SEND_CONFIRMED
-     MODULE_READ_RECV              → AT+RECV=?          → +RECV:<port>:<len>:<hex>
+   CFML Functions → AT commands → Expected responses (stack_006_config.json):
+     MODULE_GET_INFO               → AT+VER                              → +VER:<version>
+     MODULE_SW_RESET               → AT+RESET                            → (module resets)
+     MODULE_ENTER_P2P_MODE         → AT+MODE=TEST                        → +MODE: TEST
+     MODULE_SET_P2P_CONFIG:<args>  → AT+TEST=RFCFG,F,SF,BW,TXPR,RXPR,  → +TEST: RFCFG ...
+                                       POW,CRC,IQ,NET
+     MODULE_SEND_P2P_PKT:<hex>     → AT+TEST=TXLRPKT,"<hex>"            → +TEST: TXLRPKT
+     MODULE_ENTER_P2P_RX           → AT+TEST=RXLRPKT                    → +TEST: RXLRPKT
 
-   Async events from telemetry (CFLR:<slot>:EVT: prefix stripped):
-     +EVT:JOINED               → setJoinState(true)
-     +EVT:JOIN_FAILED_<n>      → log retry
-     +EVT:JOIN_FAILED          → setJoinState(false)
-     +EVT:RX1:<port>:<len>:<hex> | RX2:… → updateRxPanel(…)
-     +EVT:SEND_CONFIRMED       → TX confirmed toast + re-enable Send button
-     +EVT:SEND_UNCONFIRMED     → TX sent toast + re-enable Send button
+   Async events handled (inline RPC response only — no telemetry datasource):
+     +MODE: TEST      → set testMode, update status pill
+     +TEST: RFCFG ... → update RF config info display
+     +TEST: RXLRPKT (bare, no data) → set rxActive, update status pill
+     +TEST: STOP/ERROR              → clear rxActive, update status pill
+     NOTE: +TEST: RXLRPKT with packet data is handled by the Monitor Widget.
 
    IMPORTANT THINGSBOARD NOTES:
      - Use document.getElementById() — widget has single root DOM, no shadow DOM
@@ -48,13 +35,11 @@
    App State
    ═══════════════════════════════════════════════════════════════════ */
 var state = {
-  slot:        '0',
-  mode:        'OTAA',    /* 'OTAA' | 'ABP' */
-  txType:      'unconfirmed',
-  joined:      false,
-  joining:     false,
-  txPending:   false,
-  rpcTimeout:  12000
+  slot:       '0',
+  testMode:   false,    /* true once AT+MODE=TEST confirmed */
+  rxActive:   false,    /* true while in RXLRPKT listen mode */
+  txPending:  false,
+  rpcTimeout: 12000
 };
 
 var _root = null;
@@ -68,8 +53,7 @@ self.onInit = function () {
     syncSlotSelect();
     loadLocalState();
     applyLocalState();
-    logInfo('Widget ready — LoRa slot ' + state.slot);
-    /* Deferred so DOM is fully ready */
+    logInfo('Widget ready — LoRa P2P slot ' + state.slot);
     setTimeout(function () { queryModuleInfo(); }, 800);
   } catch (e) {
     logFail('onInit: ' + (e && e.message ? e.message : e));
@@ -77,32 +61,6 @@ self.onInit = function () {
 };
 
 self.onDestroy = function () {};
-
-/* Telemetry: async events from firmware (unsolicited module output) */
-var _tbLastLogTs = 0;
-self.onDataUpdated = function () {
-  try {
-    var data = self.ctx && self.ctx.data;
-    if (!data || !data.length) return;
-    for (var ki = 0; ki < data.length; ki++) {
-      var kd = data[ki];
-      if (!kd || !kd.data || !kd.data.length) continue;
-      var latest  = kd.data[kd.data.length - 1];
-      var raw     = latest[1];
-      var now = Date.now();
-      if (now - _tbLastLogTs > 15000) {
-        _tbLastLogTs = now;
-        logEvt('[TB] telemetry rx: ' + String(raw).substr(0, 28) + '…');
-      }
-      var decoded = decodeResp(raw);
-      splitResp(decoded).forEach(function (line) {
-        handleAsyncEvent(line);
-      });
-    }
-  } catch (e) {
-    logFail('onDataUpdated: ' + (e && e.message ? e.message : e));
-  }
-};
 
 /* ═══════════════════════════════════════════════════════════════════
    RPC / CFML Helpers
@@ -177,9 +135,8 @@ function sendCFLR(func, params, timeoutMs) {
     .then(function (resp) {
       var decoded = decodeResp(resp);
       splitResp(decoded).forEach(function (line) {
-        /* Log and route inline response lines as async events — handles the case
-           where the module emits an event-style line in the synchronous response */
-        if (/\+EVT:|CFLR:[0-9]:EVT/.test(line)) {
+        /* Route P2P async event lines — +TEST: RXLRPKT / +TEST: TXLRPKT / +TEST: RFCFG */
+        if (/^\+TEST:|CFLR:[0-9]:EVT/.test(line)) {
           logEvt('RX: ' + line);
           handleAsyncEvent(line);
         } else {
@@ -197,71 +154,43 @@ function sendCFLR(func, params, timeoutMs) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   Async Event Handler
-   Handles both:
-     - Lines received via onDataUpdated (telemetry path)
-     - +EVT: lines that appear inside an RPC response (inline path)
+   Async Event Handler (Wio-E5 P2P TEST mode)
+   Only handles inline RPC response lines for RF/mode state.
+   RX packet events ("+TEST: RXLRPKT ...") are handled exclusively by
+   the Monitor Widget via telemetry.
    ═══════════════════════════════════════════════════════════════════ */
 function handleAsyncEvent(line) {
-  /* Strip CFLR:<slot>:EVT: or CFLR:<slot>:OK: prefix */
   var l = line.replace(/^CFLR:\d+:(EVT:|OK:|FAIL:[^:]*:)/, '');
 
-  /* +EVT:JOINED */
-  if (/^\+EVT:JOINED/i.test(l)) {
-    state.joining = false;
-    state.joined  = true;
-    setJoinState(true);
-    showToast('✓ Joined network!');
-    logInfo('+EVT:JOINED — LoRaWAN session active');
-    queryJoinStatus(); /* refresh module NJS to confirm */
+  /* +TEST: RFCFG — RF config acknowledged */
+  if (/^\+TEST:\s*RFCFG/i.test(l)) {
+    setEl('inf-deveui', l.replace(/^\+TEST:\s*RFCFG\s*/i, ''));
+    logInfo('RF config applied: ' + l);
     return;
   }
 
-  /* +EVT:JOIN_FAILED_<n> — retry in progress */
-  var m = l.match(/^\+EVT:JOIN_FAILED_(\d+)/i);
-  if (m) {
-    logFail('+EVT:JOIN_FAILED attempt ' + m[1] + ' — retrying…');
+  /* +MODE: TEST — module entered TEST mode */
+  if (/^\+MODE:\s*TEST/i.test(l)) {
+    state.testMode = true;
+    setP2PStatus('ready', 'TEST Mode');
+    setEl('inf-njs', 'TEST mode');
+    logInfo('Module entered TEST (P2P) mode');
     return;
   }
 
-  /* +EVT:JOIN_FAILED — all retries exhausted */
-  if (/^\+EVT:JOIN_FAILED/i.test(l)) {
-    state.joining = false;
-    state.joined  = false;
-    setJoinState(false);
-    showToast('✗ Join failed — check keys / coverage');
-    logFail('+EVT:JOIN_FAILED — join aborted');
+  /* +TEST: RXLRPKT (bare, without data — listening started) */
+  if (/^\+TEST:\s*RXLRPKT\s*$/i.test(l)) {
+    state.rxActive = true;
+    setP2PStatus('rx', 'Listening\u2026');
+    logInfo('P2P RX mode active \u2014 listening for packets');
     return;
   }
 
-  /* +EVT:SEND_CONFIRMED — confirmed uplink ACK'd by server */
-  if (/^\+EVT:SEND_CONFIRMED/i.test(l)) {
-    if (state.txPending) {
-      state.txPending = false;
-      setBtnSend(false);
-      setTxStatus('ok', '✓ Confirmed');
-      showToast('✓ Uplink acknowledged');
-    }
-    logInfo('+EVT:SEND_CONFIRMED');
-    return;
-  }
-
-  /* +EVT:SEND_UNCONFIRMED — unconfirmed uplink sent */
-  if (/^\+EVT:SEND_UNCONFIRMED/i.test(l)) {
-    if (state.txPending) {
-      state.txPending = false;
-      setBtnSend(false);
-      setTxStatus('ok', '✓ Sent');
-      showToast('Uplink sent (unconfirmed)');
-    }
-    logInfo('+EVT:SEND_UNCONFIRMED');
-    return;
-  }
-
-  /* +EVT:RX1:<port>:<len>:<hex> or +EVT:RX2:<port>:<len>:<hex> — downlink */
-  m = l.match(/^\+EVT:(RX[12]):(\d+):(\d+):([0-9A-Fa-f]*)/i);
-  if (m) {
-    updateRxPanel(m[1], parseInt(m[2], 10), parseInt(m[3], 10), m[4]);
+  /* +TEST: STOP or +TEST: ERROR */
+  if (/^\+TEST:\s*(STOP|ERROR)/i.test(l)) {
+    state.rxActive = false;
+    setP2PStatus('ready', 'TEST Mode');
+    logInfo(l);
     return;
   }
 }
@@ -270,222 +199,144 @@ function handleAsyncEvent(line) {
    Module Info (on init)
    ═══════════════════════════════════════════════════════════════════ */
 function queryModuleInfo() {
-  logInfo('Reading module info…');
+  logInfo('Reading module info\u2026');
   sendCFLR('MODULE_GET_INFO', '', 3000)
     .then(function (resp) {
-      /* Version string is somewhere in the response */
       var fw = '—';
       splitResp(resp).forEach(function (l) {
         var stripped = l.replace(/^CFLR:\d+:OK:/, '');
-        /* RAK3172 returns e.g. "RUI_4.1.1_RAK3172" */
-        if (stripped && stripped !== 'OK' && fw === '—') fw = stripped;
+        var vm = stripped.match(/^\+VER:\s*(.+)/i);
+        if (vm && fw === '—') fw = vm[1].trim();
       });
       setEl('inf-fw', fw);
     })
     .catch(function () {});
-
-  sendCFLR('MODULE_GET_DEVEUI', '', 3000)
-    .then(function (resp) {
-      var m = resp.match(/\+DEVEUI:([0-9A-Fa-f]{16})/i);
-      if (m) {
-        setEl('inf-deveui', m[1].toUpperCase());
-        /* Pre-fill the DevEUI input if it's empty */
-        var inp = ge('inp-deveui');
-        if (inp && !inp.value) inp.value = m[1].toUpperCase();
-      }
-    })
-    .catch(function () {});
-
-  queryJoinStatus();
-}
-
-function queryJoinStatus() {
-  sendCFLR('MODULE_GET_JOIN_STATUS', '', 3000)
-    .then(function (resp) {
-      /* +NJS:1 = joined, +NJS:0 = not joined */
-      var m = resp.match(/\+NJS:(\d)/i);
-      if (m) {
-        var joined = (parseInt(m[1], 10) === 1);
-        state.joined = joined;
-        if (!state.joining) setJoinState(joined);
-        setEl('inf-njs', joined ? '✓ Joined' : 'Not joined');
-      }
-    })
-    .catch(function () {});
+  setEl('inf-njs', state.testMode ? 'TEST mode' : 'LoRaWAN mode');
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   OTAA / ABP Key Configuration
+   P2P Control Functions
    ═══════════════════════════════════════════════════════════════════ */
-function setOtaaKeys() {
-  var deveui = (ge('inp-deveui') ? ge('inp-deveui').value.trim().toUpperCase() : '');
-  var appeui = (ge('inp-appeui') ? ge('inp-appeui').value.trim().toUpperCase() : '');
-  var appkey = (ge('inp-appkey') ? ge('inp-appkey').value.trim().toUpperCase() : '');
 
-  if (deveui.length !== 16 || appeui.length !== 16 || appkey.length !== 32) {
-    showToast('Check key lengths: DevEUI=16, AppEUI=16, AppKey=32 hex chars');
-    return;
-  }
-
-  logInfo('Setting OTAA keys…');
-  /* Set join mode to OTAA first (NJM=1), then set keys sequentially */
-  sendCFLR('MODULE_SET_JOIN_MODE', '1', 3000)
-    .then(function () { return sendCFLR('MODULE_SET_DEVEUI', deveui, 3000); })
-    .then(function () { return sendCFLR('MODULE_SET_APPEUI', appeui, 3000); })
-    .then(function () { return sendCFLR('MODULE_SET_APPKEY', appkey, 3000); })
-    .then(function () {
-      showToast('✓ OTAA keys set');
-      logInfo('OTAA keys configured — ready to Join');
-      saveLocalState();
-    })
-    .catch(function (err) {
-      logFail('Set OTAA keys failed: ' + (err && err.message ? err.message : err));
-    });
-}
-
-function setAbpKeys() {
-  var devaddr = (ge('inp-devaddr') ? ge('inp-devaddr').value.trim().toUpperCase() : '');
-  var nwkskey = (ge('inp-nwkskey') ? ge('inp-nwkskey').value.trim().toUpperCase() : '');
-  var appskey = (ge('inp-appskey') ? ge('inp-appskey').value.trim().toUpperCase() : '');
-
-  if (devaddr.length !== 8 || nwkskey.length !== 32 || appskey.length !== 32) {
-    showToast('Check: DevAddr=8, NwkSKey=32, AppSKey=32 hex chars');
-    return;
-  }
-
-  logInfo('Setting ABP keys…');
-  sendCFLR('MODULE_SET_JOIN_MODE', '0', 3000)
-    .then(function () { return sendCFLR('MODULE_SET_DEVADDR', devaddr, 3000); })
-    .then(function () { return sendCFLR('MODULE_SET_NWKSKEY', nwkskey, 3000); })
-    .then(function () { return sendCFLR('MODULE_SET_APPSKEY', appskey, 3000); })
-    .then(function () {
-      /* ABP: mark as joined immediately — no JOIN procedure needed */
-      state.joined = true;
-      setJoinState(true);
-      showToast('✓ ABP keys set — session active');
-      logInfo('ABP keys configured — session active');
-      saveLocalState();
-    })
-    .catch(function (err) {
-      logFail('Set ABP keys failed: ' + (err && err.message ? err.message : err));
-    });
-}
-
-function readDevEui() {
-  sendCFLR('MODULE_GET_DEVEUI', '', 3000)
+/**
+ * Enter Wio-E5 TEST mode: AT+MODE=TEST → +MODE: TEST
+ */
+function p2pEnterMode() {
+  logInfo('Entering P2P TEST mode…');
+  sendCFLR('MODULE_ENTER_P2P_MODE', '', 4000)
     .then(function (resp) {
-      var m = resp.match(/\+DEVEUI:([0-9A-Fa-f]{16})/i);
-      if (m) {
-        var inp = ge('inp-deveui');
-        if (inp) inp.value = m[1].toUpperCase();
-        setEl('inf-deveui', m[1].toUpperCase());
-        logInfo('DevEUI read: ' + m[1].toUpperCase());
+      if (/\+MODE:\s*TEST/i.test(resp)) {
+        state.testMode = true;
+        setP2PStatus('ready', 'TEST Mode');
+        showToast('✓ TEST mode active');
+        logInfo('+MODE: TEST — ready to configure RF');
       } else {
-        logFail('Could not parse DevEUI from: ' + resp);
+        logFail('Unexpected response to AT+MODE=TEST: ' + resp);
       }
-    })
-    .catch(function () {});
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   Join / Leave
-   BEHAVIOUR:
-     doJoin()  — Optimistic: update UI to "Joining…" immediately.
-                 RPC returns OK quickly (firmware queues the JOIN).
-                 The actual join result arrives async via +EVT:JOINED
-                 or +EVT:JOIN_FAILED. handleAsyncEvent() handles both
-                 the telemetry path AND the inline-in-RPC-response path.
-                 In .catch(): revert to not-joined UI.
-   ═══════════════════════════════════════════════════════════════════ */
-function doJoin() {
-  if (state.joining) return;
-  state.joining = true;
-  state.joined  = false;
-  setJoinState('joining');
-  setBtnJoin(true, '⏳ Joining…');
-  logInfo('Sending JOIN (timeout 30 s)…');
-
-  sendCFLR('MODULE_JOIN', '', 32000)
-    .then(function (resp) {
-      /* The RPC response arrives when the AT command returns.
-         The +EVT:JOINED event may be inline here OR arrive later via telemetry.
-         handleAsyncEvent() is called for every line in sendCFLR().then() already,
-         so no extra parsing needed — just handle the case where the event
-         was NOT in the response (will arrive via onDataUpdated). */
-      var joinedInline = /\+EVT:JOINED/i.test(resp);
-      var failedInline = /\+EVT:JOIN_FAILED(?!_)/i.test(resp);
-
-      if (!joinedInline && !failedInline) {
-        /* Event not in inline response — waiting for async telemetry */
-        logInfo('JOIN command sent — waiting for +EVT:JOINED via telemetry…');
-        setBtnJoin(true, '⏳ Joining…');
-        /* Safety fallback: if telemetry never arrives (WAN drop), let user retry after 35 s */
-        setTimeout(function () {
-          if (state.joining) {
-            state.joining = false;
-            setBtnJoin(false, '⚡ Join Network');
-            setJoinState(false);
-            logFail('JOIN timeout — no +EVT received. Check coverage and keys.');
-            showToast('Join timeout — no response from network');
-          }
-        }, 35000);
-      }
-      /* If inline: handleAsyncEvent already called setJoinState() */
+      saveLocalState();
     })
     .catch(function (err) {
-      state.joining = false;
-      setJoinState(false);
-      setBtnJoin(false, '⚡ Join Network');
-      logFail('JOIN RPC error: ' + (err && err.message ? err.message : err));
+      logFail('Enter P2P mode failed: ' + (err && err.message ? err.message : err));
     });
 }
 
-function doLeave() {
-  logInfo('Leaving network (software reset)…');
-  /* RAK3172 has no explicit LEAVE command — reset via MODULE_SW_RESET which
-     clears the session.  Use MODULE_FACTORY_RESET only if explicitly needed. */
+/**
+ * Send AT+TEST=RFCFG,F,SF,BW,TXPR,RXPR,POW,CRC,IQ,NET
+ * All values read from the UI inputs.
+ */
+function p2pSetConfig() {
+  if (!state.testMode) {
+    showToast('Enter TEST mode first');
+    return;
+  }
+  var freq = (ge('inp-p2p-freq') ? ge('inp-p2p-freq').value.trim() : '868');
+  var sf   = (ge('inp-p2p-sf')   ? ge('inp-p2p-sf').value   : 'SF7');
+  var bw   = (ge('inp-p2p-bw')   ? ge('inp-p2p-bw').value   : '125');
+  var txp  = (ge('inp-p2p-txp')  ? ge('inp-p2p-txp').value  : '14');
+  var txpr = (ge('inp-p2p-txpr') ? ge('inp-p2p-txpr').value : '12');
+  var rxpr = (ge('inp-p2p-rxpr') ? ge('inp-p2p-rxpr').value : '15');
+
+  /* AT+TEST=RFCFG,<F>,<SF>,<BW>,<TXPR>,<RXPR>,<POW>,ON,OFF,OFF */
+  var rfArgs = freq + ',' + sf + ',' + bw + ',' + txpr + ',' + rxpr + ',' + txp + ',ON,OFF,OFF';
+  logInfo('Setting RF config: RFCFG,' + rfArgs);
+  sendCFLR('MODULE_SET_P2P_CONFIG', rfArgs, 4000)
+    .then(function (resp) {
+      if (/\+TEST:\s*RFCFG/i.test(resp)) {
+        showToast('✓ RF config applied');
+        setEl('inf-deveui', freq + ' MHz ' + sf + ' BW' + bw);
+        logInfo('RF config OK');
+      } else {
+        logFail('Unexpected RFCFG response: ' + resp);
+      }
+      saveLocalState();
+    })
+    .catch(function (err) {
+      logFail('Set RF config failed: ' + (err && err.message ? err.message : err));
+    });
+}
+
+/**
+ * Start continuous P2P receive: AT+TEST=RXLRPKT
+ * Received packets arrive as +TEST: RXLRPKT <len>, <rssi>, <snr>, <hex>
+ */
+function p2pStartRx() {
+  if (!state.testMode) { showToast('Enter TEST mode first'); return; }
+  if (state.rxActive)  { showToast('RX already active'); return; }
+  logInfo('Starting P2P RX (AT+TEST=RXLRPKT)…');
+  setBtnRx(true, '⏳ Listening…');
+  sendCFLR('MODULE_ENTER_P2P_RX', '', state.rpcTimeout)
+    .then(function (resp) {
+      /* +TEST: RXLRPKT acknowledgement; packets arrive via telemetry async */
+      if (/\+TEST:\s*RXLRPKT/i.test(resp)) {
+        state.rxActive = true;
+        setP2PStatus('rx', 'Listening…');
+        showToast('P2P RX active');
+        logInfo('Listening for P2P packets…');
+      } else {
+        setBtnRx(false, '📡 Start RX');
+        logFail('Unexpected RXLRPKT response: ' + resp);
+      }
+    })
+    .catch(function (err) {
+      setBtnRx(false, '📡 Start RX');
+      logFail('Start RX failed: ' + (err && err.message ? err.message : err));
+    });
+}
+
+/**
+ * Stop P2P receive by issuing a SW reset (Wio-E5 has no explicit STOP RX in P2P mode).
+ */
+function p2pStopRx() {
+  logInfo('Stopping RX via SW reset…');
   sendCFLR('MODULE_SW_RESET', '', 5000)
     .then(function () {
-      state.joined  = false;
-      state.joining = false;
-      setJoinState(false);
-      setBtnJoin(false, '⚡ Join Network');
-      setEl('inf-njs', 'Not joined');
-      showToast('Module reset — session cleared');
-      logInfo('Session cleared via SW reset');
+      state.rxActive = false;
+      state.testMode = false;
+      setP2PStatus('offline', 'Idle');
+      setBtnRx(false, '📡 Start RX');
+      setEl('inf-njs', 'LoRaWAN mode');
+      showToast('Module reset — P2P stopped');
+      logInfo('SW reset: P2P RX stopped');
     })
     .catch(function (err) {
-      /* Even on error, treat as left — module may have reset */
-      state.joined  = false;
-      state.joining = false;
-      setJoinState(false);
-      setBtnJoin(false, '⚡ Join Network');
-      logFail('Leave/reset error: ' + (err && err.message ? err.message : err));
+      state.rxActive = false;
+      setBtnRx(false, '📡 Start RX');
+      logFail('Stop RX error: ' + (err && err.message ? err.message : err));
     });
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   Uplink Send
-   BEHAVIOUR:
-     sendUplink() — Optimistic: disable Send button + set status "Sending…"
-                    RPC timeout is 32 000 ms (firmware waits for TX complete).
-                    +EVT:SEND_CONFIRMED/UNCONFIRMED may arrive inline in the
-                    RPC response or later via telemetry.
-                    In .catch(): re-enable button + show error.
+   P2P TX
    ═══════════════════════════════════════════════════════════════════ */
-function sendUplink() {
-  if (!state.joined) { showToast('Join the network first'); return; }
-  if (state.txPending) { showToast('TX in progress — wait'); return; }
+function sendP2P() {
+  if (!state.testMode) { showToast('Enter TEST mode first'); return; }
+  if (state.txPending)  { showToast('TX in progress — wait'); return; }
 
-  var portEl = ge('inp-port');
-  var payEl  = ge('inp-payload');
-  var port   = portEl ? parseInt(portEl.value, 10) : 2;
-  var raw    = payEl ? payEl.value.trim() : '';
-
-  if (isNaN(port) || port < 1 || port > 223) { showToast('Port must be 1–223'); return; }
+  var payEl = ge('inp-payload');
+  var raw   = payEl ? payEl.value.trim() : '';
   if (!raw) { showToast('Enter a payload'); return; }
 
-  /* Convert payload: if starts with "0x" treat as hex literal, else encode as ASCII hex */
+  /* Build hex payload */
   var hexPayload;
   if (/^0x/i.test(raw)) {
     hexPayload = raw.replace(/^0x/i, '').toUpperCase();
@@ -497,167 +348,55 @@ function sendUplink() {
     hexPayload = stringToHex(raw);
   }
 
-  var func = (state.txType === 'confirmed') ? 'MODULE_SEND_CONFIRMED' : 'MODULE_SEND_UNCONFIRMED';
-  var params = port + ':' + hexPayload;
-
   state.txPending = true;
   setBtnSend(true);
   setTxStatus('', 'Sending…');
-  logInfo('Sending uplink port=' + port + ' len=' + (hexPayload.length / 2) + 'B type=' + state.txType + '…');
+  logInfo('P2P TX: AT+TEST=TXLRPKT,"' + hexPayload + '" (' + (hexPayload.length / 2) + ' B)…');
 
-  sendCFLR(func, params, 32000)
-    .then(function (resp) {
-      /* +EVT:SEND_CONFIRMED/UNCONFIRMED may be inline — handled by sendCFLR's own
-         splitResp → handleAsyncEvent chain. If NOT inline, txPending stays true until
-         the event arrives via telemetry (or the safety timeout below triggers). */
-      var confirmed   = /\+EVT:SEND_CONFIRMED/i.test(resp);
-      var unconfirmed = /\+EVT:SEND_UNCONFIRMED/i.test(resp);
-      if (!confirmed && !unconfirmed) {
-        logInfo('TX sent — waiting for +EVT:SEND_CONFIRMED via telemetry…');
-        /* Safety timeout: re-enable button after 35 s regardless */
-        setTimeout(function () {
-          if (state.txPending) {
-            state.txPending = false;
-            setBtnSend(false);
-            setTxStatus('fail', 'No ACK');
-            logFail('TX timeout — no +EVT:SEND_CONFIRMED received');
-          }
-        }, 35000);
-      }
-      /* If inline: handleAsyncEvent already called setBtnSend(false) */
+  sendCFLR('MODULE_SEND_P2P_PKT', hexPayload, 8000)
+    .then(function () {
+      state.txPending = false;
+      setBtnSend(false);
+      setTxStatus('ok', '\u2713 Sent');
+      showToast('P2P packet sent');
+      logInfo('\u2713 TXLRPKT sent');
     })
     .catch(function (err) {
       state.txPending = false;
       setBtnSend(false);
       setTxStatus('fail', 'Failed');
-      logFail('Send uplink error: ' + (err && err.message ? err.message : err));
+      logFail('P2P TX error: ' + (err && err.message ? err.message : err));
     });
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   Read Last Downlink
+   UI Helpers — P2P
    ═══════════════════════════════════════════════════════════════════ */
-function readRecv() {
-  sendCFLR('MODULE_READ_RECV', '', 5000)
-    .then(function (resp) {
-      /* +RECV:<port>:<len>:<hex> */
-      var lines = splitResp(resp);
-      for (var i = 0; i < lines.length; i++) {
-        var l = lines[i].replace(/^CFLR:\d+:OK:/, '');
-        var m = l.match(/^\+RECV:(\d+):(\d+):([0-9A-Fa-f]*)/i);
-        if (m) {
-          updateRxPanel('POLL', parseInt(m[1], 10), parseInt(m[2], 10), m[3]);
-          return;
-        }
-      }
-      logInfo('No downlink data buffered');
-    })
-    .catch(function () {});
-}
 
-function updateRxPanel(window_str, port, len, hexData) {
-  setEl('rx-port',   String(port));
-  setEl('rx-size',   String(len) + ' B');
-  setEl('rx-window', window_str);
-  setEl('rx-time',   new Date().toLocaleTimeString());
-  setEl('rx-hex',    hexData || '(empty)');
-  var ascii = hexData ? hexToString(hexData).replace(/[^\x20-\x7e]/g, '.') : '';
-  setEl('rx-ascii',  ascii || '(binary)');
-  logInfo('Downlink [' + window_str + '] port=' + port + ' ' + len + 'B: ' + (hexData || '—'));
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   Radio Config — each fires immediately on UI change
-   ═══════════════════════════════════════════════════════════════════ */
-function setRegion(val) {
-  sendCFLR('MODULE_SET_REGION', val, 3000)
-    .then(function () { showToast('Region set to ' + val); saveLocalState(); })
-    .catch(function () {});
-}
-
-function setDR(val) {
-  sendCFLR('MODULE_SET_DR', val, 3000)
-    .then(function () { saveLocalState(); })
-    .catch(function () {});
-}
-
-function setTxPower(val) {
-  sendCFLR('MODULE_SET_TXP', val, 3000)
-    .then(function () { saveLocalState(); })
-    .catch(function () {});
-}
-
-function setADR(checked) {
-  setEl('adr-label', checked ? 'ON' : 'OFF');
-  sendCFLR('MODULE_SET_ADR', checked ? '1' : '0', 3000)
-    .then(function () { saveLocalState(); })
-    .catch(function () {
-      /* Revert toggle on failure */
-      var chk = ge('chk-adr');
-      if (chk) chk.checked = !checked;
-      setEl('adr-label', !checked ? 'ON' : 'OFF');
-    });
-}
-
-function setConfirm(checked) {
-  setEl('cfm-label', checked ? 'ON' : 'OFF');
-  sendCFLR('MODULE_SET_CONFIRM', checked ? '1' : '0', 3000)
-    .then(function () { saveLocalState(); })
-    .catch(function () {
-      var chk = ge('chk-cfm');
-      if (chk) chk.checked = !checked;
-      setEl('cfm-label', !checked ? 'ON' : 'OFF');
-    });
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   UI Helpers
-   ═══════════════════════════════════════════════════════════════════ */
-function selectMode(mode) {
-  state.mode = mode;
-  var tabOtaa = ge('tab-otaa');
-  var tabAbp  = ge('tab-abp');
-  var panOtaa = ge('panel-otaa');
-  var panAbp  = ge('panel-abp');
-  if (tabOtaa) tabOtaa.className = 'btn-mode-tab' + (mode === 'OTAA' ? ' active' : '');
-  if (tabAbp)  tabAbp.className  = 'btn-mode-tab' + (mode === 'ABP'  ? ' active' : '');
-  if (panOtaa) panOtaa.className = 'keys-panel'   + (mode === 'OTAA' ? '' : ' hidden');
-  if (panAbp)  panAbp.className  = 'keys-panel'   + (mode === 'ABP'  ? '' : ' hidden');
-  saveLocalState();
-}
-
-function selectTxType(type) {
-  state.txType = type;
-  var btnU = ge('btn-unconfirmed');
-  var btnC = ge('btn-confirmed');
-  if (btnU) btnU.className = 'btn-txtype' + (type === 'unconfirmed' ? ' active' : '');
-  if (btnC) btnC.className = 'btn-txtype' + (type === 'confirmed'   ? ' active' : '');
-  saveLocalState();
-}
-
-function setJoinState(joined) {
-  /* 'joining' = special intermediate string */
-  var s = (joined === 'joining') ? 'joining' : (joined ? 'joined' : 'offline');
+/**
+ * Update the status pill.
+ * state: 'offline' | 'ready' | 'rx'
+ */
+function setP2PStatus(s, text) {
   var pill = ge('status-pill');
   if (pill) pill.setAttribute('data-state', s);
   var txt = ge('status-text');
-  if (txt) txt.textContent = s === 'joining' ? 'Joining…' : (s === 'joined' ? 'Joined' : 'Not Joined');
-
-  if (s !== 'joining') {
-    setBtnJoin(false, joined ? '✓ Re-Join' : '⚡ Join Network');
-  }
+  if (txt) txt.textContent = text || s;
 }
 
-function setBtnJoin(disabled, text) {
-  var btn = ge('btn-join');
+function setBtnRx(disabled, text) {
+  var btn = ge('btn-rx');
   if (btn) btn.disabled = disabled;
-  if (text) setEl('join-btn-text', text);
+  if (text) {
+    var el = ge('rx-btn-text');
+    if (el) el.textContent = text;
+  }
 }
 
 function setBtnSend(disabled) {
   var btn = ge('btn-send');
   if (btn) btn.disabled = disabled;
-  setEl('send-btn-text', disabled ? '⏳ Sending…' : '▶ Send');
+  setEl('send-btn-text', disabled ? '\u23f3 Sending\u2026' : '\u25b6 Send TXLRPKT');
 }
 
 function setTxStatus(cls, text) {
@@ -688,19 +427,19 @@ function formatHexInput(inp, maxLen) {
 /* ═══════════════════════════════════════════════════════════════════
    LocalStorage Persistence
    ═══════════════════════════════════════════════════════════════════ */
-var LS_KEY = 'lr_wioe5_state_v1';
+var LS_KEY = 'lr_wioe5_p2p_state_v1';
 
 function saveLocalState() {
   try {
     var obj = {
-      slot:   state.slot,
-      mode:   state.mode,
-      txType: state.txType,
-      region: ge('inp-region') ? ge('inp-region').value : '8',
-      dr:     ge('inp-dr')     ? ge('inp-dr').value     : '3',
-      txp:    ge('inp-txp')    ? ge('inp-txp').value    : '0',
-      adr:    ge('chk-adr')    ? ge('chk-adr').checked  : false,
-      cfm:    ge('chk-cfm')    ? ge('chk-cfm').checked  : false
+      slot:     state.slot,
+      testMode: state.testMode,
+      freq:     ge('inp-p2p-freq') ? ge('inp-p2p-freq').value : '868',
+      sf:       ge('inp-p2p-sf')   ? ge('inp-p2p-sf').value   : 'SF7',
+      bw:       ge('inp-p2p-bw')   ? ge('inp-p2p-bw').value   : '125',
+      txp:      ge('inp-p2p-txp')  ? ge('inp-p2p-txp').value  : '14',
+      txpr:     ge('inp-p2p-txpr') ? ge('inp-p2p-txpr').value : '12',
+      rxpr:     ge('inp-p2p-rxpr') ? ge('inp-p2p-rxpr').value : '15'
     };
     localStorage.setItem(LS_KEY, JSON.stringify(obj));
   } catch (e) {}
@@ -711,10 +450,8 @@ function loadLocalState() {
     var raw = localStorage.getItem(LS_KEY);
     if (!raw) return;
     var obj = JSON.parse(raw);
-    if (obj.slot)   state.slot   = obj.slot;
-    if (obj.mode)   state.mode   = obj.mode;
-    if (obj.txType) state.txType = obj.txType;
-    /* Store for applyLocalState */
+    if (obj.slot) state.slot = obj.slot;
+    if (obj.testMode !== undefined) state.testMode = !!obj.testMode;
     state._saved = obj;
   } catch (e) {}
 }
@@ -722,21 +459,17 @@ function loadLocalState() {
 function applyLocalState() {
   var obj = state._saved;
   syncSlotSelect();
-  selectMode(state.mode);
-  selectTxType(state.txType);
   if (!obj) return;
-  if (obj.region && ge('inp-region')) ge('inp-region').value = obj.region;
-  if (obj.dr     && ge('inp-dr'))     ge('inp-dr').value     = obj.dr;
-  if (obj.txp    && ge('inp-txp'))    ge('inp-txp').value    = obj.txp;
-  if (obj.adr    !== undefined && ge('chk-adr')) {
-    ge('chk-adr').checked = !!obj.adr;
-    setEl('adr-label', obj.adr ? 'ON' : 'OFF');
-  }
-  if (obj.cfm !== undefined && ge('chk-cfm')) {
-    ge('chk-cfm').checked = !!obj.cfm;
-    setEl('cfm-label', obj.cfm ? 'ON' : 'OFF');
-  }
+  if (obj.freq && ge('inp-p2p-freq')) ge('inp-p2p-freq').value = obj.freq;
+  if (obj.sf   && ge('inp-p2p-sf'))   ge('inp-p2p-sf').value   = obj.sf;
+  if (obj.bw   && ge('inp-p2p-bw'))   ge('inp-p2p-bw').value   = obj.bw;
+  if (obj.txp  && ge('inp-p2p-txp'))  ge('inp-p2p-txp').value  = obj.txp;
+  if (obj.txpr && ge('inp-p2p-txpr')) ge('inp-p2p-txpr').value = obj.txpr;
+  if (obj.rxpr && ge('inp-p2p-rxpr')) ge('inp-p2p-rxpr').value = obj.rxpr;
+  setP2PStatus(state.testMode ? 'ready' : 'offline',
+               state.testMode ? 'TEST Mode' : 'Idle');
 }
+
 
 /* ═══════════════════════════════════════════════════════════════════
    Console Log
@@ -798,20 +531,12 @@ function escHtml(s) {
    Window exports — required for ThingsBoard inline onclick handlers
    ═══════════════════════════════════════════════════════════════════ */
 window.onSlotChange    = onSlotChange;
-window.selectMode      = selectMode;
-window.selectTxType    = selectTxType;
-window.setOtaaKeys     = setOtaaKeys;
-window.setAbpKeys      = setAbpKeys;
-window.readDevEui      = readDevEui;
-window.doJoin          = doJoin;
-window.doLeave         = doLeave;
-window.sendUplink      = sendUplink;
-window.readRecv        = readRecv;
+window.p2pEnterMode    = p2pEnterMode;
+window.p2pSetConfig    = p2pSetConfig;
+window.p2pStartRx      = p2pStartRx;
+window.p2pStopRx       = p2pStopRx;
+window.sendP2P         = sendP2P;
 window.queryModuleInfo = queryModuleInfo;
-window.setRegion       = setRegion;
-window.setDR           = setDR;
-window.setTxPower      = setTxPower;
-window.setADR          = setADR;
-window.setConfirm      = setConfirm;
 window.formatHexInput  = formatHexInput;
 window.clearLog        = clearLog;
+
