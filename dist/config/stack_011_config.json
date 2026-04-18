@@ -73,7 +73,7 @@
       "cmd_code": "",
       "gpio_start_control": [],
       "delay_start": 0,
-      "expect_response": "55 2A 00 00",
+      "expect_response": "2A 00 00",
       "timeout": 1000,
       "gpio_end_control": [],
       "delay_end": 0
@@ -125,7 +125,7 @@
       "cmd_code": "",
       "gpio_start_control": [],
       "delay_start": 0,
-      "expect_response": "55 00 02",
+      "expect_response": "00 02 00 02",
       "timeout": 5000,
       "gpio_end_control": [],
       "delay_end": 0
@@ -167,7 +167,7 @@
       "cmd_code": "",
       "gpio_start_control": [],
       "delay_start": 0,
-      "expect_response": "55 00 00",
+      "expect_response": "00 00",
       "timeout": 1000,
       "gpio_end_control": [],
       "delay_end": 0
@@ -345,14 +345,14 @@
     },
     {
       "function_name": "MODULE_AUTO_FIND_TARGET",
-      "command": "55 00 14",
+      "command": "55 03 00 14 14",
       "is_prefix": false,
       "is_hex": true,
       "cmd_type": "",
       "cmd_code": "",
       "gpio_start_control": [],
       "delay_start": 0,
-      "expect_response": "55 00 14",
+      "expect_response": "00 14",
       "timeout": 2000,
       "gpio_end_control": [],
       "delay_end": 0
@@ -740,15 +740,15 @@
     },
     {
       "function_name": "MODULE_ENTER_AT_MODE",
-      "command": "",
+      "command": "55 03 00 16 16",
       "is_prefix": false,
       "is_hex": true,
       "cmd_type": "",
       "cmd_code": "",
       "gpio_start_control": [],
       "delay_start": 0,
-      "expect_response": "",
-      "timeout": 0,
+      "expect_response": "00 16",
+      "timeout": 1000,
       "gpio_end_control": [],
       "delay_end": 0
     },

@@ -299,31 +299,6 @@
 .zb-app-root .toggle-input:checked + .toggle-label { background: var(--green); border-color: rgba(34,197,94,0.5); box-shadow: 0 0 14px rgba(34,197,94,0.25); }
 .zb-app-root .toggle-input:checked + .toggle-label::after { transform: translateX(22px); background: #fff; }
 
-/* Level Card */
-.level-card { flex-direction: column; gap: 12px; }
-.level-header { display: flex; align-items: center; justify-content: space-between; }
-.level-val-display {
-  font-size: 20px; font-weight: 900; color: var(--zb);
-  font-variant-numeric: tabular-nums; font-family: 'Consolas', monospace;
-  min-width: 52px; text-align: right;
-}
-.level-slider {
-  -webkit-appearance: none; appearance: none;
-  width: 100%; height: 6px; border-radius: 3px; outline: none; cursor: pointer;
-  border: none;
-}
-.level-slider::-webkit-slider-thumb {
-  -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%;
-  background: var(--zb); border: 3px solid rgba(255,255,255,0.15);
-  box-shadow: 0 0 10px var(--zb-glow), 0 2px 6px rgba(0,0,0,0.5);
-  cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;
-}
-.level-slider::-webkit-slider-thumb:hover { transform: scale(1.2); box-shadow: 0 0 16px var(--zb-glow), 0 2px 6px rgba(0,0,0,0.5); }
-.level-slider::-moz-range-thumb {
-  width: 20px; height: 20px; border-radius: 50%; border: none;
-  background: var(--zb); box-shadow: 0 0 10px var(--zb-glow); cursor: pointer;
-}
-
 /* Color Card */
 .color-card { display: flex; flex-direction: column; gap: 12px; }
 .color-card-header { display: flex; align-items: center; justify-content: space-between; }

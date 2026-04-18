@@ -100,7 +100,6 @@
       <!-- Cluster Tab Buttons -->
       <div class="cluster-tabs" id="cluster-tabs">
         <button class="btn-cluster-tab active" data-cluster="0006" onclick="selectCluster('0006')">💡 On/Off</button>
-        <button class="btn-cluster-tab"        data-cluster="0008" onclick="selectCluster('0008')">🔆 Level</button>
         <button class="btn-cluster-tab"        data-cluster="0300" onclick="selectCluster('0300')">🎨 Color</button>
         <button class="btn-cluster-tab"        data-cluster="0402" onclick="selectCluster('0402')">🌡 Temp</button>
       </div>
@@ -120,17 +119,6 @@
             <label for="onoff-toggle" class="toggle-label"></label>
           </div>
         </div>
-      </div>
-
-      <!-- Level section (cluster 0008) -->
-      <div class="control-card level-card hidden" id="section-level">
-        <div class="level-header">
-          <span class="card-title">Brightness Level</span>
-          <span class="level-val-display" id="level-val">50%</span>
-        </div>
-        <input type="range" id="level-slider" class="level-slider" min="0" max="254" value="127"
-               oninput="onLevelInput(this.value)"
-               onchange="onLevelChange(this.value)">
       </div>
 
       <!-- Color section (cluster 0300) -->

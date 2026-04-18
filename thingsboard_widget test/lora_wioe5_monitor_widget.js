@@ -19,7 +19,8 @@ var lrmState = {
   rxCount:    0,
   txAckCount: 0,
   history:    [],     /* max LRM_HIST_MAX rows, newest first */
-  lastRfCfg:  ''      /* last +TEST: RFCFG value seen */
+  lastRfCfg:  '',     /* last +TEST: RFCFG value seen */
+  pendingRx:  null    /* partial P2P RX: { len, rssi, snr } waiting for RX payload line */
 };
 
 var LRM_HIST_MAX = 40;
@@ -70,12 +71,22 @@ function lrmParseLine(line) {
   var l = line.replace(/^CFLR:\d+:(EVT:|OK:|FAIL:[^:]*:)/, '');
   var m;
 
-  /* +TEST: RXLRPKT <len>, <rssi>, <snr>, <hexdata>
-     Wio-E5 P2P received-packet event.
-     Example: "+TEST: RXLRPKT 8, -60, 10, AABBCCDD11223344" */
-  m = l.match(/^\+TEST:\s*RXLRPKT\s+(\d+),\s*(-?\d+),\s*(-?\d+),\s*([0-9A-Fa-f]+)/i);
+  /* P2P RX — Step 1: meta line
+     "+TEST: LEN:4, RSSI:-36, SNR:9" */
+  m = l.match(/^\+TEST:\s*LEN:\s*(\d+),\s*RSSI:\s*(-?\d+),\s*SNR:\s*(-?\d+)/i);
   if (m) {
-    lrmHandleP2PRx(parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10), m[4].toUpperCase(), lineSlot);
+    lrmState.pendingRx = { len: parseInt(m[1], 10), rssi: parseInt(m[2], 10), snr: parseInt(m[3], 10) };
+    return;
+  }
+
+  /* P2P RX — Step 2: payload line
+     "+TEST: RX \"010009EF\"" */
+  m = l.match(/^\+TEST:\s*RX\s*"([0-9A-Fa-f]+)"/i);
+  if (m) {
+    var pr     = lrmState.pendingRx || { len: 0, rssi: 0, snr: 0 };
+    var hexData = m[1].toUpperCase();
+    lrmHandleP2PRx(pr.len, pr.rssi, pr.snr, hexData, lineSlot);
+    lrmState.pendingRx = null;
     return;
   }
 
@@ -153,14 +164,52 @@ function lrmHandleRx(win, port, len, hex, slot) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   Payload Decoder
+   Format: 6 bytes  nodeId | seq | tempHi | tempLo | humHi | humLo
+           temp = int16(bytes[2..3]) / 100  (°C)
+           hum  = uint16(bytes[4..5]) / 100  (%)
+   ═══════════════════════════════════════════════════════════════════ */
+function decodeP2PPayload(hex) {
+  if (!hex || hex.length < 8) return null;
+  var b = [];
+  for (var i = 0; i < hex.length; i += 2) b.push(parseInt(hex.substr(i, 2), 16));
+  var tempRaw = (b[2] << 8) | b[3];
+  if (tempRaw & 0x8000) tempRaw = tempRaw - 0x10000;   /* sign-extend int16 */
+  var result = {
+    nodeId: b[0],
+    seq:    b[1],
+    tempC:  (tempRaw / 100).toFixed(2)
+  };
+  if (b.length >= 6) {
+    var humRaw = (b[4] << 8) | b[5];
+    result.humPct = (humRaw / 100).toFixed(2);
+  }
+  return result;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    Handle a received P2P packet (+TEST: RXLRPKT)
    ═══════════════════════════════════════════════════════════════════ */
 function lrmHandleP2PRx(len, rssi, snr, hex, slot) {
-  var ts    = new Date().toLocaleTimeString('en-GB', { hour12: false });
-  var ascii = lrmHexToAscii(hex);
-  var card  = ge('lrm-latest');
+  var ts      = new Date().toLocaleTimeString('en-GB', { hour12: false });
+  var decoded = decodeP2PPayload(hex);
+  var card    = ge('lrm-latest');
   if (card) {
     card.setAttribute('data-empty', 'false');
+    var decodedHtml = '';
+    if (decoded) {
+      decodedHtml =
+        '<div class="lrm-data-row" style="border-top:1px solid var(--border);padding-top:8px;margin-top:8px">' +
+          '<div class="lrm-rx-meta" style="margin-bottom:0">' +
+            '<div class="lrm-rx-meta-item"><span class="lrm-rx-label">Node</span><span class="lrm-rx-val">' + decoded.nodeId + '</span></div>' +
+            '<div class="lrm-rx-meta-item"><span class="lrm-rx-label">Seq</span><span class="lrm-rx-val">' + decoded.seq + '</span></div>' +
+            '<div class="lrm-rx-meta-item"><span class="lrm-rx-label" style="color:#f97316">Temp</span><span class="lrm-rx-val" style="color:#f97316;font-size:15px">' + decoded.tempC + ' °C</span></div>' +
+            (decoded.humPct !== undefined
+              ? '<div class="lrm-rx-meta-item"><span class="lrm-rx-label" style="color:#60a5fa">Hum</span><span class="lrm-rx-val" style="color:#60a5fa;font-size:15px">' + decoded.humPct + ' %</span></div>'
+              : '') +
+          '</div>' +
+        '</div>';
+    }
     card.innerHTML =
       '<div class="lrm-rx-meta">' +
         '<div class="lrm-rx-meta-item"><span class="lrm-rx-label">RSSI</span><span class="lrm-rx-val">' + rssi + ' dBm</span></div>' +
@@ -169,14 +218,14 @@ function lrmHandleP2PRx(len, rssi, snr, hex, slot) {
         (slot ? '<div class="lrm-rx-meta-item"><span class="lrm-rx-label">Slot</span><span class="lrm-rx-val">' + slot + '</span></div>' : '') +
         '<div class="lrm-rx-meta-item"><span class="lrm-rx-label">Time</span><span class="lrm-rx-val">' + ts + '</span></div>' +
       '</div>' +
+      decodedHtml +
       '<div class="lrm-data-row">' +
         '<div class="lrm-data-label">Hex</div>' +
         '<div class="lrm-data-hex">' + escHtml(hex || '(empty)') + '</div>' +
-        '<div class="lrm-data-label" style="margin-top:6px">ASCII</div>' +
-        '<div class="lrm-data-ascii">' + escHtml(ascii || '(binary)') + '</div>' +
       '</div>';
   }
-  lrmState.history.unshift({ win: 'P2P', port: 0, len: len, hex: hex, ts: ts, slot: slot || '', rssi: rssi, snr: snr });
+  lrmState.history.unshift({ win: 'P2P', port: 0, len: len, hex: hex, ts: ts, slot: slot || '', rssi: rssi, snr: snr,
+    tempC: decoded ? decoded.tempC : null, humPct: decoded ? (decoded.humPct || null) : null, seq: decoded ? decoded.seq : null });
   if (lrmState.history.length > LRM_HIST_MAX) lrmState.history.pop();
   lrmState.rxCount++;
   setEl('lrm-rx-count', String(lrmState.rxCount));
@@ -205,15 +254,21 @@ function renderHistory() {
   lrmState.history.forEach(function (p) {
     var row = document.createElement('div');
     row.className = 'lrm-hist-row';
-    var hexPreview = p.hex.length > 24 ? p.hex.substr(0, 24) + '…' : p.hex;
+    /* Show decoded T/H if available, otherwise fall back to hex preview */
+    var dataStr;
+    if (p.tempC !== null && p.tempC !== undefined) {
+      dataStr = p.tempC + '°C' + (p.humPct !== null && p.humPct !== undefined ? '  ' + p.humPct + '%' : '');
+    } else {
+      dataStr = p.hex.length > 20 ? p.hex.substr(0, 20) + '…' : p.hex;
+    }
+    var seqStr = (p.seq !== null && p.seq !== undefined) ? ('#' + p.seq + ' ') : '';
     row.innerHTML =
       '<span class="lrm-hist-ts">'   + escHtml(p.ts)  + '</span>' +
       '<span class="lrm-hist-win">'  +
         '<span class="lrm-hist-win-badge">' + escHtml(p.win) + '</span>' +
       '</span>' +
-      '<span class="lrm-hist-port">p:' + p.port + '</span>' +
       '<span class="lrm-hist-size">' + p.len + 'B</span>' +
-      '<span class="lrm-hist-hex">'  + escHtml(hexPreview || '—') + '</span>';
+      '<span class="lrm-hist-hex">'  + escHtml(seqStr + dataStr) + '</span>';
     el.appendChild(row);
   });
 }
@@ -292,6 +347,7 @@ function lrmDecodeHex(val) {
     else if (val.data !== undefined) val = val.data;
   }
   var s = String(val);
+  /* Compact hex: "2B5445..." (even length, no spaces) */
   if (/^[0-9A-Fa-f]+$/.test(s) && s.length % 2 === 0 && s.length > 0) {
     var out = '';
     for (var i = 0; i < s.length; i += 2) {
@@ -299,6 +355,10 @@ function lrmDecodeHex(val) {
       if (!isNaN(b)) out += String.fromCharCode(b);
     }
     return out;
+  }
+  /* Spaced hex: "2B 54 45 53 54 3A ..." (firmware raw-byte log format) */
+  if (/^([0-9A-Fa-f]{2}(\s+|$))+$/.test(s.trim())) {
+    return s.trim().split(/\s+/).map(function (b) { return String.fromCharCode(parseInt(b, 16)); }).join('');
   }
   return s;
 }
