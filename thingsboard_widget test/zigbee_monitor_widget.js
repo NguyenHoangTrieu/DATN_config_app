@@ -158,16 +158,39 @@ function parseZclAttrValue(data, offset, dataType) {
 function pad2(n) { return ('0' + (Math.round(n) & 0xFF).toString(16)).slice(-2).toUpperCase(); }
 function pad4(n) { return ('000' + (n & 0xFFFF).toString(16)).slice(-4).toUpperCase(); }
 
+/**
+ * parseAllHexFrames — split concatenated Ebyte frames and dispatch each.
+ * Gateway listener uplinks often pack multiple frames in one message:
+ *   e.g. #1148: [55 10 80 03 NodeJoin...] + [55 0E 80 04 Confirm...]
+ *        #1149: [55 20 80 05 Announce...] + [55 11 80 0F FindBind...]
+ */
+function parseAllHexFrames(hexStr, ts) {
+  var bytes = hexStr.trim().split(/\s+/).map(function (b) { return parseInt(b, 16); });
+  var pos = 0;
+  while (pos < bytes.length) {
+    if (bytes[pos] !== 0x55) { pos++; continue; }
+    if (pos + 1 >= bytes.length) break;
+    var frameLen = bytes[pos + 1];
+    var totalLen = 2 + frameLen;
+    if (pos + totalLen > bytes.length) break;
+    var frameHex = bytes.slice(pos, pos + totalLen)
+      .map(function (b) { return ('0' + b.toString(16).toUpperCase()).slice(-2); })
+      .join(' ');
+    parseHexFrame(frameHex, ts);
+    pos += totalLen;
+  }
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    Parse one telemetry line — supports both HEX frames and legacy RPT
    ═══════════════════════════════════════════════════════════════════ */
 function parseLine(line, ts) {
-  /* ── Check for :EVT: wrapper with HEX frame inside ── */
+  /* ── Check for :EVT: wrapper with HEX frame(s) inside ── */
   var evtM = line.match(/:EVT:((?:[0-9A-Fa-f]{2}\s*)+)$/i);
   if (evtM) {
     var hexData = evtM[1].trim();
     if (/^55\b/i.test(hexData)) {
-      parseHexFrame(hexData, ts);
+      parseAllHexFrames(hexData, ts);   /* handles concatenated frames */
       return;
     }
     /* Legacy AT text — decode and re-parse */
@@ -176,9 +199,9 @@ function parseLine(line, ts) {
     return;
   }
 
-  /* ── Direct HEX frame (starts with "55 ") ── */
+  /* ── Direct HEX frame(s) (starts with "55 ") — may be concatenated ── */
   if (/^55\s+[0-9A-Fa-f]{2}/i.test(line)) {
-    parseHexFrame(line, ts);
+    parseAllHexFrames(line, ts);
     return;
   }
 

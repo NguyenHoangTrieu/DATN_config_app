@@ -1,4 +1,4 @@
-/* =====================================================================
+﻿/* =====================================================================
    DA2 Zigbee Gateway Control — ThingsBoard Widget JavaScript v2 (HEX)
    Protocol: CFML:CFZB:<slot>:<function_name|HEX_frame>
    Routing: CF → WAN MCU → ML:CFZB → Zigbee handler → UART to E180-ZG120B
@@ -45,6 +45,15 @@ var g_teleSubscriber  = null;
 var g_lastTeleTs      = 0;
 /* ── Cross-widget bridge listener (receives events from Monitor widget) ── */
 var g_zbmEventHandler = null;
+/* ── Active polling timers: shortAddr → setInterval ID ───────────────────── */
+/* Stored outside state so they are never serialised to localStorage.     */
+var g_pollTimers = {};
+/* ── Piggyback cooldown: shortAddr → timestamp of last temp read (ms) ─────── */
+var g_lastTempReadTs = {};
+/* ── Delete-in-flight flag: shortAddr → true while DELETE RPC is pending ───── */
+var g_deletePending = {};
+/* ── Delete FAIL observed via telemetry while delete was pending ────────────── */
+var g_deleteOnlineFail = {};
 
 /* ────────────────────────────────────────────────────────────────────
    ThingsBoard Lifecycle
@@ -93,7 +102,8 @@ self.onInit = function () {
         logInfo('Telemetry WS subscribed → entityId=' + entityId + ' key="data"');
       }
     } catch (se) {
-      logWarn('WS subscribe failed: ' + (se && se.message ? se.message : se));
+      /* WS subscribe is a convenience path — data arrives via Bridge + RPC anyway */
+      logInfo('WS subscribe unavailable: ' + (se && se.message ? se.message.substring(0, 60) : se));
     }
 
     /* ── 2. Listen for events pushed by Monitor Widget (window CustomEvent bridge) ──
@@ -177,6 +187,13 @@ self.onDestroy = function () {
       logInfo('Telemetry WS unsubscribed');
     }
   } catch (e) { /* ignore — widget context may already be torn down */ }
+  /* ── Clear all active poll timers ── */
+  try {
+    Object.keys(g_pollTimers).forEach(function (addr) {
+      clearInterval(g_pollTimers[addr]);
+    });
+    g_pollTimers = {};
+  } catch (e) {}
 };
 
 /* ════════════════════════════════════════════════════════════════════
@@ -443,6 +460,43 @@ function sendZclReadAttr(shortAddr, ep, cluster, attrId, timeoutMs) {
   return sendCFML('MODULE_ZCL_READ_ATTR:' + hexFrame, timeoutMs || 15000);
 }
 
+/**
+ * sendZclConfigureReporting — send ZCL Configure Reporting (code 0x03) to a device.
+ * This tells the device to automatically push attribute reports at the given interval.
+ *
+ * @param {string} shortAddr      4-char hex short address
+ * @param {string} ep             2-char hex endpoint
+ * @param {string} cluster        4-char hex cluster ID
+ * @param {string} attrId         4-char hex attribute ID
+ * @param {string} dataType       2-char hex ZCL data type (e.g. '29'=int16, '21'=uint16)
+ * @param {number} minInterval    Minimum reporting interval in seconds
+ * @param {number} maxInterval    Maximum reporting interval in seconds (0xFFFF = disable)
+ * @param {number} reportableChange  Minimum change that triggers a report (in ZCL units)
+ */
+function sendZclConfigureReporting(shortAddr, ep, cluster, attrId, dataType, minInterval, maxInterval, reportableChange) {
+  var aH = parseInt(attrId.substring(0, 2), 16);
+  var aL = parseInt(attrId.substring(2, 4), 16);
+  var dt = parseInt(dataType, 16);
+  /* ZCL Configure Reporting payload:
+     [NumRecords(1B)] [Direction(1B)=0x00] [AttrID(2B LE)] [DataType(1B)]
+     [MinInterval(2B LE)] [MaxInterval(2B LE)] [ReportableChange(2B LE)] */
+  var extData = [
+    0x01,                                       /* NumRecords = 1 */
+    0x00,                                       /* Direction: client configures device to report */
+    aL, aH,                                     /* AttrID LE */
+    dt,                                         /* DataType */
+    minInterval  & 0xFF, (minInterval  >> 8) & 0xFF,  /* MinInterval LE */
+    maxInterval  & 0xFF, (maxInterval  >> 8) & 0xFF,  /* MaxInterval LE */
+    reportableChange & 0xFF, (reportableChange >> 8) & 0xFF  /* ReportableChange LE */
+  ];
+  var frame = buildZclFrame(0x03, parseInt(shortAddr, 16), parseInt(ep, 16),
+                            parseInt(cluster, 16), extData);
+  var hexFrame = bytesToHexStr(frame);
+  logInfo('ZCL ConfigureReport: cl=' + cluster + ' attr=' + attrId +
+    ' min=' + minInterval + 's max=' + maxInterval + 's');
+  return sendCFML('MODULE_ZCL_CONFIGURE_REPORT:' + hexFrame, 10000);
+}
+
 /* ────────────────────────────────────────────────────────────────────
    Response Parsers
    ──────────────────────────────────────────────────────────────────── */
@@ -459,20 +513,39 @@ function splitResp(resp) {
 
 function logCFMLResponse(resp) {
   splitResp(resp).forEach(function (line) {
-    /* HEX frame response (starts with "55 ") */
+    /* ── CFZB OK response: "ZIG<ts>CFZB:<slot>:OK:<sent_hex>:<reply_hex>"
+       The reply_hex is multi-frame (e.g. ACK + Confirm + ZCL ReadAttr Response
+       all concatenated). Extract it and dispatch ALL frames inside it.
+       Pattern: :OK: followed by sent_hex (no colons) then : then reply_hex. */
+    var okM = line.match(/:OK:[^:]+(:[0-9A-Fa-f]{2}[\s0-9A-Fa-f]*)$/i);
+    if (okM) {
+      var replyHex = okM[1].substring(1).trim(); /* strip leading ':' */
+      logOk(line);
+      if (replyHex.length) parseAndDispatchAllHexFrames(replyHex);
+      return;
+    }
+    /* Direct HEX frame response (line starts with "55 ") */
     if (/^55\s+[0-9A-Fa-f]{2}/i.test(line)) {
-      var frame = parseEbyteFrame(line);
-      if (frame) {
-        var tag = pad2(frame.type) + '/' + pad2(frame.code);
-        logOk('HEX [' + tag + '] ' + line);
-        handleHexEvent(line);
-      } else {
-        logOk('HEX: ' + line);
-      }
+      logOk('HEX: ' + line.substring(0, 40) + (line.length > 40 ? '…' : ''));
+      parseAndDispatchAllHexFrames(line);
       return;
     }
     if (/^FAIL:|INVALID|ERROR/i.test(line)) {
       logFail(line);
+      /* If a DELETE_NODE FAIL arrives via telemetry (gateway uplink), mark it.
+         The concurrent RPC may time out with 504; we'll still show the right toast. */
+      if (line.indexOf('00 17') >= 0 && line.indexOf('INVALID_RESPONSE') >= 0) {
+        var failM = line.match(/CFZB:\d+:FAIL:(55 [0-9A-Fa-f ]+):/i);
+        if (failM && failM[1].indexOf('00 17') >= 0) {
+          /* Mark all pending deletes as "device online" failure */
+          Object.keys(g_deletePending).forEach(function (a) {
+            g_deleteOnlineFail[a] = Date.now();
+          });
+        }
+      }
+      /* Extract embedded HEX frames from FAIL reply (last colon-delimited hex segment). */
+      var failHexM = line.match(/:([0-9A-Fa-f]{2}(?:\s+[0-9A-Fa-f]{2})+)\s*$/i);
+      if (failHexM) parseAndDispatchAllHexFrames(failHexM[1]);
     } else if (/^JOIN:|^\+NWINFO:|^FIND:|^RPT:|^LEAVE:|^NODE:|^RSP:|^NET:|^NETOPEN|:EVT:/i.test(line)) {
       logEvt(line);
       dispatchLine(line);
@@ -487,6 +560,34 @@ function logCFMLResponse(resp) {
    ──────────────────────────────────────────────────────────────────── */
 
 /**
+ * parseAndDispatchAllHexFrames — split a space-separated HEX string that may
+ * contain multiple concatenated Ebyte frames and dispatch each individually.
+ *
+ * The gateway packs the ZCL ReadAttr reply as 3 frames in one uplink:
+ *   [55 05 02 00 00 00 02]   ← CFG ACK
+ *   [55 0A 8F 02 ...]        ← Send Confirm
+ *   [55 21 82 00 ...]        ← ZCL Read Attr Response  ← carries auth key
+ *
+ * Without this function, handleHexEvent only sees frame 1 and drops the rest.
+ */
+function parseAndDispatchAllHexFrames(hexStr) {
+  var bytes = hexStr.trim().split(/\s+/).map(function (b) { return parseInt(b, 16); });
+  var pos = 0;
+  while (pos < bytes.length) {
+    if (bytes[pos] !== 0x55) { pos++; continue; }
+    if (pos + 1 >= bytes.length) break;
+    var frameLen = bytes[pos + 1];       /* Ebyte Length field */
+    var totalLen = 2 + frameLen;         /* 0x55 byte + Length byte + frameLen bytes */
+    if (pos + totalLen > bytes.length) break;
+    var frameHex = bytes.slice(pos, pos + totalLen)
+      .map(function (b) { return ('0' + b.toString(16).toUpperCase()).slice(-2); })
+      .join(' ');
+    handleHexEvent(frameHex);
+    pos += totalLen;
+  }
+}
+
+/**
  * dispatchLine — route incoming telemetry/EVT line to the correct parser.
  * In HEX mode, EVT data is raw Ebyte frame bytes (first byte = 0x55).
  * In legacy AT mode, EVT data is hex-encoded ASCII text.
@@ -496,10 +597,10 @@ function dispatchLine(line) {
   var evtM = line.match(/:EVT:((?:[0-9A-Fa-f]{2}\s*)+)$/i);
   if (evtM) {
     var hexData = evtM[1].trim();
-    /* First byte 0x55 → Ebyte HEX frame */
+    /* First byte 0x55 → Ebyte HEX frame(s) — may be concatenated */
     if (/^55\b/i.test(hexData)) {
       logEvt('HEX EVT: ' + hexData.substring(0, 40) + (hexData.length > 40 ? '…' : ''));
-      handleHexEvent(hexData);
+      parseAndDispatchAllHexFrames(hexData);
     } else {
       /* Legacy AT text mode — decode hex bytes to ASCII */
       var inner = hexToString(hexData.replace(/\s+/g, ''));
@@ -511,9 +612,9 @@ function dispatchLine(line) {
     }
     return;
   }
-  /* Direct HEX frame (line starts with "55 ") */
+  /* Direct HEX frame(s) (line starts with "55 ") — may be concatenated */
   if (/^55\s+[0-9A-Fa-f]{2}/i.test(line)) {
-    handleHexEvent(line);
+    parseAndDispatchAllHexFrames(line);
     return;
   }
   /* Fallback: legacy text event */
@@ -836,20 +937,25 @@ function handleAsyncEvent(line) {
 
 /* ── Shared Attribute Report Handler (used by both HEX and text paths) ── */
 function handleAttrReport(short, cluster, attr, value) {
-  if (short !== state.selectedNode) return;
-
-  /* ── Auth Key handshake: Basic Cluster 0x0000, Model Identifier 0x0005 ── */
-  /* parseZclAttrValue already decoded type 0x42 → plain ASCII string        */
+  /* ── Auth Key handshake: ALWAYS processed, regardless of selectedNode. ──
+     This MUST come before the selectedNode gate. Auto-verify fires on
+     nodeAnnounce (2s after join) before the user has clicked on the node,
+     so state.selectedNode is null at that point. Without this exception the
+     verified flag is never set and the node stays locked behind verify-overlay. */
   if (cluster === '0000' && attr === '0005') {
     if (state.nodes[short]) {
-      if (value === 'DATN_AUTH_KEY') {
+      /* Format: "DATN_AUTH_KEY:<device_name>" or legacy "DATN_AUTH_KEY" */
+      if (value === 'DATN_AUTH_KEY' || value.indexOf('DATN_AUTH_KEY:') === 0) {
         state.nodes[short].verified = true;
-        state.nodes[short].name     = 'DATN Node';
-        logOk('Auth OK: 0x' + short + ' — DATN_AUTH_KEY verified');
-        showToast('Auth ✓ ' + short);
+        var deviceName = (value.indexOf(':') >= 0) ? value.split(':')[1] : '';
+        state.nodes[short].name = deviceName || ('DATN-' + short);
+        logOk('Auth OK: 0x' + short + ' — name="' + state.nodes[short].name + '"');
+        showToast('Auth ✓ ' + state.nodes[short].name);
+        /* Flow: after auth, only the name has been read. No sensor data is fetched
+           until the user clicks Connect. This satisfies requirement 1. */
       } else {
         state.nodes[short].verified = false;
-        logWarn('Auth FAIL: 0x' + short + ' key="' + value + '" (expected DATN_AUTH_KEY)');
+        logWarn('Auth FAIL: 0x' + short + ' key="' + value + '" (expected DATN_AUTH_KEY...)');
         showToast('⚠ Auth fail: ' + short);
       }
       renderNodeList();
@@ -860,7 +966,39 @@ function handleAttrReport(short, cluster, attr, value) {
     return;
   }
 
-  /* ── Gatekeeper: drop all sensor/control data from unverified nodes ── */
+  /* ── Temperature: only log/process from verified nodes ── */
+  if (cluster === '0402' && attr === '0000') {
+    if (!state.nodes[short] || state.nodes[short].verified !== true) return;
+    var raw = parseInt(value, 16);
+    if (raw > 32767) raw -= 65536;
+    var tempC = (raw / 100.0).toFixed(1);
+    logEvt('🌡 0x' + short + ' Temp = ' + tempC + ' °C');
+    g_lastTempReadTs[short] = Date.now();
+    if (short === state.selectedNode && state.nodes[short].connected) {
+      state.tempRaw = tempC;
+      setEl('temp-val', tempC);
+      setEl('sensor-ts', 'Updated: ' + new Date().toLocaleTimeString());
+    }
+    return;
+  }
+
+  /* ── Humidity: only log/process from verified nodes ── */
+  if (cluster === '0405' && attr === '0000') {
+    if (!state.nodes[short] || state.nodes[short].verified !== true) return;
+    var humid = (parseInt(value, 16) / 100.0).toFixed(1);
+    logEvt('💧 0x' + short + ' Humid = ' + humid + ' %RH');
+    if (short === state.selectedNode && state.nodes[short].connected) {
+      state.humidRaw = humid;
+      setEl('humid-val', humid);
+      setEl('sensor-ts', 'Updated: ' + new Date().toLocaleTimeString());
+    }
+    return;
+  }
+
+  /* For all other clusters: only process the currently-selected node */
+  if (short !== state.selectedNode) return;
+
+  /* ── Gatekeeper: drop control data from unverified nodes ── */
   if (!state.nodes[short] || state.nodes[short].verified !== true) {
     logWarn('Drop payload from unverified 0x' + short + ' (Cl:' + cluster + ' At:' + attr + ')');
     return;
@@ -875,18 +1013,6 @@ function handleAttrReport(short, cluster, attr, value) {
     var wrap = ge('onoff-icon-wrap');
     if (wrap) wrap.setAttribute('data-on', on ? 'true' : 'false');
     setEl('onoff-icon', on ? '💡' : '🔦');
-  }
-  if (cluster === '0402' && attr === '0000') {
-    /* Temperature: gated by user-controlled "Connect" toggle */
-    if (!state.nodes[short] || !state.nodes[short].connected) return;
-    var raw = parseInt(value, 16);
-    if (raw > 32767) raw -= 65536;
-    state.tempRaw = (raw / 100.0).toFixed(1);
-  }
-  if (cluster === '0405' && attr === '0000') {
-    /* Humidity: gated by user-controlled "Connect" toggle */
-    if (!state.nodes[short] || !state.nodes[short].connected) return;
-    state.humidRaw = (parseInt(value, 16) / 100.0).toFixed(1);
   }
 }
 
@@ -1067,22 +1193,114 @@ function selectNode(short) {
 }
 
 /**
- * toggleNodeConnect — flip the software "connected" gate for a node.
- * When connected=true, auto-reported Temperature (0402) and Humidity (0405)
- * payloads are accepted by handleAttrReport(); otherwise they are dropped.
- * This is purely a local UI filter — no RPC is sent to the device.
+ * isSensorNode — return true if the node's name indicates it is a sensor device.
+ * Used to choose between sensor data display and bulb control display.
+ */
+function isSensorNode(n) {
+  var nm = ((n && n.name) || '').toLowerCase();
+  return nm.indexOf('sensor') >= 0 || nm.indexOf('temp') >= 0 ||
+         nm.indexOf('humid') >= 0  || nm.indexOf('motion') >= 0 ||
+         nm.indexOf('pir') >= 0    || nm.indexOf('contact') >= 0 ||
+         nm.indexOf('door') >= 0   || nm.indexOf('window') >= 0;
+}
+
+/**
+ * toggleNodeConnect — Connect/Disconnect the data stream for a node.
+ *
+ * SENSOR (detected by name):
+ *   ON  connect : send ZCL Configure Reporting to device (5s interval) so the
+ *                 device starts pushing temp+humid; also do an immediate read.
+ *   ON  disconnect: send Configure Reporting with maxInterval=0xFFFF to stop.
+ *   Falls back to polling if Configure Reporting is not acked.
+ *
+ * BULB / other:
+ *   ON  connect : show control panel (on/off, color) — no data polling needed.
+ *   ON  disconnect: hide control panel.
  */
 function toggleNodeConnect(shortAddr) {
   var n = state.nodes[shortAddr];
   if (!n) return;
   n.connected = !n.connected;
-  logInfo((n.connected ? '🔗 Connected' : '⛔ Disconnected') +
-          ' telemetry stream for 0x' + shortAddr);
+
+  if (n.connected) {
+    var ep = n.ep || '0B';
+
+    if (isSensorNode(n)) {
+      /* ── SENSOR: send ZCL Configure Reporting → device starts pushing data ──
+         After Connect, server sends Configure Reporting commands for temp (0x0402)
+         and humidity (0x0405) so the device starts pushing attribute reports.
+         minInterval=5s, maxInterval=30s. Also do an immediate read for instant display. */
+      logInfo('🔗 Sensor connect 0x' + shortAddr + ' — configuring reporting…');
+
+      /* Immediate read first (instant display) */
+      sendZclReadAttr(shortAddr, ep, '0402', '0000', 8000)
+        .catch(function () {})
+        .then(function () {
+          return sendZclReadAttr(shortAddr, ep, '0405', '0000', 8000).catch(function () {});
+        })
+        .then(function () {
+          /* Configure Reporting: temp cluster 0x0402, attr 0x0000, int16 (0x29)
+             minInterval=5s, maxInterval=30s, reportableChange=10 (0.1°C) */
+          return sendZclConfigureReporting(shortAddr, ep, '0402', '0000', '29', 5, 30, 10)
+            .catch(function () { logWarn('ConfigureReporting temp failed — falling back to poll'); });
+        })
+        .then(function () {
+          /* Configure Reporting: humid cluster 0x0405, attr 0x0000, uint16 (0x21)
+             minInterval=5s, maxInterval=30s, reportableChange=50 (0.5%RH) */
+          return sendZclConfigureReporting(shortAddr, ep, '0405', '0000', '21', 5, 30, 50)
+            .catch(function () { logWarn('ConfigureReporting humid failed — falling back to poll'); });
+        });
+
+      /* Fallback polling every 5s in case Configure Reporting is not supported */
+      g_pollTimers[shortAddr] = setInterval(function () {
+        var node = state.nodes[shortAddr];
+        if (!node || !node.connected) {
+          clearInterval(g_pollTimers[shortAddr]);
+          delete g_pollTimers[shortAddr];
+          return;
+        }
+        var curEp = node.ep || '0B';
+        sendZclReadAttr(shortAddr, curEp, '0402', '0000', 8000)
+          .catch(function () {})
+          .then(function () {
+            return sendZclReadAttr(shortAddr, curEp, '0405', '0000', 8000).catch(function () {});
+          });
+      }, 5000);
+      logInfo('🔗 Sensor connected — polling/reporting 0x' + shortAddr + ' every 5s');
+
+    } else {
+      /* ── BULB / other: just enable the control panel — no data polling ── */
+      logInfo('🔗 Bulb connected 0x' + shortAddr + ' — control panel active');
+    }
+
+  } else {
+    /* ── DISCONNECT ── */
+    if (isSensorNode(n)) {
+      /* Stop push reporting: send Configure Reporting with maxInterval=0xFFFF */
+      var epD = n.ep || '0B';
+      sendZclConfigureReporting(shortAddr, epD, '0402', '0000', '29', 0, 0xFFFF, 0)
+        .catch(function () {});
+      sendZclConfigureReporting(shortAddr, epD, '0405', '0000', '21', 0, 0xFFFF, 0)
+        .catch(function () {});
+      /* Reset display */
+      setEl('temp-val', '—');
+      setEl('humid-val', '—');
+      setEl('sensor-ts', 'Disconnected');
+    }
+    if (g_pollTimers[shortAddr]) {
+      clearInterval(g_pollTimers[shortAddr]);
+      delete g_pollTimers[shortAddr];
+    }
+    logInfo('⛔ Disconnected 0x' + shortAddr);
+  }
+
   renderNodeList();
+  updateControlPanel();
   saveLocalState();
 }
 
 
+function deleteNode() {
   if (!state.selectedNode) return;
   var addr = state.selectedNode;
   var node = state.nodes[addr];
@@ -1102,27 +1320,58 @@ function toggleNodeConnect(shortAddr) {
   var frame    = buildEbyteFrame(0x00, 0x17, macBytes);
   var hexFrame = bytesToHexStr(frame);
 
-  var sp = ge('overlay-spinner');
-  if (sp) sp.classList.remove('hidden');
-  setEl('overlay-msg', 'Removing node ' + addr + '…');
-  var ov = ge('ctrl-overlay');
-  if (ov) ov.classList.remove('hidden');
+  /* Mark delete as pending — blocks piggyback reads during the operation */
+  g_deletePending[addr]    = true;
+  g_deleteOnlineFail[addr] = false;
+  /* Also extend temp cooldown for this device so piggyback can't sneak in */
+  g_lastTempReadTs[addr]   = Date.now() + 20000;
 
   sendCFML('MODULE_DELETE_NODE:' + hexFrame, 15000)
-    .then(function () {
+    .then(function (resp) {
+      /* sendCFML always RESOLVES even on FAIL (the RPC transport succeeded).
+         We must inspect the text to detect a gateway-side failure. */
+      var r = resp != null
+        ? String(typeof resp === 'object' ? JSON.stringify(resp) : resp)
+        : '';
+      var isFailText   = r.indexOf(':FAIL:') >= 0;
+      var isOnlineText = r.indexOf('INVALID_RESPONSE') >= 0 || r.indexOf('FF E8') >= 0;
+      var isOnlineTele = !!g_deleteOnlineFail[addr];
+      delete g_deletePending[addr];
+      delete g_deleteOnlineFail[addr];
+      if (isFailText && (isOnlineText || isOnlineTele)) {
+        showToast('⚠ Device is online — power it off first');
+        logWarn('DELETE_NODE: device online (0xFF) — node kept in state.');
+        return;
+      }
+      if (isFailText) {
+        showToast('⚠ Delete failed: ' + r.substring(0, 40));
+        return;
+      }
       delete state.nodes[addr];
+      if (g_pollTimers[addr]) { clearInterval(g_pollTimers[addr]); delete g_pollTimers[addr]; }
       state.selectedNode = null;
       renderNodeList();
       updateControlPanel();
       saveLocalState();
       showToast('Node ' + addr + ' removed');
     })
-    .catch(function () {
-      var ov2 = ge('ctrl-overlay');
-      if (ov2) ov2.classList.add('hidden');
-      var sp2 = ge('overlay-spinner');
-      if (sp2) sp2.classList.add('hidden');
-      showToast('⚠ Delete failed');
+    .catch(function (err) {
+      var msg = (err && err.message) ? err.message : String(err);
+      var is504       = msg.indexOf('504') >= 0;
+      var isOnlineTel = !!g_deleteOnlineFail[addr];
+      delete g_deletePending[addr];
+      delete g_deleteOnlineFail[addr];
+      /* 504 with a prior FAIL-via-telemetry = device was online */
+      if (is504 && isOnlineTel) {
+        showToast('⚠ Device is online — power it off first');
+        logWarn('DELETE_NODE: device online (seen via telemetry), RPC returned 504.');
+      } else if (is504) {
+        showToast('⚠ Delete timed out — if device is online, power it off first');
+        logWarn('DELETE_NODE: 504 timeout (concurrent RPC may have interfered).');
+      } else {
+        showToast('⚠ Delete failed: ' + msg.substring(0, 40));
+        logWarn('DELETE_NODE error: ' + msg);
+      }
     });
 }
 
@@ -1334,6 +1583,23 @@ function getDeviceName() {
 /* ────────────────────────────────────────────────────────────────────
    Rendering
    ──────────────────────────────────────────────────────────────────── */
+/** Map a node object to a display icon based on its type/device name. */
+function getNodeIcon(n) {
+  if (n.type === 'Coordinator') return '🌐';
+  if (n.type === 'Router')      return '🔁';
+  var nm = (n.name || '').toLowerCase();
+  if (nm.indexOf('sensor') >= 0)                                   return '🌡️';
+  if (nm.indexOf('bulb') >= 0 || nm.indexOf('light') >= 0 ||
+      nm.indexOf('led')  >= 0 || nm.indexOf('lamp')  >= 0)         return '💡';
+  if (nm.indexOf('switch') >= 0 || nm.indexOf('btn') >= 0)         return '🔘';
+  if (nm.indexOf('plug') >= 0 || nm.indexOf('outlet') >= 0 ||
+      nm.indexOf('socket') >= 0)                                   return '🔌';
+  if (nm.indexOf('door') >= 0 || nm.indexOf('window') >= 0 ||
+      nm.indexOf('contact') >= 0)                                  return '🚪';
+  if (nm.indexOf('motion') >= 0 || nm.indexOf('pir') >= 0)         return '👁️';
+  return '📡';
+}
+
 function renderNodeList() {
   var list  = ge('node-list');
   var addrs = Object.keys(state.nodes);
@@ -1348,7 +1614,7 @@ function renderNodeList() {
   list.innerHTML = addrs.map(function (a) {
     var n    = state.nodes[a];
     var sel  = (a === state.selectedNode) ? ' selected' : '';
-    var icon = n.type === 'Coordinator' ? '🌐' : n.type === 'Router' ? '🔁' : '💡';
+    var icon = getNodeIcon(n);
     var displayName = n.name ? escapeHtml(n.name) : '0x' + escapeHtml(a);
     var subLine     = n.name ? '0x' + escapeHtml(a) + ' · ' : '';
     subLine        += escapeHtml(n.type || '?') + ' EP:' + escapeHtml(n.ep || '--');
@@ -1405,8 +1671,41 @@ function updateControlPanel() {
     /* Node is verified — restore tabs and hide verify overlay */
     var vov2 = ge('verify-overlay');
     if (vov2) vov2.classList.add('hidden');
+
+    /* Detect sensor-type device by name: disable LED cluster tabs */
+    var isSensor = isSensorNode(n);
+
     var tabs2 = _root ? _root.querySelectorAll('.btn-cluster-tab') : [];
-    for (var t2 = 0; t2 < tabs2.length; t2++) tabs2[t2].disabled = false;
+    for (var t2 = 0; t2 < tabs2.length; t2++) {
+      var cl2 = tabs2[t2].getAttribute('data-cluster');
+      /* Sensor: disable lighting clusters (0006 On/Off, 0300 Color) */
+      var isLightCluster = (cl2 === '0006' || cl2 === '0300');
+      tabs2[t2].disabled = isSensor && isLightCluster;
+      tabs2[t2].style.opacity = (isSensor && isLightCluster) ? '0.3' : '';
+      tabs2[t2].title = (isSensor && isLightCluster) ? 'Not available for sensor devices' : '';
+    }
+
+    /* ── SENSOR: show sensor data panel only when connected ── */
+    if (isSensor) {
+      var sensorEl = ge('section-sensor');
+      if (sensorEl) sensorEl.classList.toggle('hidden', !n.connected);
+      ['section-onoff', 'section-color'].forEach(function (id) {
+        var el = ge(id); if (el) el.classList.add('hidden');
+      });
+      return;
+    }
+
+    /* ── BULB / other: show control sections only when connected ── */
+    var sensorEl2 = ge('section-sensor');
+    if (sensorEl2) sensorEl2.classList.add('hidden');
+
+    if (!n.connected) {
+      /* Not connected — hide all control sections */
+      ['section-onoff', 'section-color'].forEach(function (id) {
+        var el = ge(id); if (el) el.classList.add('hidden');
+      });
+      return;
+    }
 
   } else {
     setEl('hero-name', '— Select a node —');
@@ -1416,6 +1715,9 @@ function updateControlPanel() {
     if (hi2) hi2.classList.remove('active');
     var bd2 = ge('btn-del-node');
     if (bd2) bd2.classList.add('hidden');
+    /* Hide all content sections */
+    var sEl = ge('section-sensor');
+    if (sEl) sEl.classList.add('hidden');
   }
 
   /* Show/hide ZCL sections based on selected cluster */
@@ -1554,6 +1856,7 @@ window.openPermitJoin    = openPermitJoin;
 window.autoFind          = autoFind;
 window.bindSelectedNode  = bindSelectedNode;
 window.selectNode        = selectNode;
+window.toggleNodeConnect = toggleNodeConnect;
 window.deleteNode     = deleteNode;
 window.selectCluster  = selectCluster;
 window.onOnOffToggle  = onOnOffToggle;
