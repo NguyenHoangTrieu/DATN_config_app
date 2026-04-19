@@ -363,6 +363,7 @@ var ATTR_META = {
   '0006/0000': { icon: '💡', label: 'On/Off'      },
   '0008/0000': { icon: '🔆', label: 'Level'       },
   '0402/0000': { icon: '🌡', label: 'Temperature' },
+  '0405/0000': { icon: '💧', label: 'Humidity'    },
   '0300/0000': { icon: '🎨', label: 'Hue'         },
   '0300/0001': { icon: '🎨', label: 'Saturation'  },
   '0300/0007': { icon: '🎨', label: 'Color X'     },
@@ -393,6 +394,10 @@ function formatAttr(cluster, attr, value) {
     /* ZCL temperature is int16 in 0.01 °C */
     if (raw > 32767) raw -= 65536;
     html = (raw / 100).toFixed(1) + ' °C';
+
+  } else if (cluster === '0405' && attr === '0000') {
+    /* ZCL Relative Humidity Measurement: uint16 in 0.01 %RH */
+    html = (raw / 100).toFixed(1) + ' %RH';
 
   } else if (cluster === '0300' && attr === '0000') {
     /* Hue: 0-254 → 0-360 degrees */
@@ -443,6 +448,16 @@ function renderGrid() {
     var age    = d.lastTs ? (Math.round((Date.now() - d.lastTs) / 1000) + 's ago') : '—';
     var typeIcon = { 'Router': '⬡', 'End Device': '◆', 'Coordinator': '★' }[d.type] || '🔶';
 
+    /* Resolve device name from runtime state or persisted localStorage */
+    var node    = resolveNode(short);
+    var devName = d.name || (node ? node.name : null);
+    /* Sync name back into device state so subsequent renders are instant */
+    if (!d.name && devName) d.name = devName;
+
+    var nameHtml = devName
+      ? '<div class="zbm-card-name">' + escHtml(devName) + '</div>'
+      : '';
+
     var attrKeys = Object.keys(d.attrs);
     var attrsHtml;
     if (!attrKeys.length) {
@@ -462,6 +477,7 @@ function renderGrid() {
       '<div class="zbm-card-header">' +
         '<span class="zbm-card-icon">' + typeIcon + '</span>' +
         '<div class="zbm-card-info">' +
+          nameHtml +
           '<div class="zbm-card-addr">0x' + short + '</div>' +
           '<div class="zbm-card-type">' + escHtml(d.type) + '</div>' +
           '<div class="zbm-card-ieee">' + escHtml(d.ieee) + '</div>' +

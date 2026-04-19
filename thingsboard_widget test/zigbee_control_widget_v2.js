@@ -53,6 +53,10 @@ self.onInit = function () {
   try {
     _root = document.getElementById('zb-app-root');
     loadLocalState();
+    /* Clear stale node cache so widget always starts fresh */
+    state.nodes = {};
+    state.selectedNode = null;
+    saveLocalState();
     syncSlotSelect();
     renderNodeList();
     updateControlPanel();
@@ -115,6 +119,15 @@ self.onInit = function () {
           renderNodeList();
           saveLocalState();
           logEvt('⚡ [Bridge] Node announce: 0x' + p.short + ' EP:' + p.ep);
+          /* Auto-handshake: read Basic Cluster Model Identifier (0x0000/0x0005)
+             to verify the DATN_AUTH_KEY and mark the node as trusted. */
+          (function (short, ep) {
+            setTimeout(function () {
+              logInfo('Auto-verify 0x' + short + ' (reading Basic/0x0005)…');
+              sendZclReadAttr(short, ep, '0000', '0005', 10000)
+                .catch(function () { logWarn('Auto-verify read failed for 0x' + short); });
+            }, 2000);
+          }(p.short, p.ep || '01'));
 
         } else if (d.type === 'nodeLeave') {
           /* Monitor received 0x80/0x06 Leave Notify */
@@ -269,6 +282,11 @@ function parseZclAttrValue(data, offset, dataType) {
     return { val: v2, hex: pad4(v2 & 0xFFFF), size: 2 };
   } else if (dataType === 0x30) { /* enum8 */
     return { val: data[offset], hex: pad2(data[offset]), size: 1 };
+  } else if (dataType === 0x42) { /* Character String: [len(1B)][chars...] */
+    var L = data[offset] || 0;
+    var chars = data.slice(offset + 1, offset + 1 + L);
+    var strVal = chars.map(function (c) { return String.fromCharCode(c); }).join('');
+    return { val: strVal, hex: strVal, size: 1 + L };
   }
   /* Unknown type — return single byte */
   return { val: data[offset], hex: pad2(data[offset] || 0), size: 1 };
@@ -413,8 +431,16 @@ function sendZclCommand(shortAddr, ep, cluster, cmdId, extPayload, timeoutMs) {
  * sendZclReadAttr — convenience: read ZCL attribute via firmware.
  */
 function sendZclReadAttr(shortAddr, ep, cluster, attrId, timeoutMs) {
-  return sendCFML('MODULE_ZCL_READ_ATTR:' + shortAddr + ',' + ep + ',' + cluster + ',' + attrId,
-                  timeoutMs || 15000);
+  /* Build a proper Ebyte ZCL Read Attribute frame (Type=0x02, Code=0x00).
+     ZCL Read Attributes payload: [NumAttr(1B)] [AttrID_L][AttrID_H] ...
+     BUG FIX: first extData byte MUST be 0x01 (NumAttr=1).
+     Without it the firmware receives NumAttr=0x00 and returns ESP_ERR_INVALID_RESPONSE. */
+  var aH = parseInt(attrId.substring(0, 2), 16);
+  var aL = parseInt(attrId.substring(2, 4), 16);
+  var frame = buildZclFrame(0x00, parseInt(shortAddr, 16), parseInt(ep, 16),
+                            parseInt(cluster, 16), [0x01, aL, aH]);
+  var hexFrame = bytesToHexStr(frame);
+  return sendCFML('MODULE_ZCL_READ_ATTR:' + hexFrame, timeoutMs || 15000);
 }
 
 /* ────────────────────────────────────────────────────────────────────
@@ -593,15 +619,22 @@ function handleNodeAnnounceNotify(data) {
   var epNum     = data[12];
   logEvt('Announce: 0x' + shortAddr + ' EP:' + pad2(epNum) + ' IEEE:' + ieee);
   var existing = state.nodes[shortAddr];
+  var epHex = pad2(epNum);
   if (existing) {
-    existing.ep   = pad2(epNum);
+    existing.ep   = epHex;
     existing.ieee = ieee.toUpperCase();
   } else {
     addNode(shortAddr, ieee.toUpperCase(), '?');
-    if (state.nodes[shortAddr]) state.nodes[shortAddr].ep = pad2(epNum);
+    if (state.nodes[shortAddr]) state.nodes[shortAddr].ep = epHex;
   }
   renderNodeList();
   saveLocalState();
+  /* Auto-handshake: read Basic Cluster Model Identifier to verify auth key */
+  setTimeout(function () {
+    logInfo('Auto-verify 0x' + shortAddr + ' (reading Basic/0x0005)…');
+    sendZclReadAttr(shortAddr, epHex, '0000', '0005', 10000)
+      .catch(function () { logWarn('Auto-verify read failed for 0x' + shortAddr); });
+  }, 2000);
 }
 
 /* ── 0x80/0x06: Node Leave Notify ── */
@@ -804,6 +837,35 @@ function handleAsyncEvent(line) {
 /* ── Shared Attribute Report Handler (used by both HEX and text paths) ── */
 function handleAttrReport(short, cluster, attr, value) {
   if (short !== state.selectedNode) return;
+
+  /* ── Auth Key handshake: Basic Cluster 0x0000, Model Identifier 0x0005 ── */
+  /* parseZclAttrValue already decoded type 0x42 → plain ASCII string        */
+  if (cluster === '0000' && attr === '0005') {
+    if (state.nodes[short]) {
+      if (value === 'DATN_AUTH_KEY') {
+        state.nodes[short].verified = true;
+        state.nodes[short].name     = 'DATN Node';
+        logOk('Auth OK: 0x' + short + ' — DATN_AUTH_KEY verified');
+        showToast('Auth ✓ ' + short);
+      } else {
+        state.nodes[short].verified = false;
+        logWarn('Auth FAIL: 0x' + short + ' key="' + value + '" (expected DATN_AUTH_KEY)');
+        showToast('⚠ Auth fail: ' + short);
+      }
+      renderNodeList();
+      updateControlPanel();
+      saveLocalState();
+      setEl('device-name-result', state.nodes[short].name || value);
+    }
+    return;
+  }
+
+  /* ── Gatekeeper: drop all sensor/control data from unverified nodes ── */
+  if (!state.nodes[short] || state.nodes[short].verified !== true) {
+    logWarn('Drop payload from unverified 0x' + short + ' (Cl:' + cluster + ' At:' + attr + ')');
+    return;
+  }
+
   if (cluster === '0006' && attr === '0000') {
     var on = (parseInt(value, 16) !== 0);
     state.onOffState = on;
@@ -815,11 +877,16 @@ function handleAttrReport(short, cluster, attr, value) {
     setEl('onoff-icon', on ? '💡' : '🔦');
   }
   if (cluster === '0402' && attr === '0000') {
+    /* Temperature: gated by user-controlled "Connect" toggle */
+    if (!state.nodes[short] || !state.nodes[short].connected) return;
     var raw = parseInt(value, 16);
     if (raw > 32767) raw -= 65536;
-    var tempC = (raw / 100.0).toFixed(1);
-    state.tempRaw = tempC;
-    setEl('temp-val', tempC);
+    state.tempRaw = (raw / 100.0).toFixed(1);
+  }
+  if (cluster === '0405' && attr === '0000') {
+    /* Humidity: gated by user-controlled "Connect" toggle */
+    if (!state.nodes[short] || !state.nodes[short].connected) return;
+    state.humidRaw = (parseInt(value, 16) / 100.0).toFixed(1);
   }
 }
 
@@ -975,11 +1042,16 @@ function setNetState(st) {
 function addNode(short, ieee, type) {
   var names    = { '0': 'Coordinator', '1': 'Router', '2': 'End Device', '?': 'Unknown' };
   var existing = state.nodes[short];
-  state.nodes[short] = {
+  var entry = {
     ieee: ieee,
     type: names[type] || (existing ? existing.type : type),
-    ep:   existing ? existing.ep : state.ep
+    ep:   existing ? existing.ep : state.ep,
+    verified:  existing ? existing.verified  : false,  /* false until auth handshake passes */
+    connected: existing ? existing.connected : false   /* false until user clicks Connect */
   };
+  /* Preserve device name and auth state if already resolved via Basic Cluster */
+  if (existing && existing.name) entry.name = existing.name;
+  state.nodes[short] = entry;
   renderNodeList();
   saveLocalState();
 }
@@ -994,16 +1066,49 @@ function selectNode(short) {
   saveLocalState();
 }
 
-function deleteNode() {
+/**
+ * toggleNodeConnect — flip the software "connected" gate for a node.
+ * When connected=true, auto-reported Temperature (0402) and Humidity (0405)
+ * payloads are accepted by handleAttrReport(); otherwise they are dropped.
+ * This is purely a local UI filter — no RPC is sent to the device.
+ */
+function toggleNodeConnect(shortAddr) {
+  var n = state.nodes[shortAddr];
+  if (!n) return;
+  n.connected = !n.connected;
+  logInfo((n.connected ? '🔗 Connected' : '⛔ Disconnected') +
+          ' telemetry stream for 0x' + shortAddr);
+  renderNodeList();
+  saveLocalState();
+}
+
+
   if (!state.selectedNode) return;
   var addr = state.selectedNode;
+  var node = state.nodes[addr];
+
+  if (!node || !node.ieee || node.ieee.indexOf('?') !== -1) {
+    showToast('Cannot delete: MAC address unknown');
+    return;
+  }
+
+  /* Build 8-byte MAC array in Little-Endian order from the 16-char IEEE string */
+  var macBytes = [];
+  for (var i = 14; i >= 0; i -= 2) {
+    macBytes.push(parseInt(node.ieee.substring(i, i + 2), 16));
+  }
+
+  /* Ebyte Type=0x00 Code=0x17 (Kick Device) — payload is 8-byte LE MAC */
+  var frame    = buildEbyteFrame(0x00, 0x17, macBytes);
+  var hexFrame = bytesToHexStr(frame);
+
   var sp = ge('overlay-spinner');
   if (sp) sp.classList.remove('hidden');
   setEl('overlay-msg', 'Removing node ' + addr + '…');
   var ov = ge('ctrl-overlay');
   if (ov) ov.classList.remove('hidden');
 
-  sendCFML('MODULE_DELETE_NODE:' + addr, 15000)
+  sendCFML('MODULE_DELETE_NODE:' + hexFrame, 15000)
     .then(function () {
       delete state.nodes[addr];
       state.selectedNode = null;
@@ -1087,17 +1192,22 @@ function sendFixedColor(hexStr, btnEl) {
   var btns = (_root || document).querySelectorAll('.btn-color');
   for (var i = 0; i < btns.length; i++) btns[i].classList.remove('active');
   if (btnEl) btnEl.classList.add('active');
-  logInfo('Sending color #' + hexStr.toUpperCase());
-  /* ZCL cmd 0x07 = Move to Color XY
-     params: colorX(2B LE), colorY(2B LE), transitionTime(2B LE = 0x000A = 1s) */
-  var xInt = Math.round(xy.x * 65535);
-  var yInt = Math.round(xy.y * 65535);
-  sendZclCommand(t.s, t.ep, '0300', '07',
-    [xInt & 0xFF, (xInt >> 8) & 0xFF,
-     yInt & 0xFF, (yInt >> 8) & 0xFF,
-     0x0A, 0x00],
-    15000).then(function () { showToast('Color sent ✓'); })
-          .catch(function () {});
+  logInfo('Sending ON + color #' + hexStr.toUpperCase());
+  /* Step 1: Turn ON (cluster 0006, cmd 01) to ensure LED is lit */
+  sendZclCommand(t.s, t.ep, '0006', '01', [], 5000)
+    .then(function () {
+      /* Step 2: Send color after ON succeeds (cluster 0300, cmd 07 = Move to Color XY)
+         params: colorX(2B LE), colorY(2B LE), transitionTime(2B LE = 0x000A = 1s) */
+      var xInt = Math.round(xy.x * 65535);
+      var yInt = Math.round(xy.y * 65535);
+      return sendZclCommand(t.s, t.ep, '0300', '07',
+        [xInt & 0xFF, (xInt >> 8) & 0xFF,
+         yInt & 0xFF, (yInt >> 8) & 0xFF,
+         0x0A, 0x00],
+        15000);
+    })
+    .then(function () { showToast('ON + Color sent ✓'); })
+    .catch(function () { showToast('Color send failed'); });
 }
 
 /* ────────────────────────────────────────────────────────────────────
@@ -1125,6 +1235,28 @@ function readTempAttr() {
           if (raw > 32767) raw -= 65536;
           setEl('temp-val', (raw / 100.0).toFixed(1));
           return;
+        }
+      }
+    })
+    .catch(function () {});
+}
+
+/* ────────────────────────────────────────────────────────────────────
+   ZCL Humidity Read (cluster 0405)
+   ──────────────────────────────────────────────────────────────────── */
+function readHumidAttr() {
+  if (!state.selectedNode) { showToast('Select a node first'); return; }
+  var t = getTarget();
+  sendZclReadAttr(t.s, t.ep, '0405', '0000', 15000)
+    .then(function (r) {
+      var lines = splitResp(r);
+      for (var i = 0; i < lines.length; i++) {
+        if (/^55\s/i.test(lines[i])) {
+          var frame = parseEbyteFrame(lines[i]);
+          if (frame && frame.type === 0x82 && frame.code === 0x00) {
+            handleZclReadAttrRsp(frame.data);
+            return;
+          }
         }
       }
     })
@@ -1185,6 +1317,20 @@ function sendZclCmd() {
     .catch(function () {});
 }
 
+/**
+ * getDeviceName — read Basic Cluster 0x0000 attr 0x0005 (Model Identifier)
+ * from the currently selected node. The response is routed through
+ * handleZclReadAttrRsp → handleAttrReport → stores name in state.nodes[addr].name.
+ */
+function getDeviceName() {
+  var t = getTarget();
+  if (!t.s) { showToast('Select a node first'); return; }
+  setEl('device-name-result', '…');
+  logTx('Read ModelIdentifier: 0x' + t.s + ' EP:' + t.ep);
+  sendZclReadAttr(t.s, t.ep, '0000', '0005', 5000)
+    .catch(function () { setEl('device-name-result', 'ERR'); });
+}
+
 /* ────────────────────────────────────────────────────────────────────
    Rendering
    ──────────────────────────────────────────────────────────────────── */
@@ -1200,15 +1346,24 @@ function renderNodeList() {
     return;
   }
   list.innerHTML = addrs.map(function (a) {
-    var n   = state.nodes[a];
-    var sel = (a === state.selectedNode) ? ' selected' : '';
+    var n    = state.nodes[a];
+    var sel  = (a === state.selectedNode) ? ' selected' : '';
     var icon = n.type === 'Coordinator' ? '🌐' : n.type === 'Router' ? '🔁' : '💡';
+    var displayName = n.name ? escapeHtml(n.name) : '0x' + escapeHtml(a);
+    var subLine     = n.name ? '0x' + escapeHtml(a) + ' · ' : '';
+    subLine        += escapeHtml(n.type || '?') + ' EP:' + escapeHtml(n.ep || '--');
+    var connCls  = n.connected ? ' connected' : '';
+    var connTxt  = n.connected ? 'Disconnect' : 'Connect';
     return '<div class="node-item' + sel + '" onclick="selectNode(\'' + escapeJs(a) + '\')">' +
       '<span class="node-icon">' + icon + '</span>' +
       '<div class="node-info">' +
-        '<span class="node-name">0x' + escapeHtml(a) + '</span>' +
-        '<span class="node-addr">' + escapeHtml(n.type || '?') + ' EP:' + escapeHtml(n.ep || '--') + '</span>' +
-      '</div></div>';
+        '<span class="node-name">' + displayName + '</span>' +
+        '<span class="node-addr">' + subLine + '</span>' +
+      '</div>' +
+      '<button class="btn-node-connect' + connCls + '" ' +
+        'onclick="event.stopPropagation();toggleNodeConnect(\'' + escapeJs(a) + '\')" ' +
+        'title="' + connTxt + ' telemetry stream">' + connTxt + '</button>' +
+      '</div>';
   }).join('');
 }
 
@@ -1224,7 +1379,8 @@ function updateControlPanel() {
 
   if (hasNode) {
     var n = state.nodes[state.selectedNode] || {};
-    setEl('hero-name', '0x' + state.selectedNode);
+    var heroName = n.name ? n.name + ' (0x' + state.selectedNode + ')' : '0x' + state.selectedNode;
+    setEl('hero-name', heroName);
     setEl('hero-sub', (n.ieee ? n.ieee.substring(0, 8) + '…' : '—') +
       (n.type ? '  ' + n.type : ''));
     setEl('hero-ep-val', (state.ep || '01').toUpperCase());
@@ -1232,6 +1388,26 @@ function updateControlPanel() {
     if (hi) hi.classList.add('active');
     var bd = ge('btn-del-node');
     if (bd) bd.classList.remove('hidden');
+
+    /* If the node has not yet passed the auth handshake, hide controls and
+       show a "Verifying device…" overlay instead of the cluster sections. */
+    if (n.verified !== true) {
+      ['section-onoff', 'section-color'].forEach(function (id) {
+        var el = ge(id); if (el) el.classList.add('hidden');
+      });
+      var vov = ge('verify-overlay');
+      if (vov) vov.classList.remove('hidden');
+      var tabs = _root ? _root.querySelectorAll('.btn-cluster-tab') : [];
+      for (var t = 0; t < tabs.length; t++) tabs[t].disabled = true;
+      return; /* Skip cluster section logic below */
+    }
+
+    /* Node is verified — restore tabs and hide verify overlay */
+    var vov2 = ge('verify-overlay');
+    if (vov2) vov2.classList.add('hidden');
+    var tabs2 = _root ? _root.querySelectorAll('.btn-cluster-tab') : [];
+    for (var t2 = 0; t2 < tabs2.length; t2++) tabs2[t2].disabled = false;
+
   } else {
     setEl('hero-name', '— Select a node —');
     setEl('hero-sub', '—');
@@ -1243,8 +1419,7 @@ function updateControlPanel() {
   }
 
   /* Show/hide ZCL sections based on selected cluster */
-  var sections = { '0006': 'section-onoff',
-                   '0300': 'section-color', '0402': 'section-temp' };
+  var sections = { '0006': 'section-onoff', '0300': 'section-color' };
   Object.keys(sections).forEach(function (cl) {
     var el = ge(sections[cl]);
     if (el) el.classList.toggle('hidden', cl !== state.cluster);
@@ -1278,7 +1453,8 @@ function saveLocalState() {
       ep:         state.ep,
       cluster:    state.cluster,
       hue:        state.hue,
-      brightness: state.brightness
+      brightness: state.brightness,
+      nodes:      state.nodes   /* persists names for Monitor widget */
     }));
   } catch (e) {}
 }
@@ -1293,6 +1469,7 @@ function loadLocalState() {
     if (s.cluster)           state.cluster    = s.cluster;
     if (s.hue      !== undefined) state.hue        = s.hue;
     if (s.brightness !== undefined) state.brightness = s.brightness;
+    if (s.nodes && typeof s.nodes === 'object') state.nodes = s.nodes;
   } catch (e) {}
 }
 
@@ -1382,7 +1559,9 @@ window.selectCluster  = selectCluster;
 window.onOnOffToggle  = onOnOffToggle;
 window.sendFixedColor = sendFixedColor;
 window.readTempAttr   = readTempAttr;
+window.readHumidAttr  = readHumidAttr;
 window.readAttribute  = readAttribute;
 window.writeAttribute = writeAttribute;
 window.sendZclCmd     = sendZclCmd;
+window.getDeviceName  = getDeviceName;
 window.clearLog       = clearLog;

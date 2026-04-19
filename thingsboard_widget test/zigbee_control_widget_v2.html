@@ -101,7 +101,6 @@
       <div class="cluster-tabs" id="cluster-tabs">
         <button class="btn-cluster-tab active" data-cluster="0006" onclick="selectCluster('0006')">💡 On/Off</button>
         <button class="btn-cluster-tab"        data-cluster="0300" onclick="selectCluster('0300')">🎨 Color</button>
-        <button class="btn-cluster-tab"        data-cluster="0402" onclick="selectCluster('0402')">🌡 Temp</button>
       </div>
 
       <!-- On/Off section (cluster 0006) -->
@@ -140,15 +139,6 @@
         </div>
       </div>
 
-      <!-- Temperature section (cluster 0402) -->
-      <div class="control-card sensor-card hidden" id="section-temp">
-        <div class="sensor-row">
-          <span class="card-title">Temperature</span>
-          <button class="btn-adv" onclick="readTempAttr()">↻ Read</button>
-        </div>
-        <div class="sensor-value-large"><span id="temp-val">—</span><span class="sensor-unit"> °C</span></div>
-      </div>
-
       <!-- Advanced ZCL operations -->
       <div class="adv-section">
         <div class="adv-title">Advanced ZCL</div>
@@ -164,8 +154,10 @@
         <div class="adv-row">
           <input id="inp-zcl-cmd" class="adv-input" type="text" placeholder="CmdID[,data…]" />
           <button class="btn-adv btn-adv-send" onclick="sendZclCmd()">→ Cmd</button>
-        </div>
-      </div>
+        </div>        <div class="adv-row">
+          <button class="btn-adv" onclick="getDeviceName()" style="flex:1">🏷 Get Device Name</button>
+          <span class="adv-result" id="device-name-result">—</span>
+        </div>      </div>
 
       <!-- Overlay (shown when no node selected) -->
       <div id="ctrl-overlay" class="ctrl-overlay">
@@ -178,6 +170,14 @@
             </svg>
           </div>
           <p id="overlay-msg" class="overlay-msg">← Start network &amp;<br>select a node</p>
+        </div>
+      </div>
+
+      <!-- Verifying overlay (shown while auth handshake is in progress) -->
+      <div id="verify-overlay" class="ctrl-overlay hidden">
+        <div class="overlay-inner">
+          <div class="spinner"></div>
+          <p class="overlay-msg">🔐 Verifying device…<br><span style="font-size:9px;opacity:0.6">Reading auth key from Basic Cluster</span></p>
         </div>
       </div>
 

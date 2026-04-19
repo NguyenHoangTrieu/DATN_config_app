@@ -198,6 +198,22 @@
 .node-name { font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .node-addr { font-size: 9px; color: var(--text-dim); font-family: 'Consolas', monospace; }
 
+/* Connect / Disconnect toggle per node */
+.btn-node-connect {
+  font-size: 9px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.btn-node-connect:hover       { border-color: var(--green); color: var(--green); background: var(--green-dim); }
+.btn-node-connect.connected   { border-color: var(--green); color: var(--green); background: var(--green-dim); }
+.btn-node-connect.connected:hover { border-color: var(--red); color: var(--red); background: rgba(239,68,68,0.1); }
+
 /* ── Right: ZCL Control Panel ── */
 .zb-app-root .panel-control {
   flex: 1; min-width: 0;
@@ -256,6 +272,7 @@
 }
 .btn-cluster-tab:hover { border-color: var(--zb); color: var(--zb); }
 .btn-cluster-tab.active { background: rgba(245,158,11,0.12); border-color: var(--zb); color: var(--zb); }
+.btn-cluster-tab:disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
 
 /* Control Card — glassmorphism */
 .zb-app-root .control-card {

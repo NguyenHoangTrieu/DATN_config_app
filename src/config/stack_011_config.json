@@ -366,7 +366,7 @@
       "cmd_code": "",
       "gpio_start_control": [],
       "delay_start": 0,
-      "expect_response": "82 00",
+      "expect_response": "02 00",
       "timeout": 3000,
       "gpio_end_control": [],
       "delay_end": 0

@@ -135,6 +135,7 @@
 }
 .zbm-card-icon  { font-size: 20px; flex-shrink: 0; margin-top: 1px; }
 .zbm-card-info  { flex: 1; min-width: 0; }
+.zbm-card-name  { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
 .zbm-card-addr  { font-size: 14px; font-weight: 700; color: var(--zb); font-family: monospace; }
 .zbm-card-type  { font-size: 11px; color: var(--text-dim); }
 .zbm-card-ieee  { font-size: 10px; color: var(--text-dim); font-family: monospace; margin-top: 2px;
