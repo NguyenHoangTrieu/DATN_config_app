@@ -159,8 +159,11 @@ self.onInit = function () {
   try {
     _root = document.getElementById('zb-app-root');
     loadLocalState();
-    /* Clear stale node cache so widget always starts fresh */
-    state.nodes = {};
+    /* On reload: keep known nodes (names, IEEEs) but reset connection state —
+       actual Zigbee sessions don't survive a page reload. */
+    Object.keys(state.nodes).forEach(function (addr) {
+      if (state.nodes[addr]) state.nodes[addr].connected = false;
+    });
     state.selectedNode = null;
     saveLocalState();
     syncSlotSelect();
@@ -1086,6 +1089,8 @@ function handleAttrReport(short, cluster, attr, value) {
     var tempC = (raw / 100.0).toFixed(1);
     logEvt('🌡 0x' + short + ' Temp = ' + tempC + ' °C (→ Monitor)');
     g_lastTempReadTs[short] = Date.now();
+    state.nodes[short].lastTemp = tempC;   /* persist for state save */
+    saveLocalState();
     /* Bridge to Monitor via CustomEvent (same window — storage event won't fire) */
     var epT = (state.nodes[short] && state.nodes[short].ep) || '0B';
     try { window.dispatchEvent(new CustomEvent('da2_ctrl_bridge', { detail: { ts: Date.now(), line: 'RPT:' + short + ',' + epT + ',0402,0000,29,' + value } })); } catch (e) {}
@@ -1097,6 +1102,8 @@ function handleAttrReport(short, cluster, attr, value) {
     if (!state.nodes[short] || state.nodes[short].verified !== true) return;
     var humid = (parseInt(value, 16) / 100.0).toFixed(1);
     logEvt('💧 0x' + short + ' Humid = ' + humid + ' %RH (→ Monitor)');
+    state.nodes[short].lastHumid = humid;   /* persist for state save */
+    saveLocalState();
     /* Bridge to Monitor via CustomEvent (same window — storage event won't fire) */
     var epH = (state.nodes[short] && state.nodes[short].ep) || '0B';
     try { window.dispatchEvent(new CustomEvent('da2_ctrl_bridge', { detail: { ts: Date.now(), line: 'RPT:' + short + ',' + epH + ',0405,0000,21,' + value } })); } catch (e) {}
@@ -1822,15 +1829,58 @@ function updateClusterTabs() {
 /* ────────────────────────────────────────────────────────────────────
    LocalStorage Persistence
    ──────────────────────────────────────────────────────────────────── */
+
+/**
+ * resetState — hard-reset all widget state and clear localStorage.
+ * Stops all poll timers, wipes nodes, resets network status, and
+ * re-renders the UI from scratch. Called by the Reset button.
+ */
+function resetState() {
+  /* Stop all sensor poll timers */
+  var addrs = Object.keys(g_pollTimers);
+  for (var i = 0; i < addrs.length; i++) { clearInterval(g_pollTimers[addrs[i]]); }
+  g_pollTimers     = {};
+  g_lastTempReadTs = {};
+
+  /* Flush sensor poll queue */
+  g_sensorPollQueue = [];
+  g_sensorPollBusy  = false;
+
+  /* Flush RPC queue */
+  g_rpcQueue     = Promise.resolve();
+  g_rpcLastEndMs = 0;
+
+  /* Reset runtime state */
+  state.nodes        = {};
+  state.networkUp    = false;
+  state.selectedNode = null;
+  state.onOffState   = false;
+
+  /* Wipe localStorage */
+  try { localStorage.removeItem('da2_zb_v2');      } catch (e) {}
+  try { localStorage.removeItem('da2_ctrl_bridge'); } catch (e) {}
+
+  /* Re-render UI */
+  setNetworkStatus('off');
+  renderNodeList();
+  updateControlPanel();
+  saveLocalState();
+
+  showToast('State cleared ✓');
+  logInfo('🗑 Reset — all nodes and network data cleared');
+}
+
 function saveLocalState() {
   try {
     localStorage.setItem('da2_zb_v2', JSON.stringify({
-      slot:       state.slot,
-      ep:         state.ep,
-      cluster:    state.cluster,
-      hue:        state.hue,
-      brightness: state.brightness,
-      nodes:      state.nodes   /* persists names for Monitor widget */
+      slot:         state.slot,
+      ep:           state.ep,
+      cluster:      state.cluster,
+      hue:          state.hue,
+      brightness:   state.brightness,
+      networkUp:    state.networkUp,
+      selectedNode: state.selectedNode,
+      nodes:        state.nodes   /* includes name, ieee, type, ep, connected, lastTemp, lastHumid */
     }));
   } catch (e) {}
 }
@@ -1840,11 +1890,13 @@ function loadLocalState() {
     var raw = localStorage.getItem('da2_zb_v2');
     if (!raw) return;
     var s = JSON.parse(raw);
-    if (s.slot)              state.slot       = s.slot;
-    if (s.ep)                state.ep         = s.ep;
-    if (s.cluster)           state.cluster    = s.cluster;
-    if (s.hue      !== undefined) state.hue        = s.hue;
+    if (s.slot)                  state.slot         = s.slot;
+    if (s.ep)                    state.ep           = s.ep;
+    if (s.cluster)               state.cluster      = s.cluster;
+    if (s.hue        !== undefined) state.hue        = s.hue;
     if (s.brightness !== undefined) state.brightness = s.brightness;
+    if (s.networkUp  !== undefined) state.networkUp  = s.networkUp;
+    if (s.selectedNode)          state.selectedNode = s.selectedNode;
     if (s.nodes && typeof s.nodes === 'object') state.nodes = s.nodes;
   } catch (e) {}
 }
@@ -1942,3 +1994,4 @@ window.writeAttribute = writeAttribute;
 window.sendZclCmd     = sendZclCmd;
 window.getDeviceName  = getDeviceName;
 window.clearLog       = clearLog;
+window.resetState     = resetState;

@@ -43,7 +43,10 @@
     <div class="panel-devices">
       <div class="panel-devices-header">
         <span class="section-label">Network &amp; Nodes</span>
-        <div class="net-badge" id="net-badge" data-state="off">OFF</div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <button class="btn-reset-state" onclick="resetState()" title="Clear all nodes and network state">↺ Reset</button>
+          <div class="net-badge" id="net-badge" data-state="off">OFF</div>
+        </div>
       </div>
 
       <!-- Network action chips -->

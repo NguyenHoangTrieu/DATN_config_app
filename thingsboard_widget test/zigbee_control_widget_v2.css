@@ -119,6 +119,16 @@
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 12px; flex-shrink: 0;
 }
+.btn-reset-state {
+  padding: 3px 7px; border-radius: var(--radius-xs);
+  background: transparent; border: 1px solid var(--border);
+  color: var(--text-dim); font-size: 9px; font-weight: 600;
+  cursor: pointer; transition: all 0.2s; letter-spacing: 0.4px;
+}
+.btn-reset-state:hover {
+  border-color: var(--red); color: var(--red);
+  background: rgba(239,68,68,0.08);
+}
 .zb-app-root .section-label {
   font-size: 10px; font-weight: 700; text-transform: uppercase;
   letter-spacing: 0.8px; color: var(--text-dim);
