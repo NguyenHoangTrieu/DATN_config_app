@@ -854,20 +854,8 @@ function updateLedBadge(devIdx, on) {
 }
 
 function updateSensorPanel(devIdx) {
-  var sd = state.sensorData[devIdx];
-  if (!sd) return;
-  if (sd.temp !== null && sd.temp !== undefined) {
-    setEl('temp-value', sd.temp.toFixed(2) + '<span class="unit"> °C</span>');
-    setEl('temp-max',  sd.tempMax !== null ? sd.tempMax.toFixed(1) : '—');
-    setEl('temp-min',  sd.tempMin !== null ? sd.tempMin.toFixed(1) : '—');
-  }
-  if (sd.hum !== null && sd.hum !== undefined) {
-    setEl('hum-value',  sd.hum.toFixed(2) + '<span class="unit"> %</span>');
-    setEl('hum-max',    sd.humMax  !== null ? sd.humMax.toFixed(1)  : '—');
-    setEl('hum-min',    sd.humMin  !== null ? sd.humMin.toFixed(1)  : '—');
-  }
-  var upd = ge('sensor-last-update');
-  if (upd) upd.textContent = 'Last update: ' + (sd.lastUpdate || '—');
+  /* Sensor data display removed from control widget — shown in Monitor widget only.
+     State (state.sensorData) is still updated by handleNotifyData for the monitor. */
 }
 
 /* ═══════════════════════════════════════════════════════════════════

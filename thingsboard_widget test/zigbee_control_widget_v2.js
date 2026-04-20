@@ -1859,6 +1859,10 @@ function resetState() {
   /* Wipe localStorage */
   try { localStorage.removeItem('da2_zb_v2');      } catch (e) {}
   try { localStorage.removeItem('da2_ctrl_bridge'); } catch (e) {}
+  try { localStorage.removeItem('da2_zbm_state');   } catch (e) {}
+
+  /* Notify Monitor widget to clear its state too */
+  try { window.dispatchEvent(new CustomEvent('da2_reset')); } catch (e) {}
 
   /* Re-render UI */
   setNetworkStatus('off');

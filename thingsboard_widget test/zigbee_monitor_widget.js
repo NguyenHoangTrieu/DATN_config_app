@@ -34,6 +34,9 @@ var zbmState = {
   nodes:   {}    /* loaded from da2_zb_v2 localStorage */
 };
 
+/* ─── localStorage key for Monitor device state ─── */
+var ZBM_STORAGE_KEY = 'da2_zbm_state';
+
 /* Attribute reports less frequent than BLE NOTIFY — give 2 min stale window */
 var ZBM_STALE_MS = 120000;
 
@@ -42,9 +45,11 @@ var ZBM_STALE_MS = 120000;
    ═══════════════════════════════════════════════════════════════════ */
 var _zbmStaleTimer = null;
 var _zbmCtrlBridgeHandler = null;
+var _zbmResetHandler = null;
 
 self.onInit = function () {
   loadNodes();
+  loadMonitorState();   /* restore last-known sensor cards from localStorage */
   renderGrid();
   _zbmStaleTimer = setInterval(function () {
     var now     = Date.now();
@@ -74,6 +79,18 @@ self.onInit = function () {
     } catch (ex) { /* ignore parse errors */ }
   };
   window.addEventListener('da2_ctrl_bridge', _zbmCtrlBridgeHandler);
+
+  /* ── Listen for Control widget resetState() → clear Monitor state too ── */
+  _zbmResetHandler = function () {
+    zbmState.devices = {};
+    zbmState.totalRx = 0;
+    try { localStorage.removeItem(ZBM_STORAGE_KEY); } catch (e) {}
+    renderGrid();
+    var rc = ge('zbm-rx-count'); if (rc) rc.textContent = '0 reports received';
+    var lt = ge('zbm-last-ts');  if (lt) lt.textContent = '';
+    setPill('idle', 'Waiting');
+  };
+  window.addEventListener('da2_reset', _zbmResetHandler);
 };
 
 self.onDestroy = function () {
@@ -81,6 +98,10 @@ self.onDestroy = function () {
   if (_zbmCtrlBridgeHandler) {
     window.removeEventListener('da2_ctrl_bridge', _zbmCtrlBridgeHandler);
     _zbmCtrlBridgeHandler = null;
+  }
+  if (_zbmResetHandler) {
+    window.removeEventListener('da2_reset', _zbmResetHandler);
+    _zbmResetHandler = null;
   }
 };
 
@@ -375,6 +396,7 @@ function updateDeviceAttr(short, ep, cluster, attr, value, ts) {
   zbmEmit('attrReport', { short: short, ep: ep, cluster: cluster, attr: attr, value: value });
 
   renderGrid();
+  saveMonitorState();
   setPill('active', 'Live');
   var rc = ge('zbm-rx-count'); if (rc) rc.textContent = zbmState.totalRx + ' reports received';
   var lt = ge('zbm-last-ts');  if (lt) lt.textContent  = 'Last: ' + new Date().toLocaleTimeString();
@@ -560,6 +582,51 @@ function loadNodes() {
     }
   } catch (e) {}
 }
+
+/* Save current sensor device cards so they survive a page reload */
+function saveMonitorState() {
+  try {
+    localStorage.setItem(ZBM_STORAGE_KEY, JSON.stringify({
+      devices: zbmState.devices,
+      totalRx: zbmState.totalRx
+    }));
+  } catch (e) {}
+}
+
+/* Restore previously-saved sensor device cards on init.
+   Reset lastTs to now so the stale timer keeps them alive for 2 more minutes
+   while fresh ZCL reads arrive. */
+function loadMonitorState() {
+  try {
+    var raw = localStorage.getItem(ZBM_STORAGE_KEY);
+    if (!raw) return;
+    var s = JSON.parse(raw);
+    if (s.devices && typeof s.devices === 'object') {
+      var now  = Date.now();
+      var keys = Object.keys(s.devices);
+      for (var i = 0; i < keys.length; i++) {
+        var d = s.devices[keys[i]];
+        if (d && d.attrs) {
+          d.lastTs = now;   /* mark fresh so stale timer doesn't immediately evict */
+          zbmState.devices[keys[i]] = d;
+        }
+      }
+    }
+    if (s.totalRx) zbmState.totalRx = s.totalRx;
+  } catch (e) {}
+}
+
+/* Clear all Monitor sensor cards and saved state (standalone clear, no network reset) */
+function zbmClearState() {
+  zbmState.devices = {};
+  zbmState.totalRx = 0;
+  try { localStorage.removeItem(ZBM_STORAGE_KEY); } catch (e) {}
+  renderGrid();
+  var rc = ge('zbm-rx-count'); if (rc) rc.textContent = '0 reports received';
+  var lt = ge('zbm-last-ts');  if (lt) lt.textContent = '';
+  setPill('idle', 'Waiting');
+}
+window.zbmClearState = zbmClearState;
 
 function resolveNode(short) {
   loadNodes();   /* refresh each call — control widget may have updated localStorage */

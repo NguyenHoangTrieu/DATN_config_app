@@ -153,14 +153,11 @@
 .btn-on.active  { background: #43a047; box-shadow: 0 0 12px #43a04766; }
 .btn-off.active { background: #546e7a; }
 
-/* Sensor panel */
-.sensor-cards { display: flex; gap: 8px; flex-wrap: wrap; flex: 1; align-content: flex-start; }
-.sensor-card  { flex: 1 1 calc(50% - 4px); min-width: 110px; background: #1e2a3a; border-radius: 8px; padding: 10px 14px; text-align: center; }
-.sensor-label { font-size: 14px; color: #78909c; margin-bottom: 4px; }
-.sensor-val   { font-size: 28px; font-weight: 700; color: #80deea; line-height: 1.1; }
-.sensor-val .unit { font-size: 15px; color: #90a4ae; }
-.sensor-minmax { display: flex; justify-content: space-around; margin-top: 5px; font-size: 11px; color: #78909c; flex-shrink: 0; }
-.sensor-meta  { font-size: 11px; color: #546e7a; text-align: right; flex-shrink: 0; margin-top: auto; }
+/* Sensor panel — data display removed, shown in Monitor widget */
+.sensor-hint {
+  font-size: 11px; color: #546e7a; font-style: italic;
+  margin-left: auto; white-space: nowrap;
+}
 
 /* Console */
 .console-wrap { height: 108px; display: flex; flex-direction: column; background: #263238; border-top: 1px solid #37474f; flex-shrink: 0; }

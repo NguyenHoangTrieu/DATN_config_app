@@ -180,3 +180,12 @@
   color: var(--text-dim);
   flex-shrink: 0;
 }
+.zbm-btn-reset {
+  padding: 3px 9px; border-radius: 5px;
+  background: rgba(239,68,68,0.10); border: 1px solid rgba(239,68,68,0.40);
+  color: #f87171; font-size: 10px; font-weight: 700;
+  cursor: pointer; transition: all 0.2s;
+}
+.zbm-btn-reset:hover {
+  background: rgba(239,68,68,0.22); border-color: #ef4444; color: #ef4444;
+}
