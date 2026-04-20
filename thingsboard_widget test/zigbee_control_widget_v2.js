@@ -19,6 +19,26 @@
      Access latest value: data['data'][data['data'].length - 1][1]
    ===================================================================== */
 
+/* =====================================================================
+   ── CONFIGURATION ──────────────────────────────────────────────────
+   Tune these values to match your network latency and device response
+   time. Increase RPC_MIN_GAP_MS if you still see 504 errors.
+
+   RPC 504 root causes:
+     1. E180 module drops a ZCL request if one transaction is already
+        in-flight (no internal queue) → gateway never gets a reply →
+        ThingsBoard times out the RPC → 504.
+     2. Two sendCFML calls racing to the server within a few hundred ms
+        both block on the same gateway serial port → second one starves.
+   Both are fixed by serializing ALL RPCs through a single promise queue
+   with a minimum inter-command gap of RPC_MIN_GAP_MS.
+   ===================================================================== */
+var CFG = {
+  RPC_MIN_GAP_MS:   1000,   /* minimum ms between consecutive RPC calls (≥1000 recommended) */
+  SENSOR_POLL_MS:   3000,   /* how often each sensor node is enqueued for a poll cycle       */
+  SENSOR_NODE_GAP:   300,   /* ms pause between finishing one node's reads and starting next */
+};
+
 /* ── App State ── */
 var state = {
   slot:         '0',
@@ -54,6 +74,83 @@ var g_lastTempReadTs = {};
 var g_deletePending = {};
 /* ── Delete FAIL observed via telemetry while delete was pending ────────────── */
 var g_deleteOnlineFail = {};
+/* ── Auto-verify queue: serialize auth reads so concurrent announces don't
+   cause simultaneous RPCs → 504. Each item: { short, ep }.               ── */
+var g_verifyQueue   = [];
+var g_verifyRunning = false;
+
+/* ── Global sensor poll queue: serializes ALL ZCL reads across ALL sensor nodes.
+   Prevents concurrent RPCs to different nodes (E180 drops 2nd request → 504).
+   Items: { shortAddr, ep }. One node's temp+humid reads finish before next
+   node starts. Each node enqueues itself every 3 s via its own setInterval.  ── */
+var g_sensorPollQueue = [];
+var g_sensorPollBusy  = false;
+
+/* Read one cluster attribute (0000) — returns promise, resolves on success OR timeout */
+function doSensorReadCluster(sAddr, sEp, cluster) {
+  return sendZclReadAttr(sAddr, sEp, cluster, '0000', 5000)
+    .then(function (r) {
+      var lines = splitResp(r);
+      for (var i = 0; i < lines.length; i++) {
+        if (/^55\s/i.test(lines[i])) {
+          var frame = parseEbyteFrame(lines[i]);
+          if (frame && frame.type === 0x82 && frame.code === 0x00) {
+            handleZclReadAttrRsp(frame.data);
+            return;
+          }
+        }
+      }
+    })
+    .catch(function () {});
+}
+
+/* Enqueue a sensor node for polling. Deduplicates — only one entry per node. */
+function enqueueSensorPoll(shortAddr, ep) {
+  var n = state.nodes[shortAddr];
+  if (!n || !n.connected) return;
+  for (var qi = 0; qi < g_sensorPollQueue.length; qi++) {
+    if (g_sensorPollQueue[qi].shortAddr === shortAddr) return; /* already queued */
+  }
+  g_sensorPollQueue.push({ shortAddr: shortAddr, ep: ep });
+  if (!g_sensorPollBusy) drainSensorPollQueue();
+}
+
+/* Process queue one node at a time: temp → humid → next node */
+function drainSensorPollQueue() {
+  if (!g_sensorPollQueue.length) { g_sensorPollBusy = false; return; }
+  g_sensorPollBusy = true;
+  var item = g_sensorPollQueue.shift();
+  var n = state.nodes[item.shortAddr];
+  if (!n || !n.connected) {
+    /* Node disconnected — skip, process next immediately */
+    drainSensorPollQueue();
+    return;
+  }
+  /* Sequential reads: temp first, then humid (same node, back-to-back, no overlap) */
+  doSensorReadCluster(item.shortAddr, item.ep, '0402')
+    .then(function () { return doSensorReadCluster(item.shortAddr, item.ep, '0405'); })
+    .then(function () { setTimeout(drainSensorPollQueue, CFG.SENSOR_NODE_GAP); }); /* gap before next node */
+}
+
+function queueAutoVerify(short, ep) {
+  /* Skip if already verified or already queued */
+  if (state.nodes[short] && state.nodes[short].verified === true) return;
+  for (var qi = 0; qi < g_verifyQueue.length; qi++) {
+    if (g_verifyQueue[qi].short === short) return;
+  }
+  g_verifyQueue.push({ short: short, ep: ep });
+  if (!g_verifyRunning) { runVerifyQueue(); }
+}
+
+function runVerifyQueue() {
+  if (g_verifyQueue.length === 0) { g_verifyRunning = false; return; }
+  g_verifyRunning = true;
+  var item = g_verifyQueue.shift();
+  logInfo('Auto-verify 0x' + item.short + ' (reading Basic/0x0005)…');
+  sendZclReadAttr(item.short, item.ep, '0000', '0005', 10000)
+    .catch(function () { logWarn('Auto-verify read failed for 0x' + item.short); })
+    .then(function () { setTimeout(runVerifyQueue, 500); });
+}
 
 /* ────────────────────────────────────────────────────────────────────
    ThingsBoard Lifecycle
@@ -132,11 +229,7 @@ self.onInit = function () {
           /* Auto-handshake: read Basic Cluster Model Identifier (0x0000/0x0005)
              to verify the DATN_AUTH_KEY and mark the node as trusted. */
           (function (short, ep) {
-            setTimeout(function () {
-              logInfo('Auto-verify 0x' + short + ' (reading Basic/0x0005)…');
-              sendZclReadAttr(short, ep, '0000', '0005', 10000)
-                .catch(function () { logWarn('Auto-verify read failed for 0x' + short); });
-            }, 2000);
+            setTimeout(function () { queueAutoVerify(short, ep); }, 2000);
           }(p.short, p.ep || '01'));
 
         } else if (d.type === 'nodeLeave') {
@@ -362,6 +455,16 @@ function resolveTargetEntityId() {
 /* ────────────────────────────────────────────────────────────────────
    RPC / CFML Helpers
    ──────────────────────────────────────────────────────────────────── */
+
+/* ── Global RPC serializer ────────────────────────────────────────────
+   All sendCFML calls are chained through g_rpcQueue so they execute
+   one at a time with a mandatory ≥1 s gap between consecutive RPCs.
+   This prevents 504 errors caused by concurrent or rapid-fire requests.
+   g_rpcLastEndMs tracks when the last RPC finished to calculate the
+   remaining wait time before the next one may start.                 ── */
+var g_rpcQueue     = Promise.resolve();
+var g_rpcLastEndMs = 0;
+
 function sendRPC(method, params, timeoutMs) {
   return new Promise(function (resolve, reject) {
     if (!self.ctx || !self.ctx.controlApi) {
@@ -397,6 +500,8 @@ function hexToString(hex) {
 
 /**
  * sendCFML — wraps payload in CFML:CFZB:<slot>: and sends as hex-encoded RPC.
+ * All calls are serialized through g_rpcQueue with a mandatory ≥1 s gap so
+ * that rapid-fire or concurrent calls never reach the server simultaneously.
  * payload: function_name for static, or function_name:params for dynamic.
  * Examples:
  *   'MODULE_START_NETWORK'
@@ -405,19 +510,30 @@ function hexToString(hex) {
  */
 function sendCFML(payload, timeoutMs) {
   var cmd = 'CFML:CFZB:' + state.slot + ':' + payload;
-  logTx(cmd);
-  var hexCmd = stringToHex(cmd);
-  return sendRPC('sendCommand', hexCmd, timeoutMs || state.rpcTimeout)
-    .then(function (resp) {
-      if (resp) logCFMLResponse(resp);
-      return resp;
-    })
-    .catch(function (err) {
-      var msg = err && err.message ? err.message : String(err);
-      logFail('RPC: ' + msg);
-      showToast('⚠ ' + msg);
-      throw err;
-    });
+  /* Chain onto global queue — executes after previous RPC finishes + 1 s gap */
+  var p = g_rpcQueue.then(function () {
+    var wait = Math.max(0, CFG.RPC_MIN_GAP_MS - (Date.now() - g_rpcLastEndMs));
+    return new Promise(function (res) { setTimeout(res, wait); });
+  }).then(function () {
+    logTx(cmd);
+    return sendRPC('sendCommand', stringToHex(cmd), timeoutMs || state.rpcTimeout)
+      .then(function (resp) {
+        if (resp) logCFMLResponse(resp);
+        g_rpcLastEndMs = Date.now();
+        return resp;
+      })
+      .catch(function (err) {
+        g_rpcLastEndMs = Date.now();  /* update even on failure */
+        var msg = err && err.message ? err.message : String(err);
+        logFail('RPC: ' + msg);
+        showToast('⚠ ' + msg);
+        throw err;
+      });
+  });
+  /* Replace queue with a non-rejecting version so a failure doesn't block
+     all subsequent calls */
+  g_rpcQueue = p.catch(function () {});
+  return p;
 }
 
 /**
@@ -494,7 +610,7 @@ function sendZclConfigureReporting(shortAddr, ep, cluster, attrId, dataType, min
   var hexFrame = bytesToHexStr(frame);
   logInfo('ZCL ConfigureReport: cl=' + cluster + ' attr=' + attrId +
     ' min=' + minInterval + 's max=' + maxInterval + 's');
-  return sendCFML('MODULE_ZCL_CONFIGURE_REPORT:' + hexFrame, 10000);
+  return sendCFML('MODULE_ZCL_SET_REPORT_RULE:' + hexFrame, 10000);
 }
 
 /* ────────────────────────────────────────────────────────────────────
@@ -731,11 +847,7 @@ function handleNodeAnnounceNotify(data) {
   renderNodeList();
   saveLocalState();
   /* Auto-handshake: read Basic Cluster Model Identifier to verify auth key */
-  setTimeout(function () {
-    logInfo('Auto-verify 0x' + shortAddr + ' (reading Basic/0x0005)…');
-    sendZclReadAttr(shortAddr, epHex, '0000', '0005', 10000)
-      .catch(function () { logWarn('Auto-verify read failed for 0x' + shortAddr); });
-  }, 2000);
+  setTimeout(function () { queueAutoVerify(shortAddr, epHex); }, 2000);
 }
 
 /* ── 0x80/0x06: Node Leave Notify ── */
@@ -972,13 +1084,11 @@ function handleAttrReport(short, cluster, attr, value) {
     var raw = parseInt(value, 16);
     if (raw > 32767) raw -= 65536;
     var tempC = (raw / 100.0).toFixed(1);
-    logEvt('🌡 0x' + short + ' Temp = ' + tempC + ' °C');
+    logEvt('🌡 0x' + short + ' Temp = ' + tempC + ' °C (→ Monitor)');
     g_lastTempReadTs[short] = Date.now();
-    if (short === state.selectedNode && state.nodes[short].connected) {
-      state.tempRaw = tempC;
-      setEl('temp-val', tempC);
-      setEl('sensor-ts', 'Updated: ' + new Date().toLocaleTimeString());
-    }
+    /* Bridge to Monitor via CustomEvent (same window — storage event won't fire) */
+    var epT = (state.nodes[short] && state.nodes[short].ep) || '0B';
+    try { window.dispatchEvent(new CustomEvent('da2_ctrl_bridge', { detail: { ts: Date.now(), line: 'RPT:' + short + ',' + epT + ',0402,0000,29,' + value } })); } catch (e) {}
     return;
   }
 
@@ -986,12 +1096,10 @@ function handleAttrReport(short, cluster, attr, value) {
   if (cluster === '0405' && attr === '0000') {
     if (!state.nodes[short] || state.nodes[short].verified !== true) return;
     var humid = (parseInt(value, 16) / 100.0).toFixed(1);
-    logEvt('💧 0x' + short + ' Humid = ' + humid + ' %RH');
-    if (short === state.selectedNode && state.nodes[short].connected) {
-      state.humidRaw = humid;
-      setEl('humid-val', humid);
-      setEl('sensor-ts', 'Updated: ' + new Date().toLocaleTimeString());
-    }
+    logEvt('💧 0x' + short + ' Humid = ' + humid + ' %RH (→ Monitor)');
+    /* Bridge to Monitor via CustomEvent (same window — storage event won't fire) */
+    var epH = (state.nodes[short] && state.nodes[short].ep) || '0B';
+    try { window.dispatchEvent(new CustomEvent('da2_ctrl_bridge', { detail: { ts: Date.now(), line: 'RPT:' + short + ',' + epH + ',0405,0000,21,' + value } })); } catch (e) {}
     return;
   }
 
@@ -1226,47 +1334,29 @@ function toggleNodeConnect(shortAddr) {
     var ep = n.ep || '0B';
 
     if (isSensorNode(n)) {
-      /* ── SENSOR: send ZCL Configure Reporting → device starts pushing data ──
-         After Connect, server sends Configure Reporting commands for temp (0x0402)
-         and humidity (0x0405) so the device starts pushing attribute reports.
-         minInterval=5s, maxInterval=30s. Also do an immediate read for instant display. */
-      logInfo('🔗 Sensor connect 0x' + shortAddr + ' — configuring reporting…');
+      /* ── SENSOR CONNECT ───────────────────────────────────────────────
+         Enqueues this node into the global sensor poll queue every 3 s.
+         The queue reads temp (0x0402) then humid (0x0405) sequentially —
+         no concurrent ZCL transactions. Multiple sensor nodes are also
+         serialized through the same queue (one node at a time).           */
+      logInfo('🔗 Sensor connect 0x' + shortAddr + ' — starting polling…');
 
-      /* Immediate read first (instant display) */
-      sendZclReadAttr(shortAddr, ep, '0402', '0000', 8000)
-        .catch(function () {})
-        .then(function () {
-          return sendZclReadAttr(shortAddr, ep, '0405', '0000', 8000).catch(function () {});
-        })
-        .then(function () {
-          /* Configure Reporting: temp cluster 0x0402, attr 0x0000, int16 (0x29)
-             minInterval=5s, maxInterval=30s, reportableChange=10 (0.1°C) */
-          return sendZclConfigureReporting(shortAddr, ep, '0402', '0000', '29', 5, 30, 10)
-            .catch(function () { logWarn('ConfigureReporting temp failed — falling back to poll'); });
-        })
-        .then(function () {
-          /* Configure Reporting: humid cluster 0x0405, attr 0x0000, uint16 (0x21)
-             minInterval=5s, maxInterval=30s, reportableChange=50 (0.5%RH) */
-          return sendZclConfigureReporting(shortAddr, ep, '0405', '0000', '21', 5, 30, 50)
-            .catch(function () { logWarn('ConfigureReporting humid failed — falling back to poll'); });
-        });
+      /* Immediate poll on connect */
+      enqueueSensorPoll(shortAddr, ep);
 
-      /* Fallback polling every 5s in case Configure Reporting is not supported */
+      /* 3 s tick: enqueue this node — queue drains sequentially */
+      if (g_pollTimers[shortAddr]) { clearInterval(g_pollTimers[shortAddr]); }
       g_pollTimers[shortAddr] = setInterval(function () {
-        var node = state.nodes[shortAddr];
-        if (!node || !node.connected) {
+        var nn = state.nodes[shortAddr];
+        if (!nn || !nn.connected) {
           clearInterval(g_pollTimers[shortAddr]);
           delete g_pollTimers[shortAddr];
           return;
         }
-        var curEp = node.ep || '0B';
-        sendZclReadAttr(shortAddr, curEp, '0402', '0000', 8000)
-          .catch(function () {})
-          .then(function () {
-            return sendZclReadAttr(shortAddr, curEp, '0405', '0000', 8000).catch(function () {});
-          });
-      }, 5000);
-      logInfo('🔗 Sensor connected — polling/reporting 0x' + shortAddr + ' every 5s');
+        enqueueSensorPoll(shortAddr, ep);
+      }, CFG.SENSOR_POLL_MS);
+
+      logInfo('✓ Sensor 0x' + shortAddr + ' polling active (3s queue)');
 
     } else {
       /* ── BULB / other: just enable the control panel — no data polling ── */
@@ -1276,16 +1366,7 @@ function toggleNodeConnect(shortAddr) {
   } else {
     /* ── DISCONNECT ── */
     if (isSensorNode(n)) {
-      /* Stop push reporting: send Configure Reporting with maxInterval=0xFFFF */
-      var epD = n.ep || '0B';
-      sendZclConfigureReporting(shortAddr, epD, '0402', '0000', '29', 0, 0xFFFF, 0)
-        .catch(function () {});
-      sendZclConfigureReporting(shortAddr, epD, '0405', '0000', '21', 0, 0xFFFF, 0)
-        .catch(function () {});
-      /* Reset display */
-      setEl('temp-val', '—');
-      setEl('humid-val', '—');
-      setEl('sensor-ts', 'Disconnected');
+      logInfo('⛔ Sensor 0x' + shortAddr + ' disconnected — polling stopped');
     }
     if (g_pollTimers[shortAddr]) {
       clearInterval(g_pollTimers[shortAddr]);
@@ -1685,10 +1766,8 @@ function updateControlPanel() {
       tabs2[t2].title = (isSensor && isLightCluster) ? 'Not available for sensor devices' : '';
     }
 
-    /* ── SENSOR: show sensor data panel only when connected ── */
+    /* ── SENSOR: no control sections shown (data appears in Monitor widget) ── */
     if (isSensor) {
-      var sensorEl = ge('section-sensor');
-      if (sensorEl) sensorEl.classList.toggle('hidden', !n.connected);
       ['section-onoff', 'section-color'].forEach(function (id) {
         var el = ge(id); if (el) el.classList.add('hidden');
       });
@@ -1696,8 +1775,6 @@ function updateControlPanel() {
     }
 
     /* ── BULB / other: show control sections only when connected ── */
-    var sensorEl2 = ge('section-sensor');
-    if (sensorEl2) sensorEl2.classList.add('hidden');
 
     if (!n.connected) {
       /* Not connected — hide all control sections */
@@ -1715,9 +1792,6 @@ function updateControlPanel() {
     if (hi2) hi2.classList.remove('active');
     var bd2 = ge('btn-del-node');
     if (bd2) bd2.classList.add('hidden');
-    /* Hide all content sections */
-    var sEl = ge('section-sensor');
-    if (sEl) sEl.classList.add('hidden');
   }
 
   /* Show/hide ZCL sections based on selected cluster */

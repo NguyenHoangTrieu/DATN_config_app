@@ -41,6 +41,7 @@ var ZBM_STALE_MS = 120000;
    ThingsBoard Lifecycle
    ═══════════════════════════════════════════════════════════════════ */
 var _zbmStaleTimer = null;
+var _zbmCtrlBridgeHandler = null;
 
 self.onInit = function () {
   loadNodes();
@@ -58,10 +59,29 @@ self.onInit = function () {
     }
     if (changed) renderGrid();
   }, 30000);
+
+  /* ── Bridge: receive Control widget read-attr data via CustomEvent.
+     Control widget dispatches 'da2_ctrl_bridge' on window when it gets a
+     ZCL Read Attr response for temp or humid. Both widgets share the same
+     window (ThingsBoard same-context), so CustomEvent works; localStorage
+     storage event does NOT fire in the same window that set the item.      ── */
+  _zbmCtrlBridgeHandler = function (e) {
+    var detail = e && e.detail;
+    if (!detail || !detail.line) return;
+    try {
+      parseLine(detail.line, detail.ts || Date.now());
+      renderGrid();
+    } catch (ex) { /* ignore parse errors */ }
+  };
+  window.addEventListener('da2_ctrl_bridge', _zbmCtrlBridgeHandler);
 };
 
 self.onDestroy = function () {
   if (_zbmStaleTimer) { clearInterval(_zbmStaleTimer); _zbmStaleTimer = null; }
+  if (_zbmCtrlBridgeHandler) {
+    window.removeEventListener('da2_ctrl_bridge', _zbmCtrlBridgeHandler);
+    _zbmCtrlBridgeHandler = null;
+  }
 };
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -383,14 +403,8 @@ function ensureDevice(short, ieee, ts) {
    Attribute formatters
    ═══════════════════════════════════════════════════════════════════ */
 var ATTR_META = {
-  '0006/0000': { icon: '💡', label: 'On/Off'      },
-  '0008/0000': { icon: '🔆', label: 'Level'       },
   '0402/0000': { icon: '🌡', label: 'Temperature' },
-  '0405/0000': { icon: '💧', label: 'Humidity'    },
-  '0300/0000': { icon: '🎨', label: 'Hue'         },
-  '0300/0001': { icon: '🎨', label: 'Saturation'  },
-  '0300/0007': { icon: '🎨', label: 'Color X'     },
-  '0300/0008': { icon: '🎨', label: 'Color Y'     }
+  '0405/0000': { icon: '💧', label: 'Humidity'    }
 };
 
 function formatAttr(cluster, attr, value) {
@@ -465,6 +479,15 @@ function renderGrid() {
   /* Add / update one card per device */
   devKeys.forEach(function (short) {
     var d      = zbmState.devices[short];
+
+    /* ── Sensor-only filter: only show nodes with temp or humid data ── */
+    if (!d.attrs['0402/0000'] && !d.attrs['0405/0000']) {
+      /* Not a sensor (no temp/humid attrs) — remove card if it exists */
+      var oldCard = ge('zbm-card-' + short);
+      if (oldCard) oldCard.parentNode.removeChild(oldCard);
+      return;
+    }
+
     var cardId = 'zbm-card-' + short;
     var card   = ge(cardId);
 
