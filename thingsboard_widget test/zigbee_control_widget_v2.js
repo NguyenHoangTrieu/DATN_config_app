@@ -135,8 +135,9 @@ function drainSensorPollQueue() {
 }
 
 function queueAutoVerify(short, ep) {
-  /* Skip if already verified or already queued */
-  if (state.nodes[short] && state.nodes[short].verified === true) return;
+  /* Skip if already verified, already failed, or already queued */
+  if (state.nodes[short] && state.nodes[short].verified === true)   return;
+  if (state.nodes[short] && state.nodes[short].verifyFailed === true) return;
   for (var qi = 0; qi < g_verifyQueue.length; qi++) {
     if (g_verifyQueue[qi].short === short) return;
   }
@@ -144,13 +145,39 @@ function queueAutoVerify(short, ep) {
   if (!g_verifyRunning) { runVerifyQueue(); }
 }
 
+var MAX_VERIFY_ATTEMPTS = 3;
+
 function runVerifyQueue() {
   if (g_verifyQueue.length === 0) { g_verifyRunning = false; return; }
   g_verifyRunning = true;
   var item = g_verifyQueue.shift();
-  logInfo('Auto-verify 0x' + item.short + ' (reading Basic/0x0005)…');
+  var n = state.nodes[item.short];
+  /* Node may have been deleted while queued */
+  if (!n) { setTimeout(runVerifyQueue, 200); return; }
+  /* Already verified or permanently failed — skip */
+  if (n.verified || n.verifyFailed) { setTimeout(runVerifyQueue, 200); return; }
+
+  n.verifyAttempts = (n.verifyAttempts || 0) + 1;
+  logInfo('Auto-verify 0x' + item.short + ' attempt ' + n.verifyAttempts + '/' + MAX_VERIFY_ATTEMPTS + ' (reading Basic/0x0005)…');
+
   sendZclReadAttr(item.short, item.ep, '0000', '0005', 10000)
-    .catch(function () { logWarn('Auto-verify read failed for 0x' + item.short); })
+    .catch(function () {
+      /* RPC timed out or gateway error — count as a failed attempt */
+      var nn = state.nodes[item.short];
+      if (!nn || nn.verified) return;
+      if (nn.verifyAttempts >= MAX_VERIFY_ATTEMPTS) {
+        nn.verifyFailed = true;
+        logWarn('Auto-verify GAVE UP on 0x' + item.short + ' after ' + MAX_VERIFY_ATTEMPTS + ' attempts — node blocked');
+        showToast('⚠ Node 0x' + item.short + ' verify failed (3×)');
+        renderNodeList();
+        updateControlPanel();
+        saveLocalState();
+      } else {
+        logWarn('Auto-verify attempt ' + nn.verifyAttempts + ' failed for 0x' + item.short + ' — will retry');
+        /* Re-queue for another attempt */
+        g_verifyQueue.push(item);
+      }
+    })
     .then(function () { setTimeout(runVerifyQueue, 500); });
 }
 
@@ -159,6 +186,27 @@ function runVerifyQueue() {
    ──────────────────────────────────────────────────────────────────── */
 self.onInit = function () {
   try {
+    /* ── Pre-cleanup: remove any listeners left over from a previous onInit
+       that was not paired with onDestroy (TB re-init on widget save / navigation).
+       Without this, every re-init adds a new listener and the same event fires
+       N times → N identical log entries and N duplicate RPC calls. ── */
+    if (g_rawLineHandler) {
+      window.removeEventListener('da2_raw_line', g_rawLineHandler);
+      g_rawLineHandler = null;
+    }
+    if (g_zbmEventHandler) {
+      window.removeEventListener('da2_zb_event', g_zbmEventHandler);
+      g_zbmEventHandler = null;
+    }
+    if (g_teleSubscriber) {
+      try {
+        if (self.ctx && self.ctx.telemetryWsService) {
+          self.ctx.telemetryWsService.unsubscribe(g_teleSubscriber);
+        }
+      } catch (ue) {}
+      g_teleSubscriber = null;
+    }
+
     _root = document.getElementById('zb-app-root');
     loadLocalState();
     /* On reload: keep known nodes (names, IEEEs) but reset connection state —
@@ -185,7 +233,7 @@ self.onInit = function () {
         var subscriber = {
           entityId:   entityId,
           entityType: 'DEVICE',
-          keys:       'data',
+          keys:       ['data'],
           onData: function (data) {
             if (!data) return;
             /* TB telemetryWsService shape: { [key]: [[ts, value], ...] }
@@ -1136,8 +1184,16 @@ function handleAttrReport(short, cluster, attr, value) {
            until the user clicks Connect. This satisfies requirement 1. */
       } else {
         state.nodes[short].verified = false;
-        logWarn('Auth FAIL: 0x' + short + ' key="' + value + '" (expected DATN_AUTH_KEY...)');
-        showToast('⚠ Auth fail: ' + short);
+        state.nodes[short].verifyAttempts = (state.nodes[short].verifyAttempts || 0) + 1;
+        logWarn('Auth FAIL: 0x' + short + ' key="' + value + '" (expected DATN_AUTH_KEY...) attempt ' +
+          state.nodes[short].verifyAttempts + '/' + MAX_VERIFY_ATTEMPTS);
+        if (state.nodes[short].verifyAttempts >= MAX_VERIFY_ATTEMPTS) {
+          state.nodes[short].verifyFailed = true;
+          showToast('⚠ Node 0x' + short + ' verify failed (3×)');
+          logWarn('Auto-verify GAVE UP on 0x' + short + ' — node blocked');
+        } else {
+          showToast('⚠ Auth fail: ' + short);
+        }
       }
       renderNodeList();
       updateControlPanel();
@@ -1353,8 +1409,10 @@ function addNode(short, ieee, type) {
     ieee: ieee,
     type: names[type] || (existing ? existing.type : type),
     ep:   existing ? existing.ep : '?',
-    verified:  existing ? existing.verified  : false,  /* false until auth handshake passes */
-    connected: existing ? existing.connected : false   /* false until user clicks Connect */
+    verified:       existing ? existing.verified       : false,  /* false until auth handshake passes */
+    connected:      existing ? existing.connected      : false,  /* false until user clicks Connect */
+    verifyAttempts: existing ? existing.verifyAttempts : 0,      /* number of auth read attempts made */
+    verifyFailed:   existing ? existing.verifyFailed   : false   /* true after MAX_VERIFY_ATTEMPTS failures */
   };
   /* Preserve device name and auth state if already resolved via Basic Cluster */
   if (existing && existing.name) entry.name = existing.name;
@@ -1816,7 +1874,20 @@ function updateControlPanel() {
         var el = ge(id); if (el) el.classList.add('hidden');
       });
       var vov = ge('verify-overlay');
-      if (vov) vov.classList.remove('hidden');
+      if (vov) {
+        vov.classList.remove('hidden');
+        /* Distinguish permanently-failed nodes from in-progress verify */
+        var vmsg = vov.querySelector('.overlay-msg');
+        if (vmsg) {
+          if (n.verifyFailed) {
+            vmsg.innerHTML = '⛔ Verify failed (3×)<br><span style="font-size:9px;opacity:0.6">Node not authorized — reset to retry</span>';
+          } else {
+            vmsg.innerHTML = '🔐 Verifying device…<br><span style="font-size:9px;opacity:0.6">Reading auth key from Basic Cluster</span>';
+          }
+        }
+        var spinner = vov.querySelector('.spinner');
+        if (spinner) spinner.classList.toggle('hidden', !!n.verifyFailed);
+      }
       var tabs = _root ? _root.querySelectorAll('.btn-cluster-tab') : [];
       for (var t = 0; t < tabs.length; t++) tabs[t].disabled = true;
       return; /* Skip cluster section logic below */
@@ -1912,6 +1983,10 @@ function resetState() {
   g_sensorPollQueue = [];
   g_sensorPollBusy  = false;
 
+  /* Flush verify queue */
+  g_verifyQueue   = [];
+  g_verifyRunning = false;
+
   /* Flush RPC queue */
   g_cmdQueue     = [];
   g_cmdBusy      = false;
@@ -1932,7 +2007,7 @@ function resetState() {
   try { window.dispatchEvent(new CustomEvent('da2_reset')); } catch (e) {}
 
   /* Re-render UI */
-  setNetworkStatus('off');
+  setNetState('off');
   renderNodeList();
   updateControlPanel();
   saveLocalState();
