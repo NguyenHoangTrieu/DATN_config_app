@@ -97,16 +97,42 @@ self.onDataUpdated = function () {
     for (var ki = 0; ki < data.length; ki++) {
       var kd = data[ki];
       if (!kd || !kd.data || !kd.data.length) continue;
-      var latest = kd.data[kd.data.length - 1];
-      var dataTs = latest[0];   /* ThingsBoard timestamp, ms */
-      var raw    = latest[1];
-      /* Skip stale replay on reload — only process fresh data */
-      if (!dataTs || (now - dataTs) > STALE_MS) continue;
-      var decoded = decodeHex(raw);
-      splitLines(decoded).forEach(function (line) { parseAndUpdate(line, dataTs); });
+      /* Process ALL entries in the batch — when SCAN_DONE and NOTIFY arrive
+       * close together, ThingsBoard stores both in kd.data.  Reading only the
+       * last entry would miss NOTIFY entries that precede a SCAN_DONE response. */
+      for (var di = 0; di < kd.data.length; di++) {
+        var entry  = kd.data[di];
+        var dataTs = entry[0];   /* ThingsBoard timestamp, ms */
+        var raw    = entry[1];
+        /* Skip stale replay on reload — only process fresh data */
+        if (!dataTs || (now - dataTs) > STALE_MS) continue;
+        var decoded = decodeHex(raw);
+        splitLines(decoded).forEach(function (line) {
+          parseAndUpdate(line, dataTs);
+          /* Bridge: forward every line to control widget via CustomEvent so it
+           * receives SCAN_DONE, CONNECTED, DISCONNECTED etc. even when those
+           * arrive as telemetry (after RPC slot was consumed by a NOTIFY). */
+          blmEmit(line, dataTs);
+        });
+      }
     }
   } catch (e) { /* silently ignore */ }
 };
+
+/* Forward a decoded telemetry line to the control widget.
+ * Uses window CustomEvent (same-page, zero-latency) with localStorage as a
+ * fallback bridge for widgets loaded in different iframes. */
+function blmEmit(line, ts) {
+  try {
+    window.dispatchEvent(new CustomEvent('da2_blg_event', {
+      detail: { line: line, ts: ts || Date.now() }
+    }));
+  } catch (e) { /* CustomEvent not supported */ }
+  try {
+    localStorage.setItem('da2_blg_bridge',
+      JSON.stringify({ line: line, ts: ts || Date.now() }));
+  } catch (e) { /* storage full / sandboxed */ }
+}
 
 /* ═══════════════════════════════════════════════════════════════════
    Parse one decoded telemetry line

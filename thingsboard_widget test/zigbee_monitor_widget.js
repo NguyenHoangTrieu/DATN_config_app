@@ -264,7 +264,14 @@ function parseLine(line, ts) {
    ═══════════════════════════════════════════════════════════════════ */
 function parseHexFrame(hexStr, ts) {
   var frame = parseEbyteFrame(hexStr);
-  if (!frame || !frame.valid) return;
+  if (!frame) return;
+  if (!frame.valid) {
+    /* Log checksum failures so they show up in browser console for diagnosis */
+    console.warn('[ZBM] Bad checksum — type=0x' + frame.type.toString(16) +
+                 ' code=0x' + frame.code.toString(16) +
+                 ' frame=' + hexStr.substring(0, 40));
+    return;
+  }
 
   /* ── 0x80/0x03: Node Join Notify ── */
   if (frame.type === 0x80 && frame.code === 0x03) {
@@ -280,7 +287,8 @@ function parseHexFrame(hexStr, ts) {
 
   /* ── 0x80/0x05: Node Announce Notify ── */
   if (frame.type === 0x80 && frame.code === 0x05) {
-    if (frame.data.length < 13) return;
+    console.log('[ZBM] 0x80/0x05 Announce frame received, data.length=' + frame.data.length);
+    if (frame.data.length < 13) { console.warn('[ZBM] Announce frame too short:', frame.data.length); return; }
     var ieee2 = frame.data.slice(2, 10).reverse().map(function (b) { return pad2(b); }).join('');
     var shortAddr2 = pad4((frame.data[11] << 8) | frame.data[10]);
     var epNum = frame.data[12];

@@ -221,6 +221,18 @@ self.onInit = function () {
           /* Monitor received 0x80/0x03 Join Notify */
           addNode(p.short, p.ieee || '????????????????', '?');
           logEvt('⚡ [Bridge] Node join: 0x' + p.short);
+          /* Fallback: if announce (0x80/0x05) is missed or arrives late, schedule
+             a delayed verify. By 10 s the announce should have set node.ep;
+             if not, fall back to endpoint 0x0B (standard sensor EP). */
+          (function (short) {
+            setTimeout(function () {
+              var n = state.nodes[short];
+              if (!n || n.verified) return;
+              var ep = (n.ep && n.ep !== '?') ? n.ep : '0B';
+              logInfo('[Auto] Fallback verify 0x' + short + ' EP:' + ep + ' (announce may have been missed)');
+              queueAutoVerify(short, ep);
+            }, 10000);
+          }(p.short));
 
         } else if (d.type === 'nodeAnnounce') {
           /* Monitor received 0x80/0x05 Announce Notify — has EP */

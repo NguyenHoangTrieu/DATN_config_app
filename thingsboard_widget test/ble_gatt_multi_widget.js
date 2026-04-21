@@ -40,6 +40,9 @@ var state = {
   pendingConnects: {}   /* mac → {name,type}: fallback if RPC response is lost over WAN */
 };
 
+/* Handle for the monitor-widget → control-widget bridge event listener */
+var _blgBridgeHandler = null;
+
 /* ═══════════════════════════════════════════════════════════════════
    ThingsBoard Lifecycle
    ═══════════════════════════════════════════════════════════════════ */
@@ -53,12 +56,28 @@ self.onInit = function () {
   } catch (e) {
     logFail('onInit: ' + e);
   }
+  /* Bridge: receive all telemetry lines forwarded by the monitor widget via
+   * CustomEvent 'da2_blg_event'.  This handles SCAN_DONE, NOTIFY, CONNECTED,
+   * DISCONNECTED events even when the RPC reply slot was consumed by an
+   * earlier NOTIFY — the monitor widget always gets every telemetry update. */
+  _blgBridgeHandler = function (e) {
+    var detail = e && e.detail;
+    if (!detail || !detail.line) return;
+    try { handleAsyncLine(detail.line); } catch (ex) { /* ignore */ }
+  };
+  window.addEventListener('da2_blg_event', _blgBridgeHandler);
 };
 
-self.onDestroy = function () {};
+self.onDestroy = function () {
+  if (_blgBridgeHandler) {
+    window.removeEventListener('da2_blg_event', _blgBridgeHandler);
+    _blgBridgeHandler = null;
+  }
+};
 
 /* Async telemetry (unsolicited NOTIFY from sensor devices) */
 var _tbLastLogTs = 0;
+var _tbLastProcessedTs = 0;  /* tracks last processed telemetry timestamp to avoid re-processing */
 self.onDataUpdated = function () {
   try {
     var data = self.ctx && self.ctx.data;
@@ -70,20 +89,30 @@ self.onDataUpdated = function () {
     for (var ki = 0; ki < data.length; ki++) {
       var kd = data[ki];
       if (!kd || !kd.data || !kd.data.length) continue;
-      var latest  = kd.data[kd.data.length - 1];
-      var raw     = latest[1];
-      /* Throttled diagnostic: show at most once per 15 s so user can confirm
-         TB telemetry is arriving without console spam */
-      var now = Date.now();
-      if (now - _tbLastLogTs > 15000) {
-        _tbLastLogTs = now;
-        var preview = String(raw).substr(0, 24);
-        logEvt('[TB] telemetry rx: ' + preview + (String(raw).length > 24 ? '…' : ''));
+      /* Process ALL entries in ascending order, not just the last one.
+       * When SCAN_DONE and a NOTIFY arrive close together, ThingsBoard stores
+       * both as separate time-series entries in kd.data.  Reading only
+       * kd.data[kd.data.length-1] silently drops SCAN_DONE because the
+       * subsequent NOTIFY becomes the last entry. */
+      for (var di = 0; di < kd.data.length; di++) {
+        var entry  = kd.data[di];
+        var ts     = entry[0];
+        var raw    = entry[1];
+        /* Skip entries already processed in a previous onDataUpdated call */
+        if (ts <= _tbLastProcessedTs) continue;
+        _tbLastProcessedTs = ts;
+        /* Throttled diagnostic */
+        var now = Date.now();
+        if (now - _tbLastLogTs > 15000) {
+          _tbLastLogTs = now;
+          var preview = String(raw).substr(0, 24);
+          logEvt('[TB] telemetry rx: ' + preview + (String(raw).length > 24 ? '…' : ''));
+        }
+        var decoded = decodeRpcValue(raw);
+        splitLines(decoded).forEach(function (line) {
+          handleAsyncLine(line);
+        });
       }
-      var decoded = decodeRpcValue(raw);
-      splitLines(decoded).forEach(function (line) {
-        handleAsyncLine(line);
-      });
       /* no break — process all subscribed data keys */
     }
   } catch (e) {
@@ -213,10 +242,22 @@ function startScan() {
   enqueue(function () {
     return sendCFBG('SCAN', '5000', 15000)
       .then(function (resp) {
-        /* parseScanDone updates state.scanResults and renders the list */
+        /* Guard: while the SCAN RPC is pending (5 s), the WAN MCU may deliver an
+         * async NOTIFY from an already-connected sensor as the RPC reply, resolving
+         * sendTwoWayCommand early with NOTIFY data instead of SCAN_DONE.
+         * If the response doesn't contain SCAN_DONE, process it as an async event
+         * and leave state.scanning=true — the real SCAN_DONE will arrive shortly
+         * via telemetry (onDataUpdated → handleAsyncLine). */
+        if (!resp || resp.indexOf('SCAN_DONE:') === -1) {
+          if (resp) {
+            splitLines(resp).forEach(function (line) { handleAsyncLine(line); });
+          }
+          logInfo('Scan RPC: non-SCAN_DONE reply — waiting for SCAN_DONE via telemetry…');
+          /* state.scanning stays true; handleAsyncLine SCAN_DONE will finish the scan */
+          return;
+        }
+        /* Normal path: RPC returned the full scan result */
         var results = parseScanDone(resp);
-        /* If parseScanDone got nothing (maybe results arrived via telemetry
-           already in handleAsyncLine), use whatever is in state.scanResults */
         if (results.length === 0 && state.scanResults.length > 0) {
           results = state.scanResults;
         } else if (results.length > 0) {
@@ -614,9 +655,31 @@ function handleAsyncLine(line) {
     return;
   }
 
-  /* SCAN_DONE:<N> — scan completed via telemetry */
+  /* SCAN_DONE:<N> — scan completed via telemetry (RPC was intercepted by NOTIFY) */
   m = l.match(/^SCAN_DONE:(\d+)/);
-  if (m) { logEvt('Scan done — ' + m[1] + ' device(s)'); return; }
+  if (m) {
+    logEvt('Scan done — ' + m[1] + ' device(s)');
+    if (state.scanning) {
+      /* Defer until after all SCAN_RESULT lines in this telemetry packet are
+       * processed by the same forEach loop.  Without setTimeout(0), SCAN_DONE
+       * fires first (it's the first record in the uplink), state.scanning is
+       * cleared, and the subsequent SCAN_RESULT records are dropped by the
+       * "if (m && state.scanning)" guard below. */
+      setTimeout(function () {
+        if (!state.scanning) return;  /* guard: already completed via another path */
+        var cnt = state.scanResults.length;
+        var connCount = Object.keys(state.connected).length;
+        setStatus(connCount > 0 ? 'connected' : 'idle',
+                  cnt + ' device' + (cnt !== 1 ? 's' : '') + ' found');
+        logInfo('Scan complete (async) — ' + cnt + ' device(s)');
+        showToast('Found ' + cnt + ' device(s)');
+        renderScanList(state.scanResults);
+        state.scanning = false;
+        setBtnScan(false);
+      }, 0);
+    }
+    return;
+  }
 
   /* SCAN_RESULT:<idx>,<mac>,<rssi>,<name> — results via telemetry while scanning */
   m = l.match(/^SCAN_RESULT:(\d+),([0-9a-fA-F:]{17}),(-?\d+),(.*)/i);
