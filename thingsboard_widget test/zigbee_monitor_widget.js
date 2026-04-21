@@ -140,11 +140,12 @@ self.onDataUpdated = function () {
       var decoded = decodeHex(raw);
       splitLines(decoded).forEach(function (line) {
         parseLine(line, dataTs || now);
-        /* Bridge: forward raw lines to control widget via localStorage */
+        /* Bridge: forward raw lines to control widget for direct processing */
         try {
-          localStorage.setItem('da2_zb_bridge',
-            JSON.stringify({ ts: dataTs || now, line: line }));
-        } catch (be) { /* ignore storage errors */ }
+          window.dispatchEvent(new CustomEvent('da2_raw_line', {
+            detail: { ts: dataTs || now, line: line }
+          }));
+        } catch (re) { /* ignore */ }
       });
     }
   } catch (e) { /* silent — monitor widget must not crash */ }

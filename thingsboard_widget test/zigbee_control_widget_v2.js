@@ -36,7 +36,7 @@
 var CFG = {
   RPC_MIN_GAP_MS:   1000,   /* minimum ms between consecutive RPC calls (≥1000 recommended) */
   SENSOR_POLL_MS:   3000,   /* how often each sensor node is enqueued for a poll cycle       */
-  SENSOR_NODE_GAP:   300,   /* ms pause between finishing one node's reads and starting next */
+  SENSOR_NODE_GAP:   1000,   /* ms pause between finishing one node's reads and starting next */
 };
 
 /* ── App State ── */
@@ -65,6 +65,8 @@ var g_teleSubscriber  = null;
 var g_lastTeleTs      = 0;
 /* ── Cross-widget bridge listener (receives events from Monitor widget) ── */
 var g_zbmEventHandler = null;
+/* ── Raw line forwarder (receives raw telemetry lines from Monitor widget) ── */
+var g_rawLineHandler  = null;
 /* ── Active polling timers: shortAddr → setInterval ID ───────────────────── */
 /* Stored outside state so they are never serialised to localStorage.     */
 var g_pollTimers = {};
@@ -274,6 +276,21 @@ self.onInit = function () {
     window.addEventListener('da2_zb_event', g_zbmEventHandler);
     logInfo('Monitor bridge listener registered');
 
+    /* ── 3. Listen for raw telemetry lines forwarded by Monitor widget ──
+       Monitor widget dispatches 'da2_raw_line' for every telemetry line it
+       receives. Control processes it via dispatchLine so ALL Ebyte frame
+       types (announce 0x80/0x05, net-status 0x80/0x02, etc.) are handled
+       directly without relying solely on the structured event bridge. */
+    g_rawLineHandler = function (evt) {
+      try {
+        var d = evt && evt.detail;
+        if (!d || !d.line) return;
+        dispatchLine(d.line);
+      } catch (re) { /* ignore */ }
+    };
+    window.addEventListener('da2_raw_line', g_rawLineHandler);
+    logInfo('Raw line bridge listener registered');
+
   } catch (e) {
     console.error('[ZB Widget] onInit error:', e);
   }
@@ -285,6 +302,13 @@ self.onDestroy = function () {
     if (g_zbmEventHandler) {
       window.removeEventListener('da2_zb_event', g_zbmEventHandler);
       g_zbmEventHandler = null;
+    }
+  } catch (e) {}
+  /* ── Remove raw line bridge listener ── */
+  try {
+    if (g_rawLineHandler) {
+      window.removeEventListener('da2_raw_line', g_rawLineHandler);
+      g_rawLineHandler = null;
     }
   } catch (e) {}
   /* ── Unsubscribe telemetry WebSocket ── */
@@ -471,14 +495,52 @@ function resolveTargetEntityId() {
    RPC / CFML Helpers
    ──────────────────────────────────────────────────────────────────── */
 
-/* ── Global RPC serializer ────────────────────────────────────────────
-   All sendCFML calls are chained through g_rpcQueue so they execute
-   one at a time with a mandatory ≥1 s gap between consecutive RPCs.
-   This prevents 504 errors caused by concurrent or rapid-fire requests.
+/* ── Global RPC serializer (priority queue) ───────────────────────────
+   All sendCFML calls go through an explicit priority queue so that
+   user-triggered light control commands ('high') always execute before
+   automated sensor reads and verify reads ('low').
+   When a 'high' item is enqueued it is inserted in front of all 'low'
+   items that are already waiting — it cannot preempt an in-flight RPC,
+   but it will be next the moment the current one finishes.
    g_rpcLastEndMs tracks when the last RPC finished to calculate the
    remaining wait time before the next one may start.                 ── */
-var g_rpcQueue     = Promise.resolve();
+var g_cmdQueue     = [];   /* { fn, priority, resolve, reject } */
+var g_cmdBusy      = false;
 var g_rpcLastEndMs = 0;
+
+/* Internal: pop next task and run it */
+function _drainCmdQueue() {
+  if (!g_cmdQueue.length) { g_cmdBusy = false; return; }
+  g_cmdBusy = true;
+  var task = g_cmdQueue.shift();
+  var wait = Math.max(0, CFG.RPC_MIN_GAP_MS - (Date.now() - g_rpcLastEndMs));
+  setTimeout(function () {
+    task.fn()
+      .then(function (v)  { g_rpcLastEndMs = Date.now(); task.resolve(v); })
+      .catch(function (e) { g_rpcLastEndMs = Date.now(); task.reject(e);  })
+      .then(function ()   { _drainCmdQueue(); })
+      .catch(function ()  { _drainCmdQueue(); });
+  }, wait);
+}
+
+/* Enqueue fn with priority 'high' | 'low' (default 'low').
+   'high' items are inserted before the first 'low' item in the queue. */
+function enqueueCmd(fn, priority) {
+  return new Promise(function (resolve, reject) {
+    var task = { fn: fn, priority: priority || 'low', resolve: resolve, reject: reject };
+    if (priority === 'high') {
+      /* Insert before first 'low' item — high items retain their own order */
+      var idx = g_cmdQueue.length;
+      for (var i = 0; i < g_cmdQueue.length; i++) {
+        if (g_cmdQueue[i].priority !== 'high') { idx = i; break; }
+      }
+      g_cmdQueue.splice(idx, 0, task);
+    } else {
+      g_cmdQueue.push(task);
+    }
+    if (!g_cmdBusy) _drainCmdQueue();
+  });
+}
 
 function sendRPC(method, params, timeoutMs) {
   return new Promise(function (resolve, reject) {
@@ -515,40 +577,31 @@ function hexToString(hex) {
 
 /**
  * sendCFML — wraps payload in CFML:CFZB:<slot>: and sends as hex-encoded RPC.
- * All calls are serialized through g_rpcQueue with a mandatory ≥1 s gap so
- * that rapid-fire or concurrent calls never reach the server simultaneously.
+ * All calls are serialized through the priority queue with a mandatory ≥1 s gap.
+ * priority: 'high' for user-triggered light commands, 'low' (default) for
+ * automated sensor reads and verify operations.
  * payload: function_name for static, or function_name:params for dynamic.
  * Examples:
  *   'MODULE_START_NETWORK'
  *   'MODULE_ZCL_SEND_CONTROL_CMD:1234,0A,0006,01'
  *   'MODULE_SET_DEST_ADDR:1234'
  */
-function sendCFML(payload, timeoutMs) {
+function sendCFML(payload, timeoutMs, priority) {
   var cmd = 'CFML:CFZB:' + state.slot + ':' + payload;
-  /* Chain onto global queue — executes after previous RPC finishes + 1 s gap */
-  var p = g_rpcQueue.then(function () {
-    var wait = Math.max(0, CFG.RPC_MIN_GAP_MS - (Date.now() - g_rpcLastEndMs));
-    return new Promise(function (res) { setTimeout(res, wait); });
-  }).then(function () {
+  return enqueueCmd(function () {
     logTx(cmd);
     return sendRPC('sendCommand', stringToHex(cmd), timeoutMs || state.rpcTimeout)
       .then(function (resp) {
         if (resp) logCFMLResponse(resp);
-        g_rpcLastEndMs = Date.now();
         return resp;
       })
       .catch(function (err) {
-        g_rpcLastEndMs = Date.now();  /* update even on failure */
         var msg = err && err.message ? err.message : String(err);
         logFail('RPC: ' + msg);
         showToast('⚠ ' + msg);
         throw err;
       });
-  });
-  /* Replace queue with a non-rejecting version so a failure doesn't block
-     all subsequent calls */
-  g_rpcQueue = p.catch(function () {});
-  return p;
+  }, priority || 'low');
 }
 
 /**
@@ -562,8 +615,9 @@ function sendCFML(payload, timeoutMs) {
  * @param {string}         cmdId          2-char hex ZCL command ID (e.g. "01")
  * @param {number[]|[]}    extPayload     ZCL payload bytes AFTER cmdId (may be empty array)
  * @param {number}         [timeoutMs]    RPC timeout
+ * @param {string}         [priority]     'high' for user commands, 'low' (default) for automated reads
  */
-function sendZclCommand(shortAddr, ep, cluster, cmdId, extPayload, timeoutMs) {
+function sendZclCommand(shortAddr, ep, cluster, cmdId, extPayload, timeoutMs, priority) {
   var payBytes = Array.isArray(extPayload) ? extPayload : [];
   var frame = buildZclFrame(0x0F,
     parseInt(shortAddr, 16),
@@ -572,7 +626,7 @@ function sendZclCommand(shortAddr, ep, cluster, cmdId, extPayload, timeoutMs) {
     [parseInt(cmdId, 16)].concat(payBytes));
   var hexFrame = bytesToHexStr(frame);
   logInfo('ZCL Frame: ' + hexFrame);
-  return sendCFML('MODULE_ZCL_SEND_CONTROL_CMD:' + hexFrame, timeoutMs || 15000);
+  return sendCFML('MODULE_ZCL_SEND_CONTROL_CMD:' + hexFrame, timeoutMs || 15000, priority || 'low');
 }
 
 /**
@@ -1298,7 +1352,7 @@ function addNode(short, ieee, type) {
   var entry = {
     ieee: ieee,
     type: names[type] || (existing ? existing.type : type),
-    ep:   existing ? existing.ep : state.ep,
+    ep:   existing ? existing.ep : '?',
     verified:  existing ? existing.verified  : false,  /* false until auth handshake passes */
     connected: existing ? existing.connected : false   /* false until user clicks Connect */
   };
@@ -1515,7 +1569,7 @@ function onOnOffToggle(checked) {
   setEl('onoff-icon', checked ? '💡' : '🔦');
   /* ZCL On/Off: cmdId 0x01=On, 0x00=Off — addressed to selected node */
   var t = getTarget();
-  sendZclCommand(t.s, t.ep, '0006', checked ? '01' : '00', [], 5000)
+  sendZclCommand(t.s, t.ep, '0006', checked ? '01' : '00', [], 5000, 'high')
     .catch(function () {});
 }
 
@@ -1543,7 +1597,7 @@ function sendFixedColor(hexStr, btnEl) {
   if (btnEl) btnEl.classList.add('active');
   logInfo('Sending ON + color #' + hexStr.toUpperCase());
   /* Step 1: Turn ON (cluster 0006, cmd 01) to ensure LED is lit */
-  sendZclCommand(t.s, t.ep, '0006', '01', [], 5000)
+  sendZclCommand(t.s, t.ep, '0006', '01', [], 5000, 'high')
     .then(function () {
       /* Step 2: Send color after ON succeeds (cluster 0300, cmd 07 = Move to Color XY)
          params: colorX(2B LE), colorY(2B LE), transitionTime(2B LE = 0x000A = 1s) */
@@ -1553,7 +1607,7 @@ function sendFixedColor(hexStr, btnEl) {
         [xInt & 0xFF, (xInt >> 8) & 0xFF,
          yInt & 0xFF, (yInt >> 8) & 0xFF,
          0x0A, 0x00],
-        15000);
+        15000, 'high');
     })
     .then(function () { showToast('ON + Color sent ✓'); })
     .catch(function () { showToast('Color send failed'); });
@@ -1859,7 +1913,8 @@ function resetState() {
   g_sensorPollBusy  = false;
 
   /* Flush RPC queue */
-  g_rpcQueue     = Promise.resolve();
+  g_cmdQueue     = [];
+  g_cmdBusy      = false;
   g_rpcLastEndMs = 0;
 
   /* Reset runtime state */
