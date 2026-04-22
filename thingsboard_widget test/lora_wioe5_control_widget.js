@@ -319,8 +319,8 @@ function updateLedButtons() {
   var inWindow = (Date.now() - state.lastP2pSensorTs) < P2P_LED_WINDOW_MS;
   var btnOn  = ge('btn-p2p-led-on');
   var btnOff = ge('btn-p2p-led-off');
-  if (btnOn)  btnOn.disabled  = !inWindow;
-  if (btnOff) btnOff.disabled = !inWindow;
+  if (btnOn)  { btnOn.disabled  = !inWindow; btnOn.style.opacity  = inWindow ? '1' : '.35'; btnOn.style.cursor  = inWindow ? 'pointer' : 'not-allowed'; }
+  if (btnOff) { btnOff.disabled = !inWindow; btnOff.style.opacity = inWindow ? '1' : '.35'; btnOff.style.cursor = inWindow ? 'pointer' : 'not-allowed'; }
   var bar = ge('p2p-win-bar');
   if (bar) {
     var pct = inWindow
@@ -329,25 +329,59 @@ function updateLedButtons() {
     bar.style.width = pct + '%';
   }
   var txt = ge('p2p-win-txt');
-  if (txt) txt.textContent = inWindow ? 'Window open' : 'Waiting for data…';
+  if (txt) txt.textContent = inWindow ? 'Window open — send command now' : 'Waiting for data…';
 }
 
 function injectP2PPanel() {
   if (!_root || ge('p2p-ctrl-panel')) return;
+
+  /* Find the console-wrap to place LED panel before it */
+  var consoleWrap = null;
+  for (var i = 0; i < _root.children.length; i++) {
+    if (_root.children[i].className === 'console-wrap') {
+      consoleWrap = _root.children[i]; break;
+    }
+  }
+
+  /* P2P LED control strip (left side of bottom row) */
   var panel = document.createElement('div');
   panel.id = 'p2p-ctrl-panel';
-  panel.style.cssText = 'margin-top:16px;padding:12px;background:var(--surface,#1e293b);border-radius:8px;border:1px solid var(--border,#334155)';
+  panel.style.cssText =
+    'width:220px;flex-shrink:0;padding:8px 12px;' +
+    'border-right:1px solid rgba(255,255,255,.07);background:#070a10;' +
+    'display:flex;flex-direction:column;justify-content:center;gap:6px';
   panel.innerHTML =
-    '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#94a3b8);margin-bottom:10px">P2P LED Control (GPIO 8)</div>' +
-    '<div style="font-size:11px;color:var(--muted,#94a3b8);margin-bottom:6px" id="p2p-win-txt">Waiting for data…</div>' +
-    '<div style="height:4px;background:var(--border,#334155);border-radius:2px;margin-bottom:10px">' +
+    '<div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#6b7280">P2P LED (GPIO 8)</div>' +
+    '<div style="font-size:10px;color:#6b7280" id="p2p-win-txt">Waiting for data…</div>' +
+    '<div style="height:3px;background:#1c2030;border-radius:2px">' +
       '<div id="p2p-win-bar" style="height:100%;width:0;background:#22c55e;border-radius:2px;transition:width .1s linear"></div>' +
     '</div>' +
-    '<div style="display:flex;gap:8px">' +
-      '<button id="btn-p2p-led-on"  disabled onclick="sendLedCmd(true)"  style="flex:1;padding:7px 0;border-radius:6px;border:1px solid #22c55e;background:transparent;color:#22c55e;font-size:12px;font-weight:600;cursor:pointer">LED ON</button>' +
-      '<button id="btn-p2p-led-off" disabled onclick="sendLedCmd(false)" style="flex:1;padding:7px 0;border-radius:6px;border:1px solid #ef4444;background:transparent;color:#ef4444;font-size:12px;font-weight:600;cursor:pointer">LED OFF</button>' +
+    '<div style="display:flex;gap:6px">' +
+      '<button id="btn-p2p-led-on"  disabled onclick="sendLedCmd(true)"  ' +
+        'style="flex:1;padding:5px 0;border-radius:5px;border:1px solid #22c55e;background:transparent;color:#22c55e;font-size:11px;font-weight:700;cursor:pointer;opacity:.4">' +
+        'LED ON</button>' +
+      '<button id="btn-p2p-led-off" disabled onclick="sendLedCmd(false)" ' +
+        'style="flex:1;padding:5px 0;border-radius:5px;border:1px solid #ef4444;background:transparent;color:#ef4444;font-size:11px;font-weight:700;cursor:pointer;opacity:.4">' +
+        'LED OFF</button>' +
     '</div>';
-  _root.appendChild(panel);
+
+  /* Button opacity reflects disabled state */
+  panel.addEventListener('click', function () {});   /* trigger repaint */
+
+  if (consoleWrap) {
+    /* Create a compact bottom row: [LED panel] [console] */
+    var row = document.createElement('div');
+    row.id = 'bottom-row';
+    row.style.cssText =
+      'display:flex;flex-direction:row;flex-shrink:0;height:88px;' +
+      'border-top:1px solid rgba(255,255,255,.07)';
+    _root.insertBefore(row, consoleWrap);
+    _root.removeChild(consoleWrap);
+    row.appendChild(panel);
+    row.appendChild(consoleWrap);
+  } else {
+    _root.appendChild(panel);
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════

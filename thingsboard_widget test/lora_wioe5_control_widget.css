@@ -470,11 +470,11 @@
 /* ── Console ── */
 .console-wrap {
   background: #070a10;
-  border-top: 1px solid var(--border);
-  height: 140px;
   display: flex;
   flex-direction: column;
-  flex-shrink: 0;
+  flex: 1;
+  min-width: 0;
+  height: auto;   /* height controlled by .bottom-row container */
 }
 
 .console-bar {
@@ -519,7 +519,7 @@
 /* ── Toast ── */
 .toast {
   position: absolute;
-  bottom: 160px; left: 50%;
+  bottom: 100px; left: 50%;
   transform: translateX(-50%);
   background: var(--surface3);
   border: 1px solid var(--border);
