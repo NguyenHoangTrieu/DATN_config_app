@@ -183,28 +183,48 @@ class SerialManager:
         return confirmed
     
     def connect(self, port: str, baudrate: int = 115200, timeout: float = 1.0) -> bool:
-        """Connect to serial port"""
+        """Connect to serial port.
+
+        Opens the port in a way that prevents the brief DTR/RTS pulse which
+        would trigger the ESP32 auto-reset circuit (same technique used in
+        ``probe_gateway_port``).  Steps:
+          1. Build a ``Serial`` object WITHOUT auto-opening.
+          2. Pre-set ``dtr=False`` and ``rts=False`` so the OS applies those
+             levels atomically on ``open()``.
+          3. Open, wait 150 ms for native USB CDC-ACM to settle, then flush
+             any power-on noise from the RX buffer before starting the read
+             thread.
+        """
         try:
             if self.is_connected():
                 self.disconnect()
-            
-            self.serial_port = serial.Serial(
-                port=port,
-                baudrate=baudrate,
-                bytesize=serial.EIGHTBITS,
-                parity=serial.PARITY_NONE,
-                stopbits=serial.STOPBITS_ONE,
-                timeout=timeout
-            )
-            
+
+            s = serial.Serial()
+            s.port     = port
+            s.baudrate = baudrate
+            s.bytesize = serial.EIGHTBITS
+            s.parity   = serial.PARITY_NONE
+            s.stopbits = serial.STOPBITS_ONE
+            s.rtscts   = False
+            s.dsrdtr   = False
+            s.timeout  = timeout
+            # Pre-set DTR/RTS LOW before open() so no reset pulse is generated.
+            s.dtr = False
+            s.rts = False
+            s.open()
+
+            time.sleep(0.15)          # let native USB CDC-ACM enumerate / settle
+            s.reset_input_buffer()    # discard any power-on/noise bytes
+
+            self.serial_port = s
             self.running = True
             self.read_thread = threading.Thread(target=self._read_loop, daemon=True)
             self.read_thread.start()
-            
+
             self.log(f"Connected to {port} at {baudrate} baud", "SUCCESS")
             return True
-            
-        except serial.SerialException as e:
+
+        except (serial.SerialException, OSError) as e:
             self.log(f"Connection failed: {e}", "ERROR")
             return False
     

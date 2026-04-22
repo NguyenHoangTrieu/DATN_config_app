@@ -174,9 +174,12 @@ class ConnectionBar(ttk.Frame):
             self.on_disconnect()
         else:
             port = self.port_var.get()
-            if port:
-                baudrate = int(self.baud_var.get())
-                self.on_connect(port, baudrate)
+            if not port:
+                messagebox.showwarning("No Port Selected",
+                                       "Please select a COM port or click 🔍 Scan first.")
+                return
+            baudrate = int(self.baud_var.get())
+            self.on_connect(port, baudrate)
     
     def set_connected(self, connected: bool, port: str = ""):
         """Update connection status"""
