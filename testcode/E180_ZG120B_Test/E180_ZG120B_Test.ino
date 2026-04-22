@@ -90,6 +90,18 @@
 #define WS2812_PIN        8     // GPIO8 = WS2812 on ESP32-C6 Super Mini
 #define NUM_PIXELS        1
 #define DEVICE_NAME       "bulb_1"  /* Model Identifier holds the handshake string read by the JS
+
+/* ─── Reconnect watchdog ─────────────────────────────────────────────
+   After being kicked (ZDO Remove Device) the device loses its network
+   association. The built-in Zigbee stack will attempt passive rejoining
+   but will only succeed on the exact channel/PAN it was on. If the
+   coordinator was reset or the device is on a different channel, it will
+   never rejoin passively. factoryReset() clears the saved channel mask
+   and triggers a full scan on channels 11-26 so the device can find the
+   coordinator again once Permit Join is opened.                          */
+#define REJOIN_TIMEOUT_MS  10000   /* 10 s without a network → factory reset */
+static unsigned long g_disconnectedSinceMs = 0;
+static bool          g_disconnectPending   = false;
 /* ─── WS2812 pixel strip ─────────────────────────────────────────── */
 Adafruit_NeoPixel strip(NUM_PIXELS, WS2812_PIN, NEO_GRB + NEO_KHZ800);
 
@@ -187,17 +199,35 @@ void loop() {
     static bool lastConn = true;
     bool conn = Zigbee.connected();
     if (conn != lastConn) {
-        Serial.println(conn ? "*** Re-joined network ***"
-                             : "*** Lost network — will auto-rejoin ***");
-        // Flash red 2x on disconnect
         if (!conn) {
+            Serial.println("*** Lost network — starting rejoin watchdog ***");
+            g_disconnectPending   = true;
+            g_disconnectedSinceMs = millis();
+            // Flash red 2x on disconnect
             for (int i = 0; i < 2; i++) {
                 strip.setPixelColor(0, 64, 0, 0); strip.show(); delay(200);
                 strip.clear(); strip.show();       delay(200);
             }
+        } else {
+            Serial.println("*** Re-joined network ***");
+            g_disconnectPending = false;
         }
         lastConn = conn;
     }
+
+    /* ── Reconnect watchdog ──────────────────────────────────────────
+       If still disconnected after REJOIN_TIMEOUT_MS, call factoryReset()
+       to clear the saved channel mask and force a full 11-26 channel scan.
+       The device will rejoin automatically once the coordinator opens
+       Permit Join (openPermitJoin button in the JS widget).              */
+    if (!conn && g_disconnectPending &&
+        (millis() - g_disconnectedSinceMs >= REJOIN_TIMEOUT_MS)) {
+        Serial.println("[REJOIN] Timeout — factoryReset() for full channel scan");
+        delay(200);
+        Zigbee.factoryReset();   /* clears NVS and reboots */
+        for (;;) delay(1000);    /* unreachable — factoryReset reboots */
+    }
+
     delay(1000);
 }
 

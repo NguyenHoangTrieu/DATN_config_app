@@ -271,7 +271,9 @@
   background: var(--surface2); border: 1px solid var(--border);
   color: var(--text-dim); font-size: 11px; cursor: pointer; transition: all 0.2s; flex-shrink: 0;
 }
-.btn-del-node:hover { border-color: var(--red); color: var(--red); }
+.btn-del-node:hover { border-color: var(--warn); color: var(--warn); background: rgba(245,158,11,0.1); }
+
+.btn-del-node { font-size: 10px; font-weight: 600; padding: 6px 10px; }
 
 /* Cluster Tabs */
 .cluster-tabs { display: flex; gap: 5px; flex-wrap: wrap; flex-shrink: 0; }

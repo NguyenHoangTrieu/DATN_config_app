@@ -84,6 +84,15 @@ static unsigned long  g_lastReportSuppressMs = 0;
    Examples: "sensor_1", "sensor_2", "bulb_1", "switch_1", "plug_1" */
 #define DEVICE_NAME  "sensor_1"
 
+/* ─── Reconnect watchdog ─────────────────────────────────────────────
+   After being kicked (ZDO Remove Device) the device loses network
+   association. factoryReset() clears the saved channel mask so the
+   device performs a full scan on channels 11-26 and rejoins once the
+   coordinator opens Permit Join.                                        */
+#define REJOIN_TIMEOUT_MS  10000   /* 10 s without a network → factory reset */
+static unsigned long g_disconnectedSinceMs = 0;
+static bool          g_disconnectPending   = false;
+
 /* ─── Zigbee endpoints ───────────────────────────────────────────── */
 /* ZigbeeHumiditySensor does not exist in SDK 3.3.8 — use addHumiditySensor()
    on ZigbeeTempSensor instead (both clusters 0x0402 + 0x0405 share EP 11) */
@@ -179,9 +188,28 @@ void loop() {
     static bool lastConn = true;
     bool conn = Zigbee.connected();
     if (conn != lastConn) {
-        Serial.println(conn ? "*** Re-joined network ***"
-                             : "*** Lost network — will auto-rejoin ***");
+        if (!conn) {
+            Serial.println("*** Lost network — starting rejoin watchdog ***");
+            g_disconnectPending   = true;
+            g_disconnectedSinceMs = millis();
+        } else {
+            Serial.println("*** Re-joined network ***");
+            g_disconnectPending = false;
+        }
         lastConn = conn;
+    }
+
+    /* ── Reconnect watchdog ──────────────────────────────────────────
+       If still disconnected after REJOIN_TIMEOUT_MS, call factoryReset()
+       to clear the saved channel mask and force a full 11-26 channel scan.
+       The device will rejoin automatically once the coordinator opens
+       Permit Join (openPermitJoin button in the JS widget).              */
+    if (!conn && g_disconnectPending &&
+        (millis() - g_disconnectedSinceMs >= REJOIN_TIMEOUT_MS)) {
+        Serial.println("[REJOIN] Timeout — factoryReset() for full channel scan");
+        delay(200);
+        Zigbee.factoryReset();   /* clears NVS and reboots */
+        for (;;) delay(1000);    /* unreachable — factoryReset reboots */
     }
 
     /* ── Reporting suppressor (Layer 2) ──────────────────────────────

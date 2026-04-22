@@ -1512,80 +1512,8 @@ function toggleNodeConnect(shortAddr) {
 }
 
 
-function deleteNode() {
-  if (!state.selectedNode) return;
-  var addr = state.selectedNode;
-  var node = state.nodes[addr];
-
-  if (!node || !node.ieee || node.ieee.indexOf('?') !== -1) {
-    showToast('Cannot delete: MAC address unknown');
-    return;
-  }
-
-  /* Build 8-byte MAC array in Little-Endian order from the 16-char IEEE string */
-  var macBytes = [];
-  for (var i = 14; i >= 0; i -= 2) {
-    macBytes.push(parseInt(node.ieee.substring(i, i + 2), 16));
-  }
-
-  /* Ebyte Type=0x00 Code=0x17 (Kick Device) — payload is 8-byte LE MAC */
-  var frame    = buildEbyteFrame(0x00, 0x17, macBytes);
-  var hexFrame = bytesToHexStr(frame);
-
-  /* Mark delete as pending — blocks piggyback reads during the operation */
-  g_deletePending[addr]    = true;
-  g_deleteOnlineFail[addr] = false;
-  /* Also extend temp cooldown for this device so piggyback can't sneak in */
-  g_lastTempReadTs[addr]   = Date.now() + 20000;
-
-  sendCFML('MODULE_DELETE_NODE:' + hexFrame, 15000)
-    .then(function (resp) {
-      /* sendCFML always RESOLVES even on FAIL (the RPC transport succeeded).
-         We must inspect the text to detect a gateway-side failure. */
-      var r = resp != null
-        ? String(typeof resp === 'object' ? JSON.stringify(resp) : resp)
-        : '';
-      var isFailText   = r.indexOf(':FAIL:') >= 0;
-      var isOnlineText = r.indexOf('INVALID_RESPONSE') >= 0 || r.indexOf('FF E8') >= 0;
-      var isOnlineTele = !!g_deleteOnlineFail[addr];
-      delete g_deletePending[addr];
-      delete g_deleteOnlineFail[addr];
-      if (isFailText && (isOnlineText || isOnlineTele)) {
-        showToast('⚠ Device is online — power it off first');
-        logWarn('DELETE_NODE: device online (0xFF) — node kept in state.');
-        return;
-      }
-      if (isFailText) {
-        showToast('⚠ Delete failed: ' + r.substring(0, 40));
-        return;
-      }
-      delete state.nodes[addr];
-      if (g_pollTimers[addr]) { clearInterval(g_pollTimers[addr]); delete g_pollTimers[addr]; }
-      state.selectedNode = null;
-      renderNodeList();
-      updateControlPanel();
-      saveLocalState();
-      showToast('Node ' + addr + ' removed');
-    })
-    .catch(function (err) {
-      var msg = (err && err.message) ? err.message : String(err);
-      var is504       = msg.indexOf('504') >= 0;
-      var isOnlineTel = !!g_deleteOnlineFail[addr];
-      delete g_deletePending[addr];
-      delete g_deleteOnlineFail[addr];
-      /* 504 with a prior FAIL-via-telemetry = device was online */
-      if (is504 && isOnlineTel) {
-        showToast('⚠ Device is online — power it off first');
-        logWarn('DELETE_NODE: device online (seen via telemetry), RPC returned 504.');
-      } else if (is504) {
-        showToast('⚠ Delete timed out — if device is online, power it off first');
-        logWarn('DELETE_NODE: 504 timeout (concurrent RPC may have interfered).');
-      } else {
-        showToast('⚠ Delete failed: ' + msg.substring(0, 40));
-        logWarn('DELETE_NODE error: ' + msg);
-      }
-    });
-}
+/* deleteNode() replaced by kickNode() — MODULE_DELETE_NODE now sends ZDO Remove Device */
+function deleteNode() { kickNode(); }
 
 /**
  * kickNode — send ZDO Remove Device (Type=0x01, Code=0x34) to eject a node
