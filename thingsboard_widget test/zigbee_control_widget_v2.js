@@ -1587,6 +1587,78 @@ function deleteNode() {
     });
 }
 
+/**
+ * kickNode — send ZDO Remove Device (Type=0x01, Code=0x34) to eject a node
+ * from the network while allowing it to rejoin when Permit Join is next opened.
+ *
+ * Frame layout built by buildZdoFrame(0x34, shortInt, params):
+ *   [0x55][len][0x01][0x34][shortL][shortH][MAC(8B LE)][Re-entry=0x01][DeleteChild=0x00][chk]
+ *
+ * Re-entry=0x01  : device is allowed back into the network (soft kick, not ban)
+ * DeleteChild=0x00: do not remove child entries of the kicked node
+ *
+ * Expected response from E180: Type=0x05, Code=0x01 (execution status)
+ * Async follow-up: 0x80/0x06 Leave Notify → handleNodeLeaveNotify removes node from state
+ *
+ * End-device firmware must call Zigbee.factoryReset() after REJOIN_TIMEOUT_MS
+ * of being disconnected so it performs a full channel scan and rejoins.
+ */
+function kickNode() {
+  if (!state.selectedNode) return;
+  var addr = state.selectedNode;
+  var node = state.nodes[addr];
+
+  if (!node || !node.ieee || node.ieee.indexOf('?') !== -1) {
+    showToast('Cannot kick: MAC address unknown');
+    return;
+  }
+
+  /* Build 8-byte MAC array in Little-Endian order from 16-char IEEE string */
+  var macBytes = [];
+  for (var i = 14; i >= 0; i -= 2) {
+    macBytes.push(parseInt(node.ieee.substring(i, i + 2), 16));
+  }
+
+  /* Parse short address as integer */
+  var shortInt = parseInt(addr, 16);
+
+  /* buildZdoFrame prepends [shortL, shortH] then appends params:
+     params = MAC(8B LE) + Re-entry(0x01) + DeleteChild(0x00) */
+  var params   = macBytes.concat([0x01, 0x00]);
+  var frame    = buildZdoFrame(0x34, shortInt, params);
+  var hexFrame = bytesToHexStr(frame);
+
+  /* Stop data polling immediately — node is leaving */
+  if (g_pollTimers[addr]) { clearInterval(g_pollTimers[addr]); delete g_pollTimers[addr]; }
+
+  /* Mark disconnected now; 0x80/0x06 Leave Notify will remove from state */
+  node.connected = false;
+  renderNodeList();
+  updateControlPanel();
+
+  logInfo('KICK (MODULE_DELETE_NODE) 0x' + addr + ': ZDO Remove Device (re-entry=1), frame: ' + hexFrame);
+
+  sendCFML('MODULE_DELETE_NODE:' + hexFrame, 8000)
+    .then(function (resp) {
+      var r = resp != null
+        ? String(typeof resp === 'object' ? JSON.stringify(resp) : resp)
+        : '';
+      var isFail = r.indexOf(':FAIL:') >= 0;
+      if (isFail) {
+        showToast('Kick failed — ' + r.substring(0, 40));
+        logWarn('KICK_NODE gateway FAIL: ' + r.substring(0, 80));
+        return;
+      }
+      logOk('MODULE_DELETE_NODE (kick) 0x' + addr + ' sent — awaiting Leave Notify (0x80/0x06)');
+      showToast('Node 0x' + addr + ' kicked — open Permit Join to allow rejoin');
+    })
+    .catch(function (err) {
+      var msg = (err && err.message) ? err.message : String(err);
+      showToast('Kick error: ' + msg.substring(0, 40));
+      logWarn('KICK_NODE error: ' + msg);
+    });
+}
+
 /* ────────────────────────────────────────────────────────────────────
    Cluster Selection
    ──────────────────────────────────────────────────────────────────── */
@@ -2129,7 +2201,7 @@ window.autoFind          = autoFind;
 window.bindSelectedNode  = bindSelectedNode;
 window.selectNode        = selectNode;
 window.toggleNodeConnect = toggleNodeConnect;
-window.deleteNode     = deleteNode;
+window.kickNode       = kickNode;
 window.selectCluster  = selectCluster;
 window.onOnOffToggle  = onOnOffToggle;
 window.sendFixedColor = sendFixedColor;
