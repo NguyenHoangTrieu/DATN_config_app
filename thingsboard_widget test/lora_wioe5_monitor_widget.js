@@ -165,26 +165,44 @@ function lrmHandleRx(win, port, len, hex, slot) {
 
 /* ═══════════════════════════════════════════════════════════════════
    Payload Decoder
-   Format: 6 bytes  nodeId | seq | tempHi | tempLo | humHi | humLo
-           temp = int16(bytes[2..3]) / 100  (°C)
-           hum  = uint16(bytes[4..5]) / 100  (%)
+   Packet type (byte[0]):
+     0xFF  JOIN_REQUEST  [type, nodeId, seq]
+     0x01  SENSOR_DATA   [type, nodeId, seq, tHi, tLo, hHi, hLo]
+   Legacy (no type byte, 6 B):  [nodeId, seq, tHi, tLo, hHi, hLo]
    ═══════════════════════════════════════════════════════════════════ */
 function decodeP2PPayload(hex) {
-  if (!hex || hex.length < 8) return null;
+  if (!hex || hex.length < 4) return null;
   var b = [];
   for (var i = 0; i < hex.length; i += 2) b.push(parseInt(hex.substr(i, 2), 16));
-  var tempRaw = (b[2] << 8) | b[3];
-  if (tempRaw & 0x8000) tempRaw = tempRaw - 0x10000;   /* sign-extend int16 */
-  var result = {
-    nodeId: b[0],
-    seq:    b[1],
-    tempC:  (tempRaw / 100).toFixed(2)
-  };
+
+  /* JOIN_REQUEST: type=0xFF */
+  if (b[0] === 0xFF) {
+    return { pktType: 'join_req', nodeId: b[1] || 0, seq: b[2] || 0 };
+  }
+
+  /* SENSOR_DATA: type=0x01 */
+  if (b[0] === 0x01 && b.length >= 7) {
+    var tempRaw = (b[3] << 8) | b[4];
+    if (tempRaw & 0x8000) tempRaw = tempRaw - 0x10000;
+    var humRaw  = (b[5] << 8) | b[6];
+    return {
+      pktType: 'sensor',
+      nodeId: b[1], seq: b[2],
+      tempC:  (tempRaw / 100).toFixed(2),
+      humPct: (humRaw  / 100).toFixed(2)
+    };
+  }
+
+  /* Legacy 6-byte format (no type byte) */
   if (b.length >= 6) {
+    var tempRaw = (b[2] << 8) | b[3];
+    if (tempRaw & 0x8000) tempRaw = tempRaw - 0x10000;
+    var result = { pktType: 'sensor', nodeId: b[0], seq: b[1], tempC: (tempRaw / 100).toFixed(2) };
     var humRaw = (b[4] << 8) | b[5];
     result.humPct = (humRaw / 100).toFixed(2);
+    return result;
   }
-  return result;
+  return null;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -193,11 +211,13 @@ function decodeP2PPayload(hex) {
 function lrmHandleP2PRx(len, rssi, snr, hex, slot) {
   var ts      = new Date().toLocaleTimeString('en-GB', { hour12: false });
   var decoded = decodeP2PPayload(hex);
+  var isJoin  = decoded && decoded.pktType === 'join_req';
   var card    = ge('lrm-latest');
+
   if (card) {
     card.setAttribute('data-empty', 'false');
     var decodedHtml = '';
-    if (decoded) {
+    if (decoded && !isJoin) {
       decodedHtml =
         '<div class="lrm-data-row" style="border-top:1px solid var(--border);padding-top:8px;margin-top:8px">' +
           '<div class="lrm-rx-meta" style="margin-bottom:0">' +
@@ -207,6 +227,18 @@ function lrmHandleP2PRx(len, rssi, snr, hex, slot) {
             (decoded.humPct !== undefined
               ? '<div class="lrm-rx-meta-item"><span class="lrm-rx-label" style="color:#60a5fa">Hum</span><span class="lrm-rx-val" style="color:#60a5fa;font-size:15px">' + decoded.humPct + ' %</span></div>'
               : '') +
+          '</div>' +
+        '</div>';
+    } else if (isJoin) {
+      decodedHtml =
+        '<div class="lrm-data-row" style="border-top:1px solid var(--border);padding-top:8px;margin-top:8px">' +
+          '<div class="lrm-rx-meta" style="margin-bottom:0">' +
+            '<div class="lrm-rx-meta-item"><span class="lrm-rx-label">Node</span><span class="lrm-rx-val">' + decoded.nodeId + '</span></div>' +
+            '<div class="lrm-rx-meta-item"><span class="lrm-rx-label">Seq</span><span class="lrm-rx-val">' + decoded.seq + '</span></div>' +
+            '<div class="lrm-rx-meta-item">' +
+              '<span class="lrm-rx-label" style="color:#a78bfa">Type</span>' +
+              '<span class="lrm-rx-val" style="color:#a78bfa;font-weight:700">JOIN REQUEST</span>' +
+            '</div>' +
           '</div>' +
         '</div>';
     }
@@ -224,13 +256,22 @@ function lrmHandleP2PRx(len, rssi, snr, hex, slot) {
         '<div class="lrm-data-hex">' + escHtml(hex || '(empty)') + '</div>' +
       '</div>';
   }
-  lrmState.history.unshift({ win: 'P2P', port: 0, len: len, hex: hex, ts: ts, slot: slot || '', rssi: rssi, snr: snr,
-    tempC: decoded ? decoded.tempC : null, humPct: decoded ? (decoded.humPct || null) : null, seq: decoded ? decoded.seq : null });
+
+  var histEntry = {
+    win:   isJoin ? 'JOIN' : 'P2P',
+    port:  0, len: len, hex: hex, ts: ts, slot: slot || '',
+    rssi:  rssi, snr: snr,
+    tempC: (decoded && !isJoin) ? decoded.tempC   : null,
+    humPct:(decoded && !isJoin) ? (decoded.humPct || null) : null,
+    seq:   decoded ? decoded.seq : null,
+    joinReq: isJoin
+  };
+  lrmState.history.unshift(histEntry);
   if (lrmState.history.length > LRM_HIST_MAX) lrmState.history.pop();
   lrmState.rxCount++;
   setEl('lrm-rx-count', String(lrmState.rxCount));
   setEl('lrm-last-ts',  'Last: ' + ts);
-  setPill('active', 'P2P RX');
+  setPill(isJoin ? 'joining' : 'active', isJoin ? 'JOIN REQ' : 'P2P RX');
   renderHistory();
   saveState();
 }
@@ -256,7 +297,9 @@ function renderHistory() {
     row.className = 'lrm-hist-row';
     /* Show decoded T/H if available, otherwise fall back to hex preview */
     var dataStr;
-    if (p.tempC !== null && p.tempC !== undefined) {
+    if (p.joinReq) {
+      dataStr = 'Node 0x' + (p.hex.length >= 4 ? p.hex.substr(2, 2) : '?') + ' JOIN REQUEST';
+    } else if (p.tempC !== null && p.tempC !== undefined) {
       dataStr = p.tempC + '°C' + (p.humPct !== null && p.humPct !== undefined ? '  ' + p.humPct + '%' : '');
     } else {
       dataStr = p.hex.length > 20 ? p.hex.substr(0, 20) + '…' : p.hex;

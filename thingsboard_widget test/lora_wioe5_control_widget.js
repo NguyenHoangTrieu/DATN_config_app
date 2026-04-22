@@ -31,7 +31,11 @@ var state = {
   joined:     false,
   joining:    false,
   txPending:  false,
-  rpcTimeout: 12000
+  rpcTimeout: 12000,
+  /* P2P state */
+  _p2pPendingRx:    false,   /* true after +TEST: LEN: line */
+  _joinSent:        false,   /* debounce for auto JOIN_ACCEPT */
+  lastP2pSensorTs:  0        /* millis of last SENSOR_DATA uplink from node */
 };
 
 var _root = null;
@@ -45,6 +49,8 @@ self.onInit = function () {
     syncSlotSelect();
     loadLocalState();
     applyLocalState();
+    injectP2PPanel();
+    setInterval(updateLedButtons, 100);
     logInfo('Control widget ready — slot ' + state.slot);
     setTimeout(function () { queryModuleInfo(); }, 800);
   } catch (e) {
@@ -223,6 +229,125 @@ function handleAsyncEvent(line) {
     logEvt('+EVT:' + m[1] + ' — downlink received (see Monitor widget)');
     return;
   }
+
+  /* ── P2P TEST mode events ────────────────────────────────────────
+     The gateway WioE5 is in P2P TEST mode; telemetry from the gateway
+     includes these lines alongside LoRaWAN events.                  */
+
+  /* Step 1: meta line — +TEST: LEN:x, RSSI:x, SNR:x */
+  m = l.match(/^\+TEST:\s*LEN:\s*(\d+),\s*RSSI:\s*(-?\d+),\s*SNR:\s*(-?\d+)/i);
+  if (m) {
+    state._p2pPendingRx = true;
+    return;
+  }
+
+  /* Step 2: payload line — +TEST: RX "HEXDATA" */
+  m = l.match(/^\+TEST:\s*RX\s*"([0-9A-Fa-f]+)"/i);
+  if (m && state._p2pPendingRx) {
+    state._p2pPendingRx = false;
+    handleP2PRxPayload(m[1].toUpperCase());
+    return;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   P2P TEST mode — JOIN handshake + LED control
+   ═══════════════════════════════════════════════════════════════════ */
+var P2P_LED_WINDOW_MS = 2000;   /* must match RX_WINDOW_MS in node sketch */
+
+function handleP2PRxPayload(hex) {
+  var type = parseInt(hex.substr(0, 2), 16);
+
+  if (type === 0xFF) {
+    /* JOIN_REQUEST from node */
+    var nodeId = hex.length >= 4 ? parseInt(hex.substr(2, 2), 16) : 0;
+    logEvt('P2P JOIN_REQUEST from node 0x' + ('00' + nodeId.toString(16).toUpperCase()).slice(-2) +
+           ' seq=' + (hex.length >= 6 ? parseInt(hex.substr(4, 2), 16) : '?'));
+    autoSendJoinAccept(nodeId);
+    return;
+  }
+
+  if (type === 0x01) {
+    /* SENSOR_DATA from node — open LED control window */
+    var nodeId = hex.length >= 4 ? parseInt(hex.substr(2, 2), 16) : 0;
+    state.lastP2pSensorTs = Date.now();
+    logEvt('P2P SENSOR_DATA from node 0x' + ('00' + nodeId.toString(16).toUpperCase()).slice(-2) +
+           ' → LED window open (' + P2P_LED_WINDOW_MS + ' ms)');
+    updateLedButtons();
+    return;
+  }
+}
+
+function autoSendJoinAccept(nodeId) {
+  if (state._joinSent) return;   /* debounce — one accept per JOIN burst */
+  state._joinSent = true;
+  var nidHex   = ('00' + nodeId.toString(16).toUpperCase()).slice(-2);
+  var payload  = '"FE' + nidHex + '"';   /* JOIN_ACCEPT: [0xFE, nodeId] */
+  logInfo('Auto-sending JOIN_ACCEPT to node 0x' + nidHex + '…');
+  sendCFLR('MODULE_SEND_P2P_PKT', payload, 3000)
+    .then(function () {
+      logOk('JOIN_ACCEPT sent to node 0x' + nidHex);
+      showToast('✓ JOIN_ACCEPT → node 0x' + nidHex);
+      setTimeout(function () { state._joinSent = false; }, 6000); /* allow resend after 6 s */
+    })
+    .catch(function (err) {
+      state._joinSent = false;
+      logFail('JOIN_ACCEPT failed: ' + (err && err.message ? err.message : err));
+    });
+}
+
+function sendLedCmd(on) {
+  var elapsed = Date.now() - state.lastP2pSensorTs;
+  if (elapsed > P2P_LED_WINDOW_MS) {
+    showToast('⚠ RX window closed — wait for next sensor packet');
+    return;
+  }
+  var label   = on ? 'ON' : 'OFF';
+  var payload = on ? '"10"' : '"11"';
+  logInfo('Sending LED ' + label + ' (elapsed ' + elapsed + ' ms in window)…');
+  sendCFLR('MODULE_SEND_P2P_PKT', payload, 3000)
+    .then(function () {
+      logOk('LED ' + label + ' command sent');
+      showToast('LED ' + label);
+    })
+    .catch(function (err) {
+      logFail('LED ' + label + ' failed: ' + (err && err.message ? err.message : err));
+    });
+}
+
+function updateLedButtons() {
+  var inWindow = (Date.now() - state.lastP2pSensorTs) < P2P_LED_WINDOW_MS;
+  var btnOn  = ge('btn-p2p-led-on');
+  var btnOff = ge('btn-p2p-led-off');
+  if (btnOn)  btnOn.disabled  = !inWindow;
+  if (btnOff) btnOff.disabled = !inWindow;
+  var bar = ge('p2p-win-bar');
+  if (bar) {
+    var pct = inWindow
+      ? Math.max(0, Math.floor(100 * (1 - (Date.now() - state.lastP2pSensorTs) / P2P_LED_WINDOW_MS)))
+      : 0;
+    bar.style.width = pct + '%';
+  }
+  var txt = ge('p2p-win-txt');
+  if (txt) txt.textContent = inWindow ? 'Window open' : 'Waiting for data…';
+}
+
+function injectP2PPanel() {
+  if (!_root || ge('p2p-ctrl-panel')) return;
+  var panel = document.createElement('div');
+  panel.id = 'p2p-ctrl-panel';
+  panel.style.cssText = 'margin-top:16px;padding:12px;background:var(--surface,#1e293b);border-radius:8px;border:1px solid var(--border,#334155)';
+  panel.innerHTML =
+    '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#94a3b8);margin-bottom:10px">P2P LED Control (GPIO 8)</div>' +
+    '<div style="font-size:11px;color:var(--muted,#94a3b8);margin-bottom:6px" id="p2p-win-txt">Waiting for data…</div>' +
+    '<div style="height:4px;background:var(--border,#334155);border-radius:2px;margin-bottom:10px">' +
+      '<div id="p2p-win-bar" style="height:100%;width:0;background:#22c55e;border-radius:2px;transition:width .1s linear"></div>' +
+    '</div>' +
+    '<div style="display:flex;gap:8px">' +
+      '<button id="btn-p2p-led-on"  disabled onclick="sendLedCmd(true)"  style="flex:1;padding:7px 0;border-radius:6px;border:1px solid #22c55e;background:transparent;color:#22c55e;font-size:12px;font-weight:600;cursor:pointer">LED ON</button>' +
+      '<button id="btn-p2p-led-off" disabled onclick="sendLedCmd(false)" style="flex:1;padding:7px 0;border-radius:6px;border:1px solid #ef4444;background:transparent;color:#ef4444;font-size:12px;font-weight:600;cursor:pointer">LED OFF</button>' +
+    '</div>';
+  _root.appendChild(panel);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -678,3 +803,4 @@ window.setADR          = setADR;
 window.setConfirm      = setConfirm;
 window.formatHexInput  = formatHexInput;
 window.clearLog        = clearLog;
+window.sendLedCmd      = sendLedCmd;

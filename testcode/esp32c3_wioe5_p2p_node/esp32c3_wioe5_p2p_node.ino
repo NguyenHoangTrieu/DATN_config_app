@@ -1,249 +1,325 @@
 /**
  * esp32c3_wioe5_p2p_node.ino
  * ─────────────────────────────────────────────────────────────────────────────
- * ESP32-C3 sensor node — Wio-E5 P2P (TEST mode) transmitter
+ * ESP32-C3 P2P LoRa node — Wio-E5 TEST mode with JOIN handshake
  *
- * Hardware
- *   MCU  : ESP32-C3 (e.g. XIAO ESP32C3 or bare devboard)
- *   LoRa : Seeed Wio-E5 connected via UART1 (3.3 V, 9600 baud)
- *   Sensor: ESP32-C3 internal temperature + simulated humidity
- *
- * Wiring (default)
- *   Wio-E5 TX → ESP32-C3 GPIO4 (Serial1 RX)
- *   Wio-E5 RX → ESP32-C3 GPIO5 (Serial1 TX)
- *
- * Behaviour
- *   1. On startup: ping Wio-E5 with "AT", then enter TEST mode
- *      (AT+MODE=TEST), then configure RF (AT+TEST=RFCFG,...).
- *   2. Every 2 000 ms (millis-based, no delay()): read internal chip
- *      temperature and generate simulated humidity, format as hex payload,
- *      and send via AT+TEST=TXLRPKT.
- *   3. All Wio-E5 UART output is forwarded to Serial Monitor.
- *
- * Payload format (6 bytes, big-endian):
- *   Byte 0    : node ID (0x01 by default)
- *   Byte 1    : sequence counter (wraps 0-255)
- *   Byte 2-3  : temperature × 100 as int16  (internal chip sensor, °C)
- *   Byte 4-5  : humidity   × 100 as uint16  (simulated, 40–80 %)
- *
+ * State machine
  * ─────────────────────────────────────────────────────────────────────────────
- * Wio-E5 P2P AT commands used
- *   AT             → ping (expects "AT: ERROR" or "+AT: OK" or bare "OK")
- *   AT+MODE=TEST   → enter P2P test mode  → +MODE: TEST
- *   AT+TEST=RFCFG,F,SF,BW,TXPR,RXPR,POW,CRC,IQ,NET
- *                  → set RF parameters    → +TEST: RFCFG ...
- *   AT+TEST=TXLRPKT,"<HEX>"
- *                  → transmit P2P packet  → +TEST: TXLRPKT
+ *  JOINING  →  TX JOIN_REQUEST  [0xFF, nodeId, seq]  (3 B)
+ *              switch to RX, wait up to RX_WINDOW_MS for JOIN_ACCEPT [0xFE, nodeId]
+ *              cycle repeats until JOIN_ACCEPT received
+ *
+ *  DATA     →  TX SENSOR_DATA   [0x01, nodeId, seq, tHi, tLo, hHi, hLo]  (7 B)
+ *              switch to RX, wait up to RX_WINDOW_MS
+ *              if [0x10] received → LED ON   (GPIO LED_PIN)
+ *              if [0x11] received → LED OFF
+ *              cycle repeats indefinitely
+ *
+ * Packet types (first byte)
+ *   0xFF  JOIN_REQUEST   node → gateway
+ *   0xFE  JOIN_ACCEPT    gateway → node
+ *   0x01  SENSOR_DATA    node → gateway
+ *   0x10  LED_ON         gateway → node
+ *   0x11  LED_OFF        gateway → node
+ *
+ * Wiring (change PIN_LORA_RX / PIN_LORA_TX to match your board)
+ *   Wio-E5 TX  → ESP32-C3 PIN_LORA_RX  (GPIO6 default)
+ *   Wio-E5 RX  ← ESP32-C3 PIN_LORA_TX  (GPIO5 default)
+ *   Built-in LED on GPIO8 (active LOW on XIAO ESP32-C3)
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
 #include <Arduino.h>
 #include <math.h>   /* sinf() */
 
-/* ── Configuration ──────────────────────────────────────────────── */
-#define PIN_LORA_RX     6          /* ESP32-C3 GPIO receiving from Wio-E5 TX */
-#define PIN_LORA_TX     5          /* ESP32-C3 GPIO transmitting to  Wio-E5 RX */
-#define LORA_BAUD       9600
+/* ── Wiring ──────────────────────────────────────────────────────── */
+#define PIN_LORA_RX   6       /* ESP32-C3 RX ← Wio-E5 TX */
+#define PIN_LORA_TX   5       /* ESP32-C3 TX → Wio-E5 RX */
+#define LORA_BAUD     9600
 
-#define NODE_ID         0x01
-#define TX_INTERVAL_MS  2000UL     /* transmit every 2 s */
+#define LED_PIN       8       /* built-in LED, active LOW */
+#define LED_ON()      digitalWrite(LED_PIN, LOW)
+#define LED_OFF()     digitalWrite(LED_PIN, HIGH)
 
-/* RF parameters — tune to match gateway */
-#define P2P_FREQ        868        /* MHz        */
-#define P2P_SF          "SF7"
-#define P2P_BW          125        /* kHz        */
-#define P2P_TXPR        12         /* TX preamble */
-#define P2P_RXPR        15         /* RX preamble */
-#define P2P_POW         14         /* dBm, 1-22  */
+/* ── Node identity ───────────────────────────────────────────────── */
+#define NODE_ID       0x01
 
-/* AT command response timeout (ms) */
-#define AT_TIMEOUT_MS   4000
+/* ── Timing ──────────────────────────────────────────────────────── */
+#define RX_WINDOW_MS  2000UL  /* RX listen window after each TX (ms) */
+#define AT_INIT_MS    3000UL  /* timeout for setup AT commands        */
+#define AT_TX_MS      2000UL  /* timeout for TXLRPKT confirmation     */
 
-/* ── Globals ────────────────────────────────────────────────────── */
-HardwareSerial LoRaSerial(1);   /* UART1 */
+/* ── RF parameters (must match gateway) ─────────────────────────── */
+#define P2P_FREQ   868        /* MHz   */
+#define P2P_SF     "SF7"
+#define P2P_BW     125        /* kHz   */
+#define P2P_TXPR   12
+#define P2P_RXPR   15
+#define P2P_POW    14         /* dBm   */
 
-static uint8_t  seqNum     = 0;
-static uint32_t lastTxTime = 0;
-static bool     initialized = false;
+/* ── Packet type bytes ───────────────────────────────────────────── */
+#define PKT_JOIN_REQ  0xFF
+#define PKT_JOIN_ACK  0xFE
+#define PKT_SENSOR    0x01
+#define PKT_LED_ON    0x10
+#define PKT_LED_OFF   0x11
 
-/* ── Forward declarations ───────────────────────────────────────── */
-static bool  atSend(const char *cmd, const char *expectStr, uint32_t timeoutMs);
+/* ── Globals ─────────────────────────────────────────────────────── */
+HardwareSerial LoRaSerial(1);
 
-static void  drainLoRaSerial(void);
+typedef enum { ST_JOINING, ST_DATA } NodeState;
 
-/* ═══════════════════════════════════════════════════════════════════
-   setup()
-   ═══════════════════════════════════════════════════════════════════ */
-void setup() {
-  Serial.begin(115200);
-  while (!Serial && millis() < 3000) {}   /* wait for USB CDC on XIAO */
+static NodeState g_state   = ST_JOINING;
+static uint8_t   g_seq     = 0;
+static bool      g_inited  = false;
+static bool      g_ledOn   = false;
 
-  Serial.println("[BOOT] ESP32-C3 Wio-E5 P2P Node starting…");
+/* ════════════════════════════════════════════════════════════════════
+   Low-level helpers
+   ════════════════════════════════════════════════════════════════════ */
 
-  LoRaSerial.begin(LORA_BAUD, SERIAL_8N1, PIN_LORA_RX, PIN_LORA_TX);
-  delay(500);   /* give Wio-E5 time to boot (acceptable in setup) */
+/** Send AT command, wait up to timeoutMs for a line containing expectStr.
+ *  All received lines are printed to Serial Monitor.
+ *  Returns true if expectStr found, false on timeout. */
+static bool atSend(const char *cmd, const char *expectStr, uint32_t timeoutMs)
+{
+    while (LoRaSerial.available()) LoRaSerial.read();  /* flush stale bytes */
 
-  /* ── 1. Ping ──────────────────────────────────────────────────── */
-  Serial.println("[INIT] Pinging Wio-E5…");
-  if (!atSend("AT", "OK", AT_TIMEOUT_MS)) {
-    /* Wio-E5 may echo "AT: ERROR" for bare AT — try again */
-    atSend("AT", "OK", AT_TIMEOUT_MS);
-  }
-  delay(200);
-
-  /* ── 2. Enter TEST mode ───────────────────────────────────────── */
-  Serial.println("[INIT] Entering P2P TEST mode…");
-  if (!atSend("AT+MODE=TEST", "+MODE: TEST", AT_TIMEOUT_MS)) {
-    Serial.println("[WARN] AT+MODE=TEST did not return expected response. Retrying…");
-    delay(500);
-    atSend("AT+MODE=TEST", "+MODE: TEST", AT_TIMEOUT_MS);
-  }
-  delay(300);
-
-  /* ── 3. Configure RF ─────────────────────────────────────────── */
-  /* AT+TEST=RFCFG,<F>,<SF>,<BW>,<TXPR>,<RXPR>,<POW>,<CRC>,<IQ>,<NET> */
-  char rfcfg[80];
-  snprintf(rfcfg, sizeof(rfcfg),
-           "AT+TEST=RFCFG,%d,%s,%d,%d,%d,%d,ON,OFF,OFF",
-           P2P_FREQ, P2P_SF, P2P_BW, P2P_TXPR, P2P_RXPR, P2P_POW);
-  Serial.print("[INIT] RF config: ");
-  Serial.println(rfcfg);
-  if (!atSend(rfcfg, "+TEST: RFCFG", AT_TIMEOUT_MS)) {
-    Serial.println("[WARN] RF config response not confirmed — continuing anyway");
-  }
-  delay(300);
-
-  initialized = true;
-  Serial.println("[INIT] Wio-E5 P2P ready — starting TX loop (2 s interval)");
-  lastTxTime = millis();
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   loop()
-   ═══════════════════════════════════════════════════════════════════ */
-void loop() {
-  /* ── Forward any incoming Wio-E5 output to Serial Monitor ─────── */
-  drainLoRaSerial();
-
-  if (!initialized) return;
-
-  /* ── TX every TX_INTERVAL_MS (millis-based, non-blocking) ──────── */
-  if ((millis() - lastTxTime) >= TX_INTERVAL_MS) {
-    lastTxTime = millis();
-
-    /* Read sensors — internal chip temp + simulated humidity */
-    float tempC  = temperatureRead();
-    /* Simulated humidity: slow sine wave 40–80 %, period ~60 s */
-    float humPct = 60.0f + 20.0f * sinf((float)millis() / 60000.0f * 2.0f * 3.14159f);
-
-    /* Build 6-byte payload */
-    int16_t  tempI = (int16_t)(tempC  * 100.0f);   /* e.g. 25.43 → 2543 = 0x09EF */
-    uint16_t humI  = (uint16_t)(humPct * 100.0f);   /* e.g. 65.20 → 6520 = 0x197C */
-
-    uint8_t payload[6];
-    payload[0] = NODE_ID;
-    payload[1] = seqNum++;
-    payload[2] = (uint8_t)((tempI >> 8) & 0xFF);
-    payload[3] = (uint8_t)( tempI       & 0xFF);
-    payload[4] = (uint8_t)((humI  >> 8) & 0xFF);
-    payload[5] = (uint8_t)( humI        & 0xFF);
-
-    /* Convert to uppercase hex string */
-    char hexStr[13];
-    snprintf(hexStr, sizeof(hexStr), "%02X%02X%02X%02X%02X%02X",
-             payload[0], payload[1], payload[2], payload[3], payload[4], payload[5]);
-
-    /* Build AT command: AT+TEST=TXLRPKT,"AABBCCDDEE FF" */
-    char txCmd[36];
-    snprintf(txCmd, sizeof(txCmd), "AT+TEST=TXLRPKT,\"%s\"", hexStr);
-
-    Serial.print("[TX] seq=");
-    Serial.print(seqNum - 1);
-    Serial.print("  temp=");
-    Serial.print(tempC, 2);
-    Serial.print(" C  hum=");
-    Serial.print(humPct, 2);
-    Serial.print("%  payload=");
-    Serial.print(hexStr);
-    Serial.print("  cmd=");
-    Serial.println(txCmd);
-
-    /* Send — drainLoRaSerial() in next iterations will print the response */
-    LoRaSerial.println(txCmd);
+    Serial.print("[AT>>] "); Serial.println(cmd);
+    LoRaSerial.println(cmd);
     LoRaSerial.flush();
-  }
-}
 
-/* ═══════════════════════════════════════════════════════════════════
-   atSend()
-   Send an AT command, wait up to timeoutMs for a line containing
-   expectStr.  Returns true if expectStr found, false on timeout.
-   All received lines are forwarded to Serial Monitor.
-   ═══════════════════════════════════════════════════════════════════ */
-static bool atSend(const char *cmd, const char *expectStr, uint32_t timeoutMs) {
-  /* Flush any stale bytes */
-  while (LoRaSerial.available()) LoRaSerial.read();
+    uint32_t deadline = millis() + timeoutMs;
+    String   buf      = "";
+    bool     found    = false;
 
-  Serial.print("[AT>>] ");
-  Serial.println(cmd);
-  LoRaSerial.println(cmd);
-
-  uint32_t start = millis();
-  String   buf   = "";
-  bool     found = false;
-
-  while ((millis() - start) < timeoutMs) {
-    while (LoRaSerial.available()) {
-      char c = (char)LoRaSerial.read();
-      if (c == '\n') {
-        buf.trim();
-        if (buf.length() > 0) {
-          Serial.print("[AT<<] ");
-          Serial.println(buf);
-          if (expectStr && buf.indexOf(expectStr) >= 0) {
-            found = true;
-          }
+    while (millis() < deadline) {
+        while (LoRaSerial.available()) {
+            char c = (char)LoRaSerial.read();
+            if (c == '\n') {
+                buf.trim();
+                if (buf.length() > 0) {
+                    Serial.print("[AT<<] "); Serial.println(buf);
+                    if (expectStr && buf.indexOf(expectStr) >= 0) found = true;
+                }
+                buf = "";
+            } else if (c != '\r') {
+                buf += c;
+            }
         }
-        buf = "";
-      } else if (c != '\r') {
-        buf += c;
-      }
+        if (found) break;
+        yield();
     }
-    if (found) break;
-    /* Tiny yield to avoid starving other tasks; actual millis() loop is non-blocking */
-    yield();
-  }
-
-  /* Print any leftover partial line */
-  if (buf.length() > 0) {
-    Serial.print("[AT<<] ");
-    Serial.println(buf);
-  }
-
-  if (!found) {
-    Serial.print("[AT] Timeout waiting for: ");
-    Serial.println(expectStr ? expectStr : "(any)");
-  }
-  return found;
+    if (!found) {
+        Serial.print("[AT] timeout waiting for: ");
+        Serial.println(expectStr ? expectStr : "(any)");
+    }
+    return found;
 }
 
-/* ═══════════════════════════════════════════════════════════════════
-   drainLoRaSerial()
-   Non-blocking forward of Wio-E5 UART output → Serial Monitor.
-   ═══════════════════════════════════════════════════════════════════ */
-static void drainLoRaSerial() {
-  static String lineBuf = "";
-  while (LoRaSerial.available()) {
-    char c = (char)LoRaSerial.read();
-    if (c == '\n') {
-      lineBuf.trim();
-      if (lineBuf.length() > 0) {
-        Serial.print("[LORA] ");
-        Serial.println(lineBuf);
-      }
-      lineBuf = "";
-    } else if (c != '\r') {
-      lineBuf += c;
+/** Enter RX mode (AT+TEST=RXLRPKT), then read for up to windowMs.
+ *  If a "+TEST: RX \"hex\"" line is received, copy hex into hexOut
+ *  and return true.  Exits early on match. */
+static bool p2pRxWindow(uint32_t windowMs, String &hexOut)
+{
+    /* Enter RX mode — don't block long waiting for confirmation */
+    LoRaSerial.println("AT+TEST=RXLRPKT");
+    LoRaSerial.flush();
+    Serial.println("[P2P] RX window open");
+
+    uint32_t deadline = millis() + windowMs;
+    String   buf      = "";
+    bool     found    = false;
+
+    while (millis() < deadline) {
+        while (LoRaSerial.available()) {
+            char c = (char)LoRaSerial.read();
+            if (c == '\n') {
+                buf.trim();
+                if (buf.length() > 0) {
+                    Serial.print("[P2P<<] "); Serial.println(buf);
+
+                    /* +TEST: RX "AABB..." — payload line */
+                    if (buf.indexOf("+TEST: RX") >= 0) {
+                        int q1 = buf.indexOf('"');
+                        int q2 = buf.lastIndexOf('"');
+                        if (q1 >= 0 && q2 > q1) {
+                            hexOut = buf.substring(q1 + 1, q2);
+                            hexOut.toUpperCase();
+                            found = true;
+                        }
+                    }
+                }
+                buf = "";
+            } else if (c != '\r') {
+                buf += c;
+            }
+        }
+        if (found) break;
+        yield();
     }
-  }
+
+    /* Interrupt RX mode so we can TX next cycle */
+    Serial.println("[P2P] RX window close");
+    LoRaSerial.println("AT");
+    LoRaSerial.flush();
+    /* drain AT response */
+    uint32_t t = millis();
+    while (millis() - t < 200) {
+        while (LoRaSerial.available()) LoRaSerial.read();
+        yield();
+    }
+    return found;
+}
+
+/** Transmit a P2P packet.  hexStr must be uppercase hex without quotes.
+ *  Waits up to AT_TX_MS for +TEST: TXLRPKT confirmation. */
+static bool p2pTx(const char *hexStr)
+{
+    char cmd[48];
+    snprintf(cmd, sizeof(cmd), "AT+TEST=TXLRPKT,\"%s\"", hexStr);
+    return atSend(cmd, "+TEST: TXLRPKT", AT_TX_MS);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   setup()
+   ════════════════════════════════════════════════════════════════════ */
+void setup()
+{
+    Serial.begin(115200);
+    while (!Serial && millis() < 3000) {}
+
+    /* LED */
+    pinMode(LED_PIN, OUTPUT);
+    LED_OFF();
+
+    Serial.println("\n[BOOT] ESP32-C3 Wio-E5 P2P Node");
+
+    LoRaSerial.begin(LORA_BAUD, SERIAL_8N1, PIN_LORA_RX, PIN_LORA_TX);
+    delay(500);
+
+    /* 1. Ping */
+    Serial.println("[INIT] Pinging Wio-E5…");
+    if (!atSend("AT", "OK", AT_INIT_MS))
+        atSend("AT", "OK", AT_INIT_MS);   /* retry once */
+    delay(200);
+
+    /* 2. Enter P2P TEST mode */
+    Serial.println("[INIT] Entering TEST mode…");
+    if (!atSend("AT+MODE=TEST", "+MODE: TEST", AT_INIT_MS)) {
+        delay(500);
+        atSend("AT+MODE=TEST", "+MODE: TEST", AT_INIT_MS);
+    }
+    delay(300);
+
+    /* 3. Configure RF */
+    char rfcfg[80];
+    snprintf(rfcfg, sizeof(rfcfg),
+             "AT+TEST=RFCFG,%d,%s,%d,%d,%d,%d,ON,OFF,OFF",
+             P2P_FREQ, P2P_SF, P2P_BW, P2P_TXPR, P2P_RXPR, P2P_POW);
+    Serial.print("[INIT] RF: "); Serial.println(rfcfg);
+    if (!atSend(rfcfg, "+TEST: RFCFG", AT_INIT_MS))
+        Serial.println("[WARN] RF config not confirmed — continuing");
+    delay(300);
+
+    g_inited = true;
+    g_state  = ST_JOINING;
+    Serial.println("[INIT] Ready — starting JOIN phase");
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   loop()
+   ════════════════════════════════════════════════════════════════════ */
+void loop()
+{
+    if (!g_inited) return;
+
+    /* ── JOINING state ────────────────────────────────────────────── */
+    if (g_state == ST_JOINING) {
+        /* Build JOIN_REQUEST: [0xFF, nodeId, seq] */
+        char hexStr[7];
+        snprintf(hexStr, sizeof(hexStr), "%02X%02X%02X",
+                 PKT_JOIN_REQ, NODE_ID, g_seq++);
+
+        Serial.print("[JOIN] TX JOIN_REQUEST seq=");
+        Serial.print(g_seq - 1);
+        Serial.print(" payload=");
+        Serial.println(hexStr);
+
+        p2pTx(hexStr);   /* AT+TEST=TXLRPKT,"FF01xx" */
+
+        /* Listen for JOIN_ACCEPT [0xFE, nodeId] */
+        String rxHex = "";
+        bool got = p2pRxWindow(RX_WINDOW_MS, rxHex);
+
+        if (got && rxHex.length() >= 4) {
+            uint8_t type = (uint8_t)strtoul(rxHex.substring(0, 2).c_str(), NULL, 16);
+            uint8_t nid  = (uint8_t)strtoul(rxHex.substring(2, 4).c_str(), NULL, 16);
+            if (type == PKT_JOIN_ACK && nid == NODE_ID) {
+                Serial.println("[JOIN] JOIN_ACCEPT received! → DATA state");
+                /* Flash LED 3x to signal join OK */
+                for (int i = 0; i < 3; i++) {
+                    LED_ON();  delay(150);
+                    LED_OFF(); delay(150);
+                }
+                g_state = ST_DATA;
+                g_seq   = 0;
+            } else {
+                Serial.print("[JOIN] Unexpected packet type=0x");
+                Serial.println(type, HEX);
+            }
+        } else {
+            Serial.println("[JOIN] No JOIN_ACCEPT in RX window — retrying");
+        }
+        return;   /* next loop() call = next TX/RX cycle */
+    }
+
+    /* ── DATA state ───────────────────────────────────────────────── */
+    if (g_state == ST_DATA) {
+        /* Read sensors */
+        float tempC  = temperatureRead();
+        float humPct = 60.0f + 20.0f * sinf((float)millis() / 60000.0f * 2.0f * 3.14159f);
+
+        int16_t  tempI = (int16_t)(tempC  * 100.0f);
+        uint16_t humI  = (uint16_t)(humPct * 100.0f);
+
+        /* Build SENSOR_DATA: [0x01, nodeId, seq, tHi, tLo, hHi, hLo] (7 B) */
+        char hexStr[15];
+        snprintf(hexStr, sizeof(hexStr), "%02X%02X%02X%02X%02X%02X%02X",
+                 PKT_SENSOR, NODE_ID, g_seq++,
+                 (uint8_t)((tempI >> 8) & 0xFF), (uint8_t)(tempI & 0xFF),
+                 (uint8_t)((humI  >> 8) & 0xFF), (uint8_t)(humI  & 0xFF));
+
+        Serial.print("[DATA] TX seq=");
+        Serial.print(g_seq - 1);
+        Serial.print(" temp=");
+        Serial.print(tempC, 2);
+        Serial.print("C hum=");
+        Serial.print(humPct, 2);
+        Serial.print("% payload=");
+        Serial.println(hexStr);
+
+        p2pTx(hexStr);
+
+        /* RX window: listen for LED command */
+        String rxHex = "";
+        bool got = p2pRxWindow(RX_WINDOW_MS, rxHex);
+
+        if (got && rxHex.length() >= 2) {
+            uint8_t type = (uint8_t)strtoul(rxHex.substring(0, 2).c_str(), NULL, 16);
+            if (type == PKT_LED_ON) {
+                g_ledOn = true;
+                LED_ON();
+                Serial.println("[LED] ON");
+            } else if (type == PKT_LED_OFF) {
+                g_ledOn = false;
+                LED_OFF();
+                Serial.println("[LED] OFF");
+            } else {
+                Serial.print("[DATA] Received type=0x");
+                Serial.println(type, HEX);
+            }
+        }
+        return;   /* next loop() call = next TX/RX cycle */
+    }
 }
