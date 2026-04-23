@@ -1,0 +1,143 @@
+<!-- =====================================================================
+     DA2 Total Sensor Monitor — ThingsBoard Latest Values Widget
+     Type    : Latest Values (no controlApi — read-only)
+     Datasource: Entity → Gateway device → telemetry key "data"
+
+     Displays realtime sensor data + RTT from BLE, Zigbee and LoRa nodes.
+     Receives data via:
+       1. ThingsBoard WebSocket (onDataUpdated → telemetry key "data")
+       2. window CustomEvent 'da2_total_event' from companion control widget
+       3. localStorage key 'da2_total_data' as fallback bridge
+     ===================================================================== -->
+
+<div id="tm-root" class="tm-root">
+
+  <!-- ── Header ── -->
+  <div class="tm-header">
+    <div class="tm-hdr-left">
+      <div class="tm-logo">
+        <svg viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="3" fill="currentColor"/>
+          <path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"
+                stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div>
+        <div class="tm-title">DA2 Total Sensor Monitor</div>
+        <div class="tm-sub">BLE · Zigbee · LoRa — live RTT</div>
+      </div>
+    </div>
+    <div class="tm-hdr-right">
+      <div id="tm-pill" class="tm-pill" data-state="idle">
+        <span class="tm-dot"></span>
+        <span id="tm-pill-txt">Waiting</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Sensor Cards ── -->
+  <div id="tm-grid" class="tm-grid">
+
+    <!-- BLE Card -->
+    <div class="tm-card" id="tm-card-ble" data-state="idle">
+      <div class="tm-card-hdr">
+        <div class="tm-tech-badge ble">BLE</div>
+        <span class="tm-card-name" id="tm-ble-name">BLE Sensor</span>
+        <div class="tm-rtt-badge" id="tm-ble-rtt">—</div>
+      </div>
+      <div class="tm-vals">
+        <div class="tm-val-block">
+          <div class="tm-val-label">TEMP</div>
+          <div class="tm-val-big" id="tm-ble-temp">—</div>
+          <div class="tm-val-unit">°C</div>
+        </div>
+        <div class="tm-val-divider"></div>
+        <div class="tm-val-block">
+          <div class="tm-val-label">HUMIDITY</div>
+          <div class="tm-val-big" id="tm-ble-hum">—</div>
+          <div class="tm-val-unit">%</div>
+        </div>
+      </div>
+      <div class="tm-card-footer">
+        <span class="tm-ts" id="tm-ble-ts">—</span>
+        <span class="tm-rx-cnt" id="tm-ble-cnt">0 rx</span>
+      </div>
+    </div>
+
+    <!-- Zigbee Card -->
+    <div class="tm-card" id="tm-card-zb" data-state="idle">
+      <div class="tm-card-hdr">
+        <div class="tm-tech-badge zb">ZB</div>
+        <span class="tm-card-name" id="tm-zb-name">Zigbee Sensor</span>
+        <div class="tm-rtt-badge" id="tm-zb-rtt">—</div>
+      </div>
+      <div class="tm-vals">
+        <div class="tm-val-block">
+          <div class="tm-val-label">TEMP</div>
+          <div class="tm-val-big" id="tm-zb-temp">—</div>
+          <div class="tm-val-unit">°C</div>
+        </div>
+        <div class="tm-val-divider"></div>
+        <div class="tm-val-block">
+          <div class="tm-val-label">HUMIDITY</div>
+          <div class="tm-val-big" id="tm-zb-hum">—</div>
+          <div class="tm-val-unit">%</div>
+        </div>
+      </div>
+      <div class="tm-card-footer">
+        <span class="tm-ts" id="tm-zb-ts">—</span>
+        <span class="tm-rx-cnt" id="tm-zb-cnt">0 rx</span>
+      </div>
+    </div>
+
+    <!-- LoRa Card -->
+    <div class="tm-card" id="tm-card-lr" data-state="idle">
+      <div class="tm-card-hdr">
+        <div class="tm-tech-badge lr">LoRa</div>
+        <span class="tm-card-name" id="tm-lr-name">LoRa P2P Node</span>
+        <div class="tm-rtt-badge" id="tm-lr-rtt">—</div>
+      </div>
+      <div class="tm-vals">
+        <div class="tm-val-block">
+          <div class="tm-val-label">TEMP</div>
+          <div class="tm-val-big" id="tm-lr-temp">—</div>
+          <div class="tm-val-unit">°C</div>
+        </div>
+        <div class="tm-val-divider"></div>
+        <div class="tm-val-block">
+          <div class="tm-val-label">HUMIDITY</div>
+          <div class="tm-val-big" id="tm-lr-hum">—</div>
+          <div class="tm-val-unit">%</div>
+        </div>
+      </div>
+      <div class="tm-card-footer">
+        <span class="tm-ts" id="tm-lr-ts">—</span>
+        <span class="tm-rx-cnt" id="tm-lr-cnt">0 rx</span>
+      </div>
+    </div>
+
+  </div><!-- /tm-grid -->
+
+  <!-- ── RTT Stats Bar ── -->
+  <div class="tm-stats-bar">
+    <div class="tm-stat">
+      <span class="tm-stat-label">BLE</span>
+      <span id="tm-ble-rtt-stat">—</span>
+    </div>
+    <div class="tm-stat-sep"></div>
+    <div class="tm-stat">
+      <span class="tm-stat-label">ZB</span>
+      <span id="tm-zb-rtt-stat">—</span>
+    </div>
+    <div class="tm-stat-sep"></div>
+    <div class="tm-stat">
+      <span class="tm-stat-label">LoRa</span>
+      <span id="tm-lr-rtt-stat">—</span>
+    </div>
+    <div class="tm-stat-sep"></div>
+    <span id="tm-total-rx">0 total rx</span>
+    <span id="tm-last-ts" style="margin-left:auto">—</span>
+  </div>
+
+</div>
