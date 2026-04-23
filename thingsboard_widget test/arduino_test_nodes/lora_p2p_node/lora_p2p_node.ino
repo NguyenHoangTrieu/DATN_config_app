@@ -30,8 +30,8 @@
 #include <math.h>
 
 /* ── Pin / UART config ────────────────────────────────── */
-#define LORA_TX_PIN   6
-#define LORA_RX_PIN   7
+#define LORA_TX_PIN   5
+#define LORA_RX_PIN   6
 #define LORA_BAUD     9600
 HardwareSerial LoRaSerial(1);   /* UART1 */
 
@@ -236,7 +236,7 @@ void readLoraAsync() {
 /* ── Setup ────────────────────────────────────────────── */
 void setup() {
   Serial.begin(115200);
-  delay(500);
+  delay(1000);
   Serial.println("[DA2] LoRa P2P Node booting (ESP32-C3 + Wio-E5)…");
 
   LoRaSerial.begin(LORA_BAUD, SERIAL_8N1, LORA_RX_PIN, LORA_TX_PIN);

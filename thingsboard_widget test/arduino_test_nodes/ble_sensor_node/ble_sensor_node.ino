@@ -40,9 +40,9 @@ BLECharacteristic* g_dataChar  = nullptr;   /* AA11 */
 BLECharacteristic* g_ctrlChar  = nullptr;   /* AA12 */
 
 volatile bool    g_clientConnected = false;
-volatile bool    g_notifyEnabled   = false;
 volatile uint32_t g_intervalMs     = DEFAULT_INTERVAL_MS;
 uint32_t          g_lastNotifyMs   = 0;
+bool              g_oldConnected   = false;
 
 /* ── BLE Callbacks ────────────────────────────────────── */
 class ServerCallbacks : public BLEServerCallbacks {
@@ -51,21 +51,9 @@ class ServerCallbacks : public BLEServerCallbacks {
     Serial.println("[BLE] Client connected");
   }
   void onDisconnect(BLEServer* srv) override {
-    g_clientConnected  = false;
-    g_notifyEnabled    = false;
+    g_clientConnected = false;
     Serial.println("[BLE] Client disconnected — restarting advertising");
     BLEDevice::startAdvertising();
-  }
-};
-
-/* CCCD write callback — fires when central enables/disables NOTIFY */
-class DataCharCallbacks : public BLECharacteristicCallbacks {
-  void onDescriptorWrite(BLEDescriptor* desc) {
-    uint8_t* val = desc->getValue();
-    if (val && desc->getLength() >= 2) {
-      g_notifyEnabled = (val[0] == 0x01);
-      Serial.printf("[BLE] NOTIFY %s\n", g_notifyEnabled ? "enabled" : "disabled");
-    }
   }
 };
 
@@ -104,13 +92,15 @@ uint16_t simulateHum() {
 /* ── Setup ────────────────────────────────────────────── */
 void setup() {
   Serial.begin(115200);
+  delay(3000);  /* ESP32-S3 native USB often needs a short bring-up delay */
   Serial.println("[DA2] BLE Sensor Node booting…");
 
   BLEDevice::init(DEVICE_NAME);
+  BLEDevice::setPower(ESP_PWR_LVL_P9);
   g_server = BLEDevice::createServer();
   g_server->setCallbacks(new ServerCallbacks());
 
-  BLEService* svc = g_server->createService(SERVICE_UUID);
+  BLEService* svc = g_server->createService(BLEUUID((uint16_t)0xAA10));
 
   /* AA11 — DATA (READ + NOTIFY) */
   g_dataChar = svc->createCharacteristic(
@@ -118,24 +108,35 @@ void setup() {
     BLECharacteristic::PROPERTY_READ  |
     BLECharacteristic::PROPERTY_NOTIFY
   );
-  g_dataChar->setCallbacks(new DataCharCallbacks());
   g_dataChar->addDescriptor(new BLE2902());   /* CCCD at handle+1 */
+  {
+    uint8_t initPayload[4] = {0, 0, 0, 0};
+    g_dataChar->setValue(initPayload, sizeof(initPayload));
+  }
 
   /* AA12 — CTRL (WRITE) */
   g_ctrlChar = svc->createCharacteristic(
     CHAR_CTRL_UUID,
+    BLECharacteristic::PROPERTY_READ |
     BLECharacteristic::PROPERTY_WRITE |
     BLECharacteristic::PROPERTY_WRITE_NR
   );
   g_ctrlChar->setCallbacks(new CtrlCharCallbacks());
+  {
+    uint8_t intervalLe[2];
+    intervalLe[0] = (uint8_t)(g_intervalMs & 0xFF);
+    intervalLe[1] = (uint8_t)((g_intervalMs >> 8) & 0xFF);
+    g_ctrlChar->setValue(intervalLe, sizeof(intervalLe));
+  }
 
   svc->start();
 
   /* Advertising */
   BLEAdvertising* adv = BLEDevice::getAdvertising();
-  adv->addServiceUUID(SERVICE_UUID);
+  adv->addServiceUUID(BLEUUID((uint16_t)0xAA10));
   adv->setScanResponse(true);
   adv->setMinPreferred(0x06);
+  adv->setMaxPreferred(0x12);
   BLEDevice::startAdvertising();
 
   Serial.println("[BLE] Advertising as " DEVICE_NAME);
@@ -145,31 +146,51 @@ void setup() {
 void loop() {
   uint32_t now = millis();
 
-  if (g_clientConnected && g_notifyEnabled) {
-    if (now - g_lastNotifyMs >= g_intervalMs) {
-      g_lastNotifyMs = now;
+  if (g_clientConnected && (now - g_lastNotifyMs >= g_intervalMs)) {
+    g_lastNotifyMs = now;
 
+    int16_t  tRaw = simulateTemp();
+    uint16_t hRaw = simulateHum();
+
+    /* Pack 4 bytes: [tLo tHi hLo hHi] little-endian */
+    uint8_t payload[4];
+    payload[0] = (uint8_t)(tRaw & 0xFF);
+    payload[1] = (uint8_t)((tRaw >> 8) & 0xFF);
+    payload[2] = (uint8_t)(hRaw & 0xFF);
+    payload[3] = (uint8_t)((hRaw >> 8) & 0xFF);
+
+    g_dataChar->setValue(payload, sizeof(payload));
+    g_dataChar->notify();
+
+    Serial.printf("[BLE] NOTIFY T=%.2f°C H=%.2f%% interval=%lums\n",
+                  tRaw * 0.01f, hRaw * 0.01f, (unsigned long)g_intervalMs);
+  }
+
+  if (!g_clientConnected && g_oldConnected) {
+    delay(500);
+    BLEDevice::startAdvertising();
+    Serial.println("[BLE] Advertising restarted");
+    g_oldConnected = false;
+  }
+
+  if (g_clientConnected && !g_oldConnected) {
+    g_oldConnected = true;
+  }
+
+  if (!g_clientConnected && (now - g_lastNotifyMs >= 1000)) {
+    if (now - g_lastNotifyMs >= g_intervalMs) {
       int16_t  tRaw = simulateTemp();
       uint16_t hRaw = simulateHum();
 
-      /* Pack 4 bytes: [tHi tLo hHi hLo] little-endian */
+      /* Keep READ value fresh even when no central is connected yet. */
       uint8_t payload[4];
       payload[0] = (uint8_t)(tRaw & 0xFF);
       payload[1] = (uint8_t)((tRaw >> 8) & 0xFF);
       payload[2] = (uint8_t)(hRaw & 0xFF);
       payload[3] = (uint8_t)((hRaw >> 8) & 0xFF);
-
-      g_dataChar->setValue(payload, 4);
-      g_dataChar->notify();
-
-      Serial.printf("[BLE] NOTIFY T=%.2f°C H=%.2f%% interval=%ums\n",
-                    tRaw * 0.01f, hRaw * 0.01f, g_intervalMs);
+      g_dataChar->setValue(payload, sizeof(payload));
+      g_lastNotifyMs = now;
     }
-  }
-
-  /* Update READ value even without notify so central can READ on-demand */
-  if (g_clientConnected && (now - g_lastNotifyMs < 100)) {
-    /* already updated above — do nothing */
   }
 
   delay(10);

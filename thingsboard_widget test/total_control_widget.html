@@ -29,11 +29,6 @@
       </div>
     </div>
     <div class="tc-hdr-right">
-      <label class="tc-slot-label">Slot</label>
-      <select id="tc-slot" class="tc-slot-select" onchange="tcOnSlotChange(this.value)">
-        <option value="0">0</option>
-        <option value="1">1</option>
-      </select>
       <div id="tc-pill" class="tc-pill" data-state="idle">
         <span class="tc-dot"></span>
         <span id="tc-pill-txt">Idle</span>
@@ -50,22 +45,22 @@
         <div class="tc-tech-badge ble">BLE</div>
         <span class="tc-card-title">BLE Sensor Node</span>
         <label class="tc-switch">
-          <input type="checkbox" id="tc-ble-en" onchange="tcToggleTech('ble',this.checked)">
+          <input type="checkbox" id="tc-ble-en">
           <span class="tc-slider"></span>
         </label>
       </div>
       <div class="tc-card-body">
         <div class="tc-row">
-          <button class="tc-btn" onclick="tcBleScan()">🔍 Scan</button>
+          <button class="tc-btn" id="tc-ble-scan">🔍 Scan</button>
           <select id="tc-ble-dev" class="tc-select">
             <option value="">— scan first —</option>
           </select>
-          <button class="tc-btn" id="tc-ble-conn-btn" onclick="tcBleConnect()">Connect</button>
+          <button class="tc-btn" id="tc-ble-conn-btn">Connect</button>
         </div>
         <div class="tc-row">
           <label class="tc-lbl">Notify interval (ms)</label>
           <input id="tc-ble-interval" class="tc-input-num" type="number" value="500" min="100" max="60000" step="100">
-          <button class="tc-btn-sm" onclick="tcBleSetInterval()">Set</button>
+          <button class="tc-btn-sm" id="tc-ble-set-interval">Set</button>
         </div>
         <div id="tc-ble-status" class="tc-status-row">Not connected</div>
       </div>
@@ -76,15 +71,20 @@
       <div class="tc-card-hdr">
         <div class="tc-tech-badge zb">ZB</div>
         <span class="tc-card-title">Zigbee Sensor Node</span>
+        <label class="tc-stack-label" for="tc-zb-slot">Stack</label>
+        <select id="tc-zb-slot" class="tc-stack-select">
+          <option value="0">0</option>
+          <option value="1">1</option>
+        </select>
         <label class="tc-switch">
-          <input type="checkbox" id="tc-zb-en" onchange="tcToggleTech('zb',this.checked)">
+          <input type="checkbox" id="tc-zb-en">
           <span class="tc-slider"></span>
         </label>
       </div>
       <div class="tc-card-body">
         <div class="tc-row">
-          <button class="tc-btn" onclick="tcZbNetStart()">▶ Net Start</button>
-          <button class="tc-btn" onclick="tcZbPermitJoin()">🔓 Permit Join</button>
+          <button class="tc-btn" id="tc-zb-net-start">▶ Net Start</button>
+          <button class="tc-btn" id="tc-zb-permit-join">🔓 Permit Join</button>
         </div>
         <div class="tc-row">
           <label class="tc-lbl">Short addr (hex)</label>
@@ -105,14 +105,19 @@
       <div class="tc-card-hdr">
         <div class="tc-tech-badge lr">LoRa</div>
         <span class="tc-card-title">LoRa P2P Node</span>
+        <label class="tc-stack-label" for="tc-lr-slot">Stack</label>
+        <select id="tc-lr-slot" class="tc-stack-select">
+          <option value="0">0</option>
+          <option value="1">1</option>
+        </select>
         <label class="tc-switch">
-          <input type="checkbox" id="tc-lr-en" onchange="tcToggleTech('lr',this.checked)">
+          <input type="checkbox" id="tc-lr-en">
           <span class="tc-slider"></span>
         </label>
       </div>
       <div class="tc-card-body">
         <div class="tc-row">
-          <button class="tc-btn" onclick="tcLrSetupTestMode()">⚙ Setup P2P</button>
+          <button class="tc-btn" id="tc-lr-setup">⚙ Setup P2P</button>
         </div>
         <div class="tc-row">
           <label class="tc-lbl">Poll interval (ms)</label>
@@ -125,10 +130,18 @@
     </div>
 
     <!-- ── Scheduler Controls ── -->
-    <div class="tc-sched-bar">
-      <button class="tc-btn-start" id="tc-btn-start" onclick="tcStartPolling()">▶ Start Polling</button>
-      <button class="tc-btn-stop"  id="tc-btn-stop"  onclick="tcStopPolling()" disabled>■ Stop</button>
-      <span class="tc-sched-info" id="tc-sched-info">Ready</span>
+    <div class="tc-sched-card">
+      <div class="tc-sched-head">
+        <div>
+          <div class="tc-sched-title">Global Poll Scheduler</div>
+          <div class="tc-sched-sub">Controls polling for all enabled BLE, Zigbee and LoRa panels</div>
+        </div>
+      </div>
+      <div class="tc-sched-bar">
+        <button class="tc-btn-start" id="tc-btn-start">▶ Start Polling</button>
+        <button class="tc-btn-stop"  id="tc-btn-stop" disabled>■ Stop</button>
+        <span class="tc-sched-info" id="tc-sched-info">Ready</span>
+      </div>
     </div>
 
   </div><!-- /tc-body -->
@@ -142,7 +155,7 @@
         <span style="background:#28c840"></span>
       </div>
       <span class="tc-console-title">Console</span>
-      <button class="tc-btn-clear" onclick="tcClearLog()">Clear</button>
+      <button class="tc-btn-clear" id="tc-btn-clear">Clear</button>
     </div>
     <div id="tc-console" class="tc-console"></div>
   </div>

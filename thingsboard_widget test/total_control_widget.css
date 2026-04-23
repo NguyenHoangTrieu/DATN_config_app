@@ -56,10 +56,20 @@
 .tc-sub   { font-size: 11px; color: var(--text-dim); margin-top: 1px; }
 .tc-hdr-right { display: flex; align-items: center; gap: 8px; }
 .tc-slot-label  { font-size: 11px; color: var(--text-dim); }
-.tc-slot-select {
+.tc-slot-select,
+.tc-stack-select {
   background: var(--surface2); color: var(--text);
   border: 1px solid var(--border); border-radius: 5px;
   padding: 3px 7px; font-size: 12px; cursor: pointer;
+}
+.tc-stack-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.tc-stack-select {
+  width: 58px;
+  flex-shrink: 0;
 }
 
 /* Status pill */
@@ -188,10 +198,33 @@ input:focus, select:focus {
 .tc-status-row.warn { color: var(--warn); }
 
 /* ── Scheduler bar ── */
+.tc-sched-card {
+  background: linear-gradient(180deg, rgba(20,30,49,0.98), rgba(14,22,36,0.98));
+  border: 1px solid rgba(191,219,254,0.20);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 12px 28px rgba(2, 6, 23, 0.18);
+}
+.tc-sched-head {
+  padding: 9px 12px;
+  background: linear-gradient(180deg, rgba(34,49,77,0.55), rgba(24,36,59,0.35));
+  border-bottom: 1px solid var(--border);
+}
+.tc-sched-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: var(--text);
+}
+.tc-sched-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
 .tc-sched-bar {
   display: flex; align-items: center; gap: 8px;
-  padding: 10px 12px; background: rgba(18,27,47,0.96);
-  border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px;
+  background: rgba(18,27,47,0.96);
   flex-wrap: wrap;
 }
 .tc-btn-start {
@@ -210,7 +243,13 @@ input:focus, select:focus {
 }
 .tc-btn-stop:hover    { background: rgba(239,68,68,0.15); }
 .tc-btn-stop:disabled { opacity: 0.35; cursor: default; }
-.tc-sched-info { font-size: 12px; color: var(--text-dim); flex: 1; text-align: right; }
+.tc-sched-info {
+  font-size: 12px;
+  color: var(--text-dim);
+  flex: 1;
+  text-align: right;
+  min-width: 120px;
+}
 
 /* ── Console ── */
 .tc-console-wrap {

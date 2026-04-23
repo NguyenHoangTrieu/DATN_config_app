@@ -21,12 +21,12 @@
    State
    ═══════════════════════════════════════════════════════════════════ */
 var tcState = {
-  slot: '0',
-
   /* BLE */
   ble: {
+    slot:        '0',
     enabled:     false,
     connected:   false,
+    scanBusy:    false,
     devIdx:      null,
     mac:         '',
     name:        '',
@@ -40,6 +40,7 @@ var tcState = {
 
   /* Zigbee */
   zb: {
+    slot:       '0',
     enabled:    false,
     netUp:      false,
     shortAddr:  '',
@@ -53,6 +54,7 @@ var tcState = {
 
   /* LoRa */
   lr: {
+    slot:         '0',
     enabled:      false,
     configured:   false,
     intervalMs:   2000,
@@ -83,7 +85,8 @@ self.onInit = function () {
     tcLoadLocalState();
     tcSyncUI();
     tcBindInputs();
-    tcLog('info', 'Total Control ready — slot ' + tcState.slot);
+    tcBindActions();
+    tcLog('info', 'Total Control ready');
   } catch (e) {
     tcLog('fail', 'onInit: ' + e);
   }
@@ -210,8 +213,9 @@ function tcSplitLines(s) {
 }
 
 /* Send CFBG command */
-function tcSendCFBG(verb, params, timeout) {
-  var cmd = 'CFML:CFBG:' + tcState.slot + ':' + verb + (params ? ':' + params : '');
+function tcSendCFBG(verb, params, timeout, options) {
+  options = options || {};
+  var cmd = 'CFML:CFBG:' + tcState.ble.slot + ':' + verb + (params ? ':' + params : '');
   tcLog('tx', cmd);
   return tcSendRpc('sendCommand', tcStrToHex(cmd), timeout || tcState.rpcTimeout)
     .then(function (r) {
@@ -220,14 +224,16 @@ function tcSendCFBG(verb, params, timeout) {
       return d;
     })
     .catch(function (e) {
-      tcLog('fail', 'CFBG RPC: ' + (e && e.message ? e.message : e));
+      if (!options.allowAsyncTimeout || !tcIsRpcTimeoutError(e)) {
+        tcLog('fail', 'CFBG RPC: ' + (e && e.message ? e.message : e));
+      }
       throw e;
     });
 }
 
 /* Send CFZB command */
 function tcSendCFZB(verb, params, timeout) {
-  var cmd = 'CFML:CFZB:' + tcState.slot + ':' + verb + (params ? ':' + params : '');
+  var cmd = 'CFML:CFZB:' + tcState.zb.slot + ':' + verb + (params ? ':' + params : '');
   tcLog('tx', cmd);
   return tcSendRpc('sendCommand', tcStrToHex(cmd), timeout || tcState.rpcTimeout)
     .then(function (r) {
@@ -243,7 +249,7 @@ function tcSendCFZB(verb, params, timeout) {
 
 /* Send CFLR command */
 function tcSendCFLR(verb, params, timeout) {
-  var cmd = 'CFML:CFLR:' + tcState.slot + ':' + verb + (params ? ':' + params : '');
+  var cmd = 'CFML:CFLR:' + tcState.lr.slot + ':' + verb + (params ? ':' + params : '');
   tcLog('tx', cmd);
   return tcSendRpc('sendCommand', tcStrToHex(cmd), timeout || tcState.rpcTimeout)
     .then(function (r) {
@@ -263,9 +269,32 @@ function tcSendCFLR(verb, params, timeout) {
 function tcHandleAsyncLine(line, ts) {
   var now = Date.now();
 
+  /* ── BLE scan result / completion (may arrive async via telemetry) ── */
+  var m = line.match(/SCAN_RESULT:(\d+),([0-9a-fA-F:]{17}),(-?\d+),(.*)/i);
+  if (m) {
+    tcBleAddScanResult(m[1], m[2], m[3], m[4]);
+    return;
+  }
+
+  m = line.match(/CFBG:OK:SCAN_DONE:(\d+)/i);
+  if (m) {
+    tcState.ble.scanBusy = false;
+    tcBleSetScanBusy(false);
+    tcLog('info', 'BLE scan done (' + parseInt(m[1], 10) + ' device(s))');
+    return;
+  }
+
+  m = line.match(/CFBG:FAIL:SCAN:BUSY/i);
+  if (m) {
+    tcState.ble.scanBusy = true;
+    tcBleSetScanBusy(true);
+    tcLog('warn', 'BLE scan busy — waiting for current scan to finish');
+    return;
+  }
+
   /* ── BLE NOTIFY ──────────────────────────────────────────────── */
   /* CFBG:OK:NOTIFY:<idx>:0x<handle>:<hex4B> */
-  var m = line.match(/CFBG:OK:NOTIFY:(\d+):0x[0-9A-Fa-f]+:([0-9A-Fa-f]{8,})/i);
+  m = line.match(/CFBG:OK:NOTIFY:(\d+):0x[0-9A-Fa-f]+:([0-9A-Fa-f]{8,})/i);
   if (m) {
     var hex4 = m[2].toUpperCase();
     var tRaw = parseInt(hex4.substr(0, 4), 16);
@@ -294,15 +323,19 @@ function tcHandleAsyncLine(line, ts) {
   }
 
   /* ── BLE DISC_DONE — extract AA11/AA12/CCCD handles ─────────── */
-  m = line.match(/CFBG:OK:CHAR:(\d+):0x([0-9A-Fa-f]{4}):0x([0-9A-Fa-f]{4}):0x([0-9A-Fa-f]{2})/i);
+  m = line.match(/(?:CFBG:OK:)?CHAR:(\d+):0x([0-9A-Fa-f]{4}):0x([0-9A-Fa-f]{4}):0x([0-9A-Fa-f]{2})/i);
   if (m) {
     var uuid16 = m[2].toUpperCase();
     var handle = parseInt(m[3], 16);
     if (uuid16 === 'AA11') {
       tcState.ble.aa11Handle = handle;
       tcState.ble.cccdHandle = handle + 1;
+      tcLog('info', 'BLE: AA11 handle=0x' + handle.toString(16).toUpperCase() + ' CCCD=0x' + tcState.ble.cccdHandle.toString(16).toUpperCase());
     }
-    if (uuid16 === 'AA12') { tcState.ble.aa12Handle = handle; }
+    if (uuid16 === 'AA12') {
+      tcState.ble.aa12Handle = handle;
+      tcLog('info', 'BLE: AA12 handle=0x' + handle.toString(16).toUpperCase());
+    }
     return;
   }
 
@@ -402,30 +435,35 @@ function tcEmitData(tech, payload) {
    BLE Actions
    ═══════════════════════════════════════════════════════════════════ */
 function tcBleScan() {
+  if (tcState.ble.scanBusy) {
+    tcLog('warn', 'BLE scan already running');
+    return;
+  }
+  tcBleResetScanList();
+  tcState.ble.scanBusy = true;
+  tcBleSetScanBusy(true);
   tcLog('info', 'BLE: scanning 5 s…');
-  tcSendCFBG('SCAN', '5000', 15000)
+  tcSendCFBG('SCAN', '5000', 15000, { allowAsyncTimeout: true })
     .then(function (resp) {
-      var sel = document.getElementById('tc-ble-dev');
-      if (!sel) return;
-      sel.innerHTML = '<option value="">— select device —</option>';
-      tcSplitLines(resp).forEach(function (line) {
-        var m = line.match(/SCAN_RESULT:(\d+),([0-9a-fA-F:]{17}),(-?\d+),(.*)/);
-        if (!m) return;
-        var opt = document.createElement('option');
-        opt.value = m[2].toLowerCase();
-        opt.dataset.idx = m[1];
-        opt.textContent = (m[4] || 'Device_' + m[1]) + ' (' + m[3] + ' dBm)';
-        sel.appendChild(opt);
-      });
-      tcLog('info', 'BLE scan done');
+      tcSplitLines(resp).forEach(function (line) { tcHandleAsyncLine(line, Date.now()); });
     })
-    .catch(function () {});
+    .catch(function (e) {
+      if (tcIsRpcTimeoutError(e)) {
+        tcLog('warn', 'BLE scan RPC timed out — waiting for async scan results…');
+        return;
+      }
+      tcState.ble.scanBusy = false;
+      tcBleSetScanBusy(false);
+    });
 }
 
 function tcBleConnect() {
   var sel = document.getElementById('tc-ble-dev');
   if (!sel || !sel.value) { tcShowToast('Select a device first'); return; }
   tcReadUiState();
+  tcState.ble.aa11Handle = null;
+  tcState.ble.aa12Handle = null;
+  tcState.ble.cccdHandle = null;
   var mac  = sel.value;
   var name = sel.options[sel.selectedIndex].textContent;
   tcState.ble.mac  = mac;
@@ -486,6 +524,42 @@ function tcBleSetInterval() {
   tcSendCFBG('WRITE', dev.devIdx + ':0x' + dev.aa12Handle.toString(16).toUpperCase() + ':' + hexVal, 8000)
     .then(function () { tcLog('info', 'BLE interval set to ' + ms + ' ms'); })
     .catch(function () {});
+}
+
+function tcBleResetScanList() {
+  var sel = document.getElementById('tc-ble-dev');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">— scan first —</option>';
+}
+
+function tcBleAddScanResult(idx, mac, rssi, name) {
+  var sel = document.getElementById('tc-ble-dev');
+  if (!sel) return;
+  var normalizedMac = String(mac || '').toLowerCase();
+  var option = null;
+  for (var i = 0; i < sel.options.length; i++) {
+    if (sel.options[i].value === normalizedMac) {
+      option = sel.options[i];
+      break;
+    }
+  }
+  if (!option) {
+    option = document.createElement('option');
+    option.value = normalizedMac;
+    sel.appendChild(option);
+  }
+  option.dataset.idx = String(idx);
+  option.textContent = (name || ('Device_' + idx)) + ' (' + rssi + ' dBm)';
+}
+
+function tcBleSetScanBusy(isBusy) {
+  var btn = document.getElementById('tc-ble-scan');
+  if (btn) btn.disabled = !!isBusy;
+}
+
+function tcIsRpcTimeoutError(e) {
+  var s = String(e && e.message ? e.message : e || '');
+  return s.indexOf('504') >= 0 || s.indexOf('Http failure response') >= 0;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -660,13 +734,13 @@ function tcToggleTech(tech, enabled) {
   tcState[tech].enabled = enabled;
   tcRefreshTechCards();
   tcSaveLocalState();
+  tcLog('info', tech.toUpperCase() + ' ' + (enabled ? 'enabled' : 'disabled'));
 }
 
 function tcOnSlotChange(val) {
   tcReadUiState();
-  tcState.slot = val;
   tcSaveLocalState();
-  tcLog('info', 'Slot changed to ' + val);
+  tcLog('info', 'Stack selection updated');
 }
 
 function tcSetPill(state, text) {
@@ -690,11 +764,11 @@ function tcSetSchedInfo(msg) {
 }
 
 function tcSyncUI() {
-  var slotSel = document.getElementById('tc-slot');
-  if (slotSel) slotSel.value = tcState.slot;
   /* restore interval inputs */
   var bleInt = document.getElementById('tc-ble-interval');
   if (bleInt) bleInt.value = tcState.ble.intervalMs;
+  var zbSlot = document.getElementById('tc-zb-slot');
+  if (zbSlot) zbSlot.value = tcState.zb.slot;
   var zbInt = document.getElementById('tc-zb-interval');
   if (zbInt) zbInt.value = tcState.zb.intervalMs;
   var zbAddr = document.getElementById('tc-zb-addr');
@@ -703,6 +777,8 @@ function tcSyncUI() {
   if (zbEp) zbEp.value = tcState.zb.ep;
   var lrInt = document.getElementById('tc-lr-interval');
   if (lrInt) lrInt.value = tcState.lr.intervalMs;
+  var lrSlot = document.getElementById('tc-lr-slot');
+  if (lrSlot) lrSlot.value = tcState.lr.slot;
   var lrTo = document.getElementById('tc-lr-rtt-to');
   if (lrTo) lrTo.value = tcState.lr.rttTimeoutMs;
   /* toggle switches */
@@ -716,13 +792,38 @@ function tcSyncUI() {
 }
 
 function tcBindInputs() {
-  var ids = ['tc-ble-interval', 'tc-zb-addr', 'tc-zb-ep', 'tc-zb-interval', 'tc-lr-interval', 'tc-lr-rtt-to'];
+  var ids = ['tc-ble-interval', 'tc-zb-slot', 'tc-zb-addr', 'tc-zb-ep', 'tc-zb-interval', 'tc-lr-slot', 'tc-lr-interval', 'tc-lr-rtt-to'];
   for (var i = 0; i < ids.length; i++) {
     var el = document.getElementById(ids[i]);
     if (!el || el.getAttribute('data-tc-bound') === '1') continue;
     el.setAttribute('data-tc-bound', '1');
     el.addEventListener('change', tcOnConfigInputChange);
     el.addEventListener('input', tcOnConfigInputChange);
+  }
+}
+
+function tcBindActions() {
+  var actions = [
+    { id: 'tc-ble-en', type: 'change', fn: function (e) { tcToggleTech('ble', !!e.target.checked); } },
+    { id: 'tc-zb-en', type: 'change', fn: function (e) { tcToggleTech('zb', !!e.target.checked); } },
+    { id: 'tc-lr-en', type: 'change', fn: function (e) { tcToggleTech('lr', !!e.target.checked); } },
+    { id: 'tc-ble-scan', type: 'click', fn: tcBleScan },
+    { id: 'tc-ble-dev', type: 'change', fn: function () { tcReadUiState(); } },
+    { id: 'tc-ble-conn-btn', type: 'click', fn: tcBleConnect },
+    { id: 'tc-ble-set-interval', type: 'click', fn: tcBleSetInterval },
+    { id: 'tc-zb-net-start', type: 'click', fn: tcZbNetStart },
+    { id: 'tc-zb-permit-join', type: 'click', fn: tcZbPermitJoin },
+    { id: 'tc-lr-setup', type: 'click', fn: tcLrSetupTestMode },
+    { id: 'tc-btn-start', type: 'click', fn: tcStartPolling },
+    { id: 'tc-btn-stop', type: 'click', fn: tcStopPolling },
+    { id: 'tc-btn-clear', type: 'click', fn: tcClearLog }
+  ];
+  for (var i = 0; i < actions.length; i++) {
+    var item = actions[i];
+    var el = document.getElementById(item.id);
+    if (!el || el.getAttribute('data-tc-action-bound') === '1') continue;
+    el.setAttribute('data-tc-action-bound', '1');
+    el.addEventListener(item.type, item.fn);
   }
 }
 
@@ -736,6 +837,14 @@ function tcReadUiState() {
   if (bleInt) {
     tcState.ble.intervalMs = Math.max(100, parseInt(bleInt.value, 10) || tcState.ble.intervalMs || 500);
     bleInt.value = tcState.ble.intervalMs;
+  }
+
+  tcState.ble.slot = '0';
+
+  var zbSlot = document.getElementById('tc-zb-slot');
+  if (zbSlot) {
+    tcState.zb.slot = zbSlot.value === '1' ? '1' : '0';
+    zbSlot.value = tcState.zb.slot;
   }
 
   var zbAddr = document.getElementById('tc-zb-addr');
@@ -760,6 +869,12 @@ function tcReadUiState() {
   if (lrInt) {
     tcState.lr.intervalMs = Math.max(100, parseInt(lrInt.value, 10) || tcState.lr.intervalMs || 2000);
     lrInt.value = tcState.lr.intervalMs;
+  }
+
+  var lrSlot = document.getElementById('tc-lr-slot');
+  if (lrSlot) {
+    tcState.lr.slot = lrSlot.value === '1' ? '1' : '0';
+    lrSlot.value = tcState.lr.slot;
   }
 
   var lrTo = document.getElementById('tc-lr-rtt-to');
@@ -790,10 +905,9 @@ var TC_LS_KEY = 'da2_total_ctrl_v1';
 function tcSaveLocalState() {
   try {
     var saved = {
-      slot: tcState.slot,
-      ble: { enabled: tcState.ble.enabled, intervalMs: tcState.ble.intervalMs },
-      zb:  { enabled: tcState.zb.enabled, shortAddr: tcState.zb.shortAddr, ep: tcState.zb.ep, intervalMs: tcState.zb.intervalMs },
-      lr:  { enabled: tcState.lr.enabled, intervalMs: tcState.lr.intervalMs, rttTimeoutMs: tcState.lr.rttTimeoutMs }
+      ble: { slot: tcState.ble.slot, enabled: tcState.ble.enabled, intervalMs: tcState.ble.intervalMs },
+      zb:  { slot: tcState.zb.slot, enabled: tcState.zb.enabled, shortAddr: tcState.zb.shortAddr, ep: tcState.zb.ep, intervalMs: tcState.zb.intervalMs },
+      lr:  { slot: tcState.lr.slot, enabled: tcState.lr.enabled, intervalMs: tcState.lr.intervalMs, rttTimeoutMs: tcState.lr.rttTimeoutMs }
     };
     localStorage.setItem(TC_LS_KEY, JSON.stringify(saved));
   } catch (e) {}
@@ -804,18 +918,20 @@ function tcLoadLocalState() {
     var raw = localStorage.getItem(TC_LS_KEY);
     if (!raw) return;
     var saved = JSON.parse(raw);
-    if (saved.slot) tcState.slot = saved.slot;
     if (saved.ble) {
+      tcState.ble.slot       = saved.ble.slot || '0';
       tcState.ble.enabled    = !!saved.ble.enabled;
       tcState.ble.intervalMs = Math.max(100, saved.ble.intervalMs || 500);
     }
     if (saved.zb) {
+      tcState.zb.slot       = saved.zb.slot || '0';
       tcState.zb.enabled    = !!saved.zb.enabled;
       tcState.zb.shortAddr  = saved.zb.shortAddr || '';
       tcState.zb.ep         = saved.zb.ep || '0B';
       tcState.zb.intervalMs = Math.max(100, saved.zb.intervalMs || 1000);
     }
     if (saved.lr) {
+      tcState.lr.slot         = saved.lr.slot || '0';
       tcState.lr.enabled      = !!saved.lr.enabled;
       tcState.lr.intervalMs   = Math.max(100, saved.lr.intervalMs || 2000);
       tcState.lr.rttTimeoutMs = Math.max(500, saved.lr.rttTimeoutMs || 5000);

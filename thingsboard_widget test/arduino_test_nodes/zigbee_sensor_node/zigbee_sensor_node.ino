@@ -72,7 +72,7 @@ static esp_zb_attribute_list_t* build_basic_cluster(void) {
 /* Temperature Measurement cluster (0x0402) */
 static esp_zb_attribute_list_t* build_temp_cluster(void) {
   esp_zb_temperature_meas_cluster_cfg_t cfg = {
-    .measured_value     = 0x8000,  /* invalid initially */
+    .measured_value     = (int16_t)0x8000,  /* invalid sentinel per ZCL spec */
     .min_value          = -4000,   /* -40.00 °C */
     .max_value          =  8500,   /* +85.00 °C */
   };
@@ -110,9 +110,12 @@ static void update_sensor_attrs(void) {
 
 /* ── Zigbee signal handler ────────────────────────────── */
 void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_s) {
+  if (!signal_s || !signal_s->p_app_signal) {
+    return;
+  }
   uint32_t *p = signal_s->p_app_signal;
   esp_err_t err = signal_s->esp_err_status;
-  esp_zb_app_signal_type_t sig = *p;
+  esp_zb_app_signal_type_t sig = (esp_zb_app_signal_type_t)(*p);
 
   switch (sig) {
     case ESP_ZB_ZDO_SIGNAL_SKIP_STARTUP:
@@ -158,14 +161,11 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_s) {
 /* ── Zigbee task (runs in FreeRTOS task context) ─────── */
 static void zigbee_task(void* arg) {
   /* Config as End Device */
-  esp_zb_cfg_t zb_cfg = {
-    .esp_zb_role           = ESP_ZB_DEVICE_TYPE_ED,
-    .install_code_policy   = false,
-    .nwk_cfg.zed_cfg = {
-      .ed_timeout    = ESP_ZB_ED_AGING_TIMEOUT_64MIN,
-      .keep_alive    = 3000   /* ms */
-    }
-  };
+  esp_zb_cfg_t zb_cfg = {};
+  zb_cfg.esp_zb_role = ESP_ZB_DEVICE_TYPE_ED;
+  zb_cfg.install_code_policy = false;
+  zb_cfg.nwk_cfg.zed_cfg.ed_timeout = ESP_ZB_ED_AGING_TIMEOUT_64MIN;
+  zb_cfg.nwk_cfg.zed_cfg.keep_alive = 3000;   /* ms */
   esp_zb_init(&zb_cfg);
 
   /* ── Cluster lists ── */
