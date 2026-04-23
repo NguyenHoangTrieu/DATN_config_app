@@ -25,6 +25,7 @@ var TM_STALE_LR    = 15000;
 var _tmLastProcessedTs = 0;
 var _tmBridgeHandler   = null;
 var _tmStaleTimer      = null;
+var _tmLsTimer         = null;
 
 /* ═══════════════════════════════════════════════════════════════════
    ThingsBoard Lifecycle
@@ -50,6 +51,7 @@ self.onDestroy = function () {
     _tmBridgeHandler = null;
   }
   if (_tmStaleTimer) { clearInterval(_tmStaleTimer); _tmStaleTimer = null; }
+  if (_tmLsTimer) { clearInterval(_tmLsTimer); _tmLsTimer = null; }
 };
 
 /* WebSocket push — fires on every new telemetry value */
@@ -233,7 +235,8 @@ function tmCheckStale() {
 var _tmLsLastPoll = 0;
 
 function tmPollLocalStorage() {
-  setInterval(function () {
+  if (_tmLsTimer) return;
+  _tmLsTimer = setInterval(function () {
     try {
       var raw = localStorage.getItem('da2_total_data');
       if (!raw) return;

@@ -67,21 +67,22 @@ Tất cả RPC đều hex-encode frame `CFML:<sub-protocol>:<slot>:<verb>:<param
 ### 3.2 Zigbee — `CFZB`
 | Action | Frame |
 |---|---|
-| Start network | `CFML:CFZB:<slot>:NET_START` |
-| Permit join | `CFML:CFZB:<slot>:PERMIT_JOIN:<s>` |
-| **Read Attr** | `CFML:CFZB:<slot>:READ_ATTR:<short>,<ep>,<cluster>,<attr>` |
+| Start network | `CFML:CFZB:<slot>:MODULE_START_NETWORK` |
+| Permit join | `CFML:CFZB:<slot>:MODULE_SET_PERMIT_JOIN:<s>` |
+| **Read Attr** | `CFML:CFZB:<slot>:MODULE_ZCL_READ_ATTR:<ebyte_hex_frame>` |
 
-> Polling chủ động: scheduler gửi `READ_ATTR` cho từng node Zigbee theo interval. Node trả kết quả về async qua telemetry `RPT:` hoặc `HEX_FRAME:`.
+> Polling chủ động: scheduler build Ebyte ZCL Read Attribute frame giống widget Zigbee cũ, rồi gửi `MODULE_ZCL_READ_ATTR`. Node trả kết quả về async qua telemetry `RPT:` hoặc `HEX_FRAME:`.
 
 ### 3.3 LoRa P2P — `CFLR`
 | Action | Frame | Mô tả |
 |---|---|---|
-| Switch TX | `CFML:CFLR:<slot>:P2P_TX_MODE` | Gateway switch sang TX |
-| Send request | `CFML:CFLR:<slot>:P2P_SEND:<hex_payload>` | Gửi request đến node |
-| Switch RX | `CFML:CFLR:<slot>:P2P_RX_MODE` | Gateway switch sang RX |
+| Enter TEST mode | `CFML:CFLR:<slot>:MODULE_ENTER_P2P_MODE` | Gateway switch sang TEST mode |
+| RF config | `CFML:CFLR:<slot>:MODULE_SET_P2P_CONFIG:<rf_cfg>` | Nạp RFCFG cho P2P |
+| Send request | `CFML:CFLR:<slot>:MODULE_SEND_P2P_PKT:"<hex_payload>"` | Gửi request đến node |
+| Switch RX | `CFML:CFLR:<slot>:MODULE_ENTER_P2P_RX` | Gateway quay lại RX |
 | Wait RX | — | Đợi `RXLRPKT` event qua telemetry |
 
-> Mỗi poll cycle: TX_MODE → SEND(request) → RX_MODE → đợi RXLRPKT. Timeout nếu không nhận sau `rtt_timeout` ms.
+> Mỗi poll cycle: ENTER_P2P_MODE → SET_P2P_CONFIG → ENTER_P2P_RX để chuẩn bị, sau đó mỗi lần poll sẽ SEND_P2P_PKT → ENTER_P2P_RX → đợi RXLRPKT. Timeout nếu không nhận sau `rtt_timeout` ms.
 **REQUEST payload (gateway → node):** `AA <seq>` (2 bytes hex)
 **RESPONSE payload (node → gateway):** `<nodeId> <seq> <tHi> <tLo> <hHi> <hLo>` (6 bytes)
 - `seq` dùng để match request/response cho RTT
