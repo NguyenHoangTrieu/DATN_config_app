@@ -43,9 +43,20 @@ var tcState = {
     slot:       '0',
     enabled:    false,
     netUp:      false,
+    coordinatorIeee: '',
     shortAddr:  '',
+    targetIeee: '',
     ep:         '0B',
+    autoSelected: false,
     intervalMs: 1000,
+    verified:   false,
+    deviceName: '',
+    reportConfigured: false,
+    bindReady:  false,
+    bindFailed: false,
+    bindFailureReason: '',
+    bindTarget: '',
+    awaitingVerify: false,
     tReq:       0,       /* timestamp of last READ_ATTR */
     rtt:        null,
     pendingCluster: null,
@@ -218,6 +229,10 @@ function tcBuildEbyteFrame(typeByte, codeByte, dataBytes) {
   return [0x55, length].concat(payload).concat([checksum]);
 }
 
+function tcBuildZdoFrame(codeByte, shortAddrInt, params) {
+  return tcBuildEbyteFrame(0x01, codeByte, [shortAddrInt & 0xFF, (shortAddrInt >> 8) & 0xFF].concat(params || []));
+}
+
 function tcBuildZclReadAttrFrame(shortAddr, ep, cluster, attrId) {
   var seq = (tcState.zb._hexSeq++) & 0xFF;
   var aH = parseInt(attrId.substring(0, 2), 16);
@@ -236,6 +251,85 @@ function tcBuildZclReadAttrFrame(shortAddr, ep, cluster, attrId) {
     0x00
   ];
   return tcBuildEbyteFrame(0x02, 0x00, header.concat([0x01, aL, aH]));
+}
+
+function tcBuildZclWriteAttrFrame(shortAddr, ep, cluster, attrId, dataType, dataBytes) {
+  var seq = (tcState.zb._hexSeq++) & 0xFF;
+  var aH = parseInt(attrId.substring(0, 2), 16);
+  var aL = parseInt(attrId.substring(2, 4), 16);
+  var ext = [0x01, aL, aH, dataType & 0xFF].concat(dataBytes);
+  var header = [
+    0x00,
+    shortAddr & 0xFF,
+    (shortAddr >> 8) & 0xFF,
+    ep & 0xFF,
+    seq,
+    0x00,
+    cluster & 0xFF,
+    (cluster >> 8) & 0xFF,
+    0x00,
+    0x00,
+    0x00
+  ];
+  return tcBuildEbyteFrame(0x02, 0x01, header.concat(ext));
+}
+
+function tcBuildZclConfigureReportingFrame(shortAddr, ep, cluster, attrId, dataType, minIntervalSec, maxIntervalSec, reportableChange) {
+  var seq = (tcState.zb._hexSeq++) & 0xFF;
+  var aH = parseInt(attrId.substring(0, 2), 16);
+  var aL = parseInt(attrId.substring(2, 4), 16);
+  var ext = [
+    aL,
+    aH,
+    dataType & 0xFF,
+    minIntervalSec & 0xFF,
+    (minIntervalSec >> 8) & 0xFF,
+    maxIntervalSec & 0xFF,
+    (maxIntervalSec >> 8) & 0xFF,
+    reportableChange & 0xFF,
+    (reportableChange >> 8) & 0xFF
+  ];
+  var header = [
+    0x00,
+    shortAddr & 0xFF,
+    (shortAddr >> 8) & 0xFF,
+    ep & 0xFF,
+    seq,
+    0x00,
+    cluster & 0xFF,
+    (cluster >> 8) & 0xFF,
+    0x00,
+    0x00,
+    0x00
+  ];
+  return tcBuildEbyteFrame(0x02, 0x03, header.concat(ext));
+}
+
+function tcIeeeToLeBytes(ieee) {
+  var clean = String(ieee || '').replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
+  if (clean.length !== 16) return null;
+  var out = [];
+  for (var i = 14; i >= 0; i -= 2) out.push(parseInt(clean.substr(i, 2), 16));
+  return out;
+}
+
+function tcBuildZclBindFrame(shortAddr, srcIeee, ep, cluster, dstIeee, dstEp) {
+  var srcBytes = tcIeeeToLeBytes(srcIeee);
+  var dstBytes = tcIeeeToLeBytes(dstIeee);
+  if (!srcBytes || !dstBytes) throw new Error('Missing IEEE for Zigbee bind');
+  return tcBuildZdoFrame(0x21, shortAddr, srcBytes.concat([
+    ep & 0xFF,
+    cluster & 0xFF,
+    (cluster >> 8) & 0xFF,
+    0x03
+  ], dstBytes, [dstEp & 0xFF]));
+}
+
+function tcNormalizeBleNotifyHex(rawPayload) {
+  var raw = String(rawPayload || '').trim();
+  if (!raw) return '';
+  var patched = raw.replace(/xy/ig, '16').replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
+  return patched.length >= 8 ? patched.substr(0, 8) : '';
 }
 
 function tcSplitLines(s) {
@@ -284,7 +378,7 @@ function tcResolveTargetEntityId() {
 function tcSubscribeTelemetry() {
   try {
     if (!self.ctx || !self.ctx.telemetryWsService) {
-      tcLog('warn', 'Telemetry WS unavailable in this widget context');
+      tcLog('info', 'Telemetry WS unavailable — using datasource/bridge');
       return;
     }
     var entityId = tcResolveTargetEntityId();
@@ -316,17 +410,61 @@ function tcSubscribeTelemetry() {
     _tcTeleSubscriber = subscriber;
     tcLog('info', 'Telemetry WS subscribed → key=data');
   } catch (e) {
-    tcLog('warn', 'Telemetry subscribe failed: ' + (e && e.message ? e.message : e));
+    tcLog('info', 'Telemetry direct subscribe unavailable — using datasource/bridge');
   }
 }
 
 function tcHexWordsToBytes(hexStr) {
   if (!hexStr) return [];
-  return String(hexStr).trim().split(/\s+/).map(function (b) {
-    return parseInt(b, 16);
-  }).filter(function (b) {
-    return !isNaN(b);
-  });
+  var s = String(hexStr).trim();
+  if (!s) return [];
+  if (/^[0-9A-Fa-f]{2}(?:\s+[0-9A-Fa-f]{2})*$/.test(s)) {
+    return s.split(/\s+/).map(function (b) {
+      return parseInt(b, 16);
+    }).filter(function (b) {
+      return !isNaN(b);
+    });
+  }
+
+  var bytes = [];
+  var i = 0;
+  while (i < s.length) {
+    var ch = s.charAt(i);
+    if (/\s|:|,/.test(ch)) {
+      i++;
+      continue;
+    }
+    var next = s.charAt(i + 1);
+    var afterNext = s.charAt(i + 2);
+    if (/[0-9A-Fa-f]/.test(ch) && /[0-9A-Fa-f]/.test(next) && (!afterNext || /\s|:|,/.test(afterNext))) {
+      bytes.push(parseInt(s.substr(i, 2), 16));
+      i += 2;
+      continue;
+    }
+    bytes.push(s.charCodeAt(i) & 0xFF);
+    i++;
+  }
+  return bytes;
+}
+
+function tcBytesContainFrame(bytes) {
+  for (var i = 0; i < bytes.length; i++) {
+    if (bytes[i] === 0x55 && i + 1 < bytes.length) return true;
+  }
+  return false;
+}
+
+function tcPreviewFirstFrame(bytes) {
+  var out = [];
+  for (var i = 0; i < bytes.length; i++) {
+    if (bytes[i] === 0x55) {
+      for (var j = i; j < bytes.length && out.length < 24; j++) {
+        out.push(tcPad2(bytes[j]));
+      }
+      break;
+    }
+  }
+  return out.join(' ');
 }
 
 function tcParseEbyteFrame(hexStr) {
@@ -350,43 +488,230 @@ function tcParseZbAttrValue(data, offset, dataType) {
   if (dataType === 0x10 || dataType === 0x20 || dataType === 0x30) {
     return { hex: tcPad2(data[offset] || 0), size: 1 };
   }
-  if (dataType === 0x21 || dataType === 0x29) {
-    var value16 = ((data[offset + 1] || 0) << 8) | (data[offset] || 0);
-    return { hex: tcPad2(value16 & 0xFF) + tcPad2((value16 >> 8) & 0xFF), size: 2 };
+  if (dataType === 0x21) {
+    var uint16 = ((data[offset + 1] || 0) << 8) | (data[offset] || 0);
+    return { hex: tcPad2((uint16 >> 8) & 0xFF) + tcPad2(uint16 & 0xFF), size: 2 };
+  }
+  if (dataType === 0x29) {
+    var int16 = ((data[offset + 1] || 0) << 8) | (data[offset] || 0);
+    if (int16 & 0x8000) int16 = int16 - 0x10000;
+    return { hex: tcPad2(((int16 & 0xFFFF) >> 8) & 0xFF) + tcPad2(int16 & 0xFF), size: 2 };
+  }
+  if (dataType === 0x42) {
+    var len = data[offset] || 0;
+    var chars = [];
+    for (var i = 0; i < len && (offset + 1 + i) < data.length; i++) {
+      chars.push(String.fromCharCode(data[offset + 1 + i] || 0));
+    }
+    return { hex: chars.join(''), size: 1 + len };
   }
   return { hex: tcPad2(data[offset] || 0), size: 1 };
+}
+
+function tcZbIntervalSec() {
+  return Math.max(1, Math.round((tcState.zb.intervalMs || 1000) / 1000));
+}
+
+function tcResetZbSession(reason) {
+  tcState.zb.verified = false;
+  tcState.zb.deviceName = '';
+  tcState.zb.targetIeee = '';
+  tcState.zb.reportConfigured = false;
+  tcState.zb.bindReady = false;
+  tcState.zb.bindFailed = false;
+  tcState.zb.bindFailureReason = '';
+  tcState.zb.bindTarget = '';
+  tcState.zb.awaitingVerify = false;
+  tcState.zb.tReq = 0;
+  tcState.zb.rtt = null;
+  delete tcState.zb._lastTemp;
+  delete tcState.zb._lastHum;
+  if (reason) {
+    tcLog('info', '[ZB] Session reset: ' + reason);
+  }
+}
+
+function tcRefreshZbStatus() {
+  if (!tcState.zb.netUp) {
+    tcSetStatus('zb', 'warn', 'Network not started');
+    return;
+  }
+  if (!tcState.zb.shortAddr) {
+    tcSetStatus('zb', 'warn', 'Waiting for node join/announce');
+    return;
+  }
+  if (!tcState.zb.verified) {
+    tcSetStatus('zb', 'warn', 'Target 0x' + tcState.zb.shortAddr + ' EP:' + tcState.zb.ep + ' — verify pending');
+    return;
+  }
+  if (!tcState.zb.targetIeee) {
+    tcSetStatus('zb', 'warn', 'Verified target 0x' + tcState.zb.shortAddr + ' — waiting node IEEE');
+    return;
+  }
+  if (!tcState.zb.coordinatorIeee) {
+    tcSetStatus('zb', 'warn', 'Verified target 0x' + tcState.zb.shortAddr + ' — waiting coordinator IEEE');
+    return;
+  }
+  if (!tcState.zb.reportConfigured) {
+    tcSetStatus('zb', 'warn', 'Verified ' + (tcState.zb.deviceName || ('0x' + tcState.zb.shortAddr)) + ' — setup push pending');
+    return;
+  }
+  tcSetStatus('zb', 'ok', 'Push active @ ' + tcZbIntervalSec() + ' s — ' + (tcState.zb.deviceName || ('0x' + tcState.zb.shortAddr)));
+}
+
+function tcEmitZbSample(now) {
+  if (tcState.zb._lastTemp === undefined && tcState.zb._lastHum === undefined) return;
+  tcEmitData('zb', {
+    temp: tcState.zb._lastTemp !== undefined ? tcState.zb._lastTemp : null,
+    hum: tcState.zb._lastHum !== undefined ? tcState.zb._lastHum : null,
+    rtt: null,
+    ts: now,
+    mode: 'push',
+    intervalSec: tcZbIntervalSec(),
+    node: tcState.zb.shortAddr
+  });
+  tcLog('evt', '[ZB] PUSH T=' + (tcState.zb._lastTemp !== undefined ? tcState.zb._lastTemp.toFixed(2) + '°C' : '--') + ' H=' + (tcState.zb._lastHum !== undefined ? tcState.zb._lastHum.toFixed(2) + '%' : '--') + ' @' + tcZbIntervalSec() + 's');
+  tcSetStatus('zb', 'ok', 'T=' + (tcState.zb._lastTemp !== undefined ? tcState.zb._lastTemp.toFixed(1) + '°C' : '--') + ' H=' + (tcState.zb._lastHum !== undefined ? tcState.zb._lastHum.toFixed(1) + '%' : '--') + ' — push @ ' + tcZbIntervalSec() + ' s');
+}
+
+function tcWaitForZbBind(shortAddr, timeoutMs) {
+  var expected = String(shortAddr || '').toUpperCase();
+  return new Promise(function (resolve, reject) {
+    var started = Date.now();
+    var timer = setInterval(function () {
+      if (tcState.zb.bindFailed) {
+        clearInterval(timer);
+        reject(new Error(tcState.zb.bindFailureReason || 'Bind failed'));
+        return;
+      }
+      if (tcState.zb.bindReady && (!expected || tcState.zb.bindTarget === expected)) {
+        clearInterval(timer);
+        resolve();
+        return;
+      }
+      if ((Date.now() - started) >= timeoutMs) {
+        clearInterval(timer);
+        reject(new Error('Bind notify timeout'));
+      }
+    }, 200);
+  });
+}
+
+function tcQueryZbIeee(shortAddr, label) {
+  var cleanShort = String(shortAddr || '').replace(/[^0-9A-Fa-f]/g, '').toUpperCase().substr(0, 4);
+  if (cleanShort.length !== 4) return Promise.reject(new Error('Invalid short address for IEEE query'));
+  var queryHex = tcBytesToHexStr(tcBuildZdoFrame(0x01, parseInt(cleanShort, 16), []));
+  tcLog('info', '[ZB] Query ' + (label || 'node') + ' IEEE for 0x' + cleanShort + '…');
+  return tcSendCFZB('MODULE_QUERY_IEEE_ADDR', queryHex, 8000);
+}
+
+function tcWaitForCoordinatorIeee(timeoutMs) {
+  return new Promise(function (resolve, reject) {
+    var started = Date.now();
+    var timer = setInterval(function () {
+      if (tcState.zb.coordinatorIeee) {
+        clearInterval(timer);
+        resolve(tcState.zb.coordinatorIeee);
+        return;
+      }
+      if ((Date.now() - started) >= timeoutMs) {
+        clearInterval(timer);
+        reject(new Error('Coordinator IEEE timeout'));
+      }
+    }, 200);
+  });
+}
+
+function tcEnsureCoordinatorIeee() {
+  if (tcState.zb.coordinatorIeee) return Promise.resolve(tcState.zb.coordinatorIeee);
+  return tcQueryZbIeee('0000', 'coordinator')
+    .then(function () { return tcWaitForCoordinatorIeee(4000); });
 }
 
 function tcHandleZbAttrValue(shortAddr, ep, cluster, attr, valueHex, now) {
   var currentShort = String(tcState.zb.shortAddr || '').toUpperCase();
   if (!currentShort || shortAddr !== currentShort) return;
 
+  if (cluster === '0003' && attr === '0000') {
+    tcState.zb.awaitingVerify = false;
+    var raw16 = parseInt(valueHex, 16);
+    if (tcState.zb.verifyCode && raw16 <= tcState.zb.verifyCode && raw16 >= tcState.zb.verifyCode - 5) {
+      tcState.zb.verified = true;
+      tcState.zb.deviceName = 'DATN-' + shortAddr;
+      tcLog('info', '[ZB] Verify OK 0x' + shortAddr + ' (Code matched)');
+      tcRefreshZbStatus();
+      setTimeout(tcZbSetupPush, 1000);
+      return;
+    }
+    tcState.zb.verified = false;
+    tcState.zb.reportConfigured = false;
+    tcState.zb.deviceName = '';
+    tcLog('fail', '[ZB] Verify FAIL 0x' + shortAddr + ' (Expected ~' + tcState.zb.verifyCode + ' got ' + raw16 + ')');
+    tcSetStatus('zb', 'fail', 'Verify failed for 0x' + shortAddr);
+    return;
+  }
+
   var raw16 = parseInt(valueHex, 16);
   if (cluster === '0402' && attr === '0000') {
     if (raw16 & 0x8000) raw16 = raw16 - 0x10000;
     tcState.zb._lastTemp = raw16 * 0.01;
+    tcEmitZbSample(now);
     return;
   }
 
   if (cluster === '0405' && attr === '0000') {
     tcState.zb._lastHum = raw16 * 0.01;
-    var zbRtt = (tcState.zb.tReq > 0) ? (now - tcState.zb.tReq) : null;
-    tcState.zb.rtt = zbRtt;
-    tcState.zb.tReq = 0;
-    if (tcState.zb._lastTemp !== undefined) {
-      tcEmitData('zb', { temp: tcState.zb._lastTemp, hum: tcState.zb._lastHum, rtt: zbRtt, ts: now });
-      tcLog('evt', '[ZB] T=' + tcState.zb._lastTemp.toFixed(2) + '°C H=' + tcState.zb._lastHum.toFixed(2) + '%' + (zbRtt ? ' RTT=' + zbRtt + 'ms' : ''));
-      tcSetStatus('zb', 'ok', 'T=' + tcState.zb._lastTemp.toFixed(1) + '°C H=' + tcState.zb._lastHum.toFixed(1) + '%');
-    }
+    tcEmitZbSample(now);
+  }
+}
+
+function tcAdoptZbTarget(shortAddr, ep, source, ieee) {
+  shortAddr = String(shortAddr || '').replace(/[^0-9A-Fa-f]/g, '').toUpperCase().substr(0, 4);
+  ep = String(ep || tcState.zb.ep || '0B').replace(/[^0-9A-Fa-f]/g, '').toUpperCase().substr(0, 2) || '0B';
+  ieee = String(ieee || '').replace(/[^0-9A-Fa-f]/g, '').toUpperCase().substr(0, 16);
+  if (!shortAddr) return;
+
+  var currentShort = String(tcState.zb.shortAddr || '').toUpperCase();
+  var currentEp = String(tcState.zb.ep || '0B').toUpperCase();
+  var currentIeee = String(tcState.zb.targetIeee || '').toUpperCase();
+  var shouldOverride = !currentShort || tcState.zb.autoSelected || currentShort === shortAddr;
+  if (!shouldOverride) return;
+
+  var changed = currentShort !== shortAddr || currentEp !== ep || !tcState.zb.autoSelected;
+  if (changed) tcResetZbSession('target changed');
+  tcState.zb.shortAddr = shortAddr;
+  tcState.zb.ep = ep;
+  if (ieee && ieee.length === 16) tcState.zb.targetIeee = ieee;
+  tcState.zb.autoSelected = true;
+
+  var addrEl = document.getElementById('tc-zb-addr');
+  if (addrEl) addrEl.value = shortAddr;
+  var epEl = document.getElementById('tc-zb-ep');
+  if (epEl) epEl.value = ep;
+
+  tcSaveLocalState();
+  if (changed || (ieee && ieee !== currentIeee)) {
+    tcLog('info', '[ZB] Auto target from ' + source + ': 0x' + shortAddr + ' EP:' + ep + (tcState.zb.targetIeee ? ' IEEE:' + tcState.zb.targetIeee : ''));
+    tcRefreshZbStatus();
   }
 }
 
 function tcHandleZbHexFrame(hexStr, ts) {
   var frame = tcParseEbyteFrame(hexStr);
   var now = ts || Date.now();
-  if (!frame || !frame.valid) return;
+  if (!frame) return;
+  /* Some CFZB replies reach the dashboard with the final checksum byte mangled
+     by text transport/log formatting. The frame body is still usable, so accept
+     known Zigbee runtime frame types even if checksum validation fails. */
+  if (!frame.valid && frame.type !== 0x80 && frame.type !== 0x82 && frame.type !== 0x8F) return;
 
   if (frame.type === 0x80) {
+    if (frame.code === 0x00 && frame.data.length >= 10) {
+      tcState.zb.coordinatorIeee = frame.data.slice(2, 10).reverse().map(function (b) { return tcPad2(b); }).join('');
+      tcLog('info', '[ZB] Coordinator IEEE: ' + tcState.zb.coordinatorIeee);
+      tcRefreshZbStatus();
+      return;
+    }
     if (frame.code === 0x01 && frame.data.length >= 1) {
       tcState.zb.netUp = frame.data[0] === 0x01;
       tcSetStatus('zb', tcState.zb.netUp ? 'ok' : 'warn', tcState.zb.netUp ? 'Network up' : 'Network down');
@@ -398,20 +723,65 @@ function tcHandleZbHexFrame(hexStr, ts) {
       return;
     }
     if (frame.code === 0x03 && frame.data.length >= 10) {
+      var joinIeee = frame.data.slice(0, 8).reverse().map(function (b) { return tcPad2(b); }).join('');
       var joinShort = tcPad2(frame.data[9] || 0) + tcPad2(frame.data[8] || 0);
-      tcLog('evt', '[ZB] Node joined: 0x' + joinShort);
+      tcAdoptZbTarget(joinShort, tcState.zb.ep || '0B', 'join', joinIeee);
+      tcLog('evt', '[ZB] Node joined: 0x' + joinShort + ' IEEE:' + joinIeee);
       return;
     }
     if (frame.code === 0x05 && frame.data.length >= 13) {
+      var annIeee = frame.data.slice(2, 10).reverse().map(function (b) { return tcPad2(b); }).join('');
       var annShort = tcPad2(frame.data[11] || 0) + tcPad2(frame.data[10] || 0);
       var annEp = tcPad2(frame.data[12] || 0);
-      tcLog('evt', '[ZB] Node announce: 0x' + annShort + ' EP:' + annEp);
+      tcAdoptZbTarget(annShort, annEp, 'announce', annIeee);
+      tcLog('evt', '[ZB] Node announce: 0x' + annShort + ' EP:' + annEp + ' IEEE:' + annIeee);
       return;
     }
     if (frame.code === 0x06 && frame.data.length >= 8) {
       tcLog('evt', '[ZB] Node leave notify');
       return;
     }
+    if (frame.code === 0x10 && frame.data.length >= 5) {
+      var bindShort = tcPad2(frame.data[1] || 0) + tcPad2(frame.data[0] || 0);
+      var bindEp = tcPad2(frame.data[2] || 0);
+      var bindCluster = tcPad2(frame.data[4] || 0) + tcPad2(frame.data[3] || 0);
+      if (bindShort === 'FFFE' || bindEp === 'FF' || bindCluster === 'FFFF') {
+        tcState.zb.bindReady = false;
+        tcState.zb.bindFailed = true;
+        tcState.zb.bindFailureReason = 'No valid bind target found';
+        tcState.zb.bindTarget = '';
+        tcLog('warn', '[ZB] Find/Bind miss: short=0x' + bindShort + ' EP:' + bindEp + ' Cl:' + bindCluster);
+        return;
+      }
+      tcState.zb.bindReady = true;
+      tcState.zb.bindFailed = false;
+      tcState.zb.bindFailureReason = '';
+      tcState.zb.bindTarget = bindShort;
+      tcLog('evt', '[ZB] Find/Bind ready: 0x' + bindShort + ' EP:' + bindEp + ' Cl:' + bindCluster);
+      return;
+    }
+  }
+
+  if (frame.type === 0x81 && frame.code === 0x01) {
+    if (frame.data.length >= 11 && frame.data[0] === 0x00) {
+      var len = frame.data.length;
+      var ieeeRsp = frame.data.slice(len - 10, len - 2).reverse().map(function (b) { return tcPad2(b); }).join('');
+      var shortRsp = tcPad2(frame.data[len - 1] || 0) + tcPad2(frame.data[len - 2] || 0);
+      if (shortRsp === '0000') {
+        tcState.zb.coordinatorIeee = ieeeRsp;
+        tcLog('info', '[ZB] Coordinator IEEE: ' + tcState.zb.coordinatorIeee + ' (query)');
+        tcRefreshZbStatus();
+        return;
+      }
+      if (shortRsp === String(tcState.zb.shortAddr || '').toUpperCase()) {
+        tcState.zb.targetIeee = ieeeRsp;
+        tcLog('info', '[ZB] Target IEEE: ' + tcState.zb.targetIeee + ' (query)');
+        tcRefreshZbStatus();
+        return;
+      }
+    }
+    tcLog('warn', '[ZB] IEEE query response not understood');
+    return;
   }
 
   if (frame.type === 0x82 && frame.code === 0x00) {
@@ -473,19 +843,27 @@ function tcParseAndDispatchAllHexFrames(hexStr, ts) {
 }
 
 function tcDispatchLine(line, ts) {
-  var evtMatch = line.match(/CFZB:\d+:EVT:((?:[0-9A-Fa-f]{2}\s*)+)$/i);
-  if (evtMatch) {
-    var evtHex = evtMatch[1].trim();
-    if (/^55\b/i.test(evtHex)) {
-      tcLog('evt', '[ZB] HEX EVT: ' + evtHex.substring(0, 48) + (evtHex.length > 48 ? '…' : ''));
-      tcParseAndDispatchAllHexFrames(evtHex, ts);
+  var evtIdx = line.indexOf(':EVT:');
+  if (evtIdx >= 0) {
+    var evtPayload = line.substring(evtIdx + 5);
+    var evtBytes = tcHexWordsToBytes(evtPayload);
+    if (tcBytesContainFrame(evtBytes)) {
+      var evtPreview = tcPreviewFirstFrame(evtBytes);
+      tcLog('evt', '[ZB] HEX EVT: ' + evtPreview + (evtBytes.length > 24 ? '…' : ''));
+      tcParseAndDispatchAllHexFrames(evtPayload, ts);
       return;
     }
   }
 
-  var okMatch = line.match(/CFZB:\d+:OK:[^:]+:([0-9A-Fa-f]{2}(?:\s+[0-9A-Fa-f]{2})+)$/i);
-  if (okMatch) {
-    tcParseAndDispatchAllHexFrames(okMatch[1], ts);
+  var okIdx = line.indexOf(':OK:');
+  if (okIdx >= 0) {
+    var lastColon = line.lastIndexOf(':');
+    if (lastColon > okIdx + 3) {
+      var okPayload = line.substring(lastColon + 1);
+      if (tcBytesContainFrame(tcHexWordsToBytes(okPayload))) {
+        tcParseAndDispatchAllHexFrames(okPayload, ts);
+      }
+    }
   }
 
   if (/^55\s+[0-9A-Fa-f]{2}/i.test(line)) {
@@ -596,9 +974,13 @@ function tcHandleAsyncLine(line, ts) {
 
   /* ── BLE NOTIFY ──────────────────────────────────────────────── */
   /* CFBG:OK:NOTIFY:<idx>:0x<handle>:<hex4B> */
-  m = line.match(/CFBG:OK:NOTIFY:(\d+):0x[0-9A-Fa-f]+:([0-9A-Fa-f]{8,})/i);
+  m = line.match(/CFBG:OK:NOTIFY:(\d+):0x[0-9A-Fa-f]+:([^\s\x1E]+)/i);
   if (m) {
-    var hex4 = m[2].toUpperCase();
+    var hex4 = tcNormalizeBleNotifyHex(m[2]);
+    if (!hex4) {
+      tcLog('warn', '[BLE] Ignore malformed notify payload: ' + m[2]);
+      return;
+    }
     var tRaw = parseInt(hex4.substr(2, 2) + hex4.substr(0, 2), 16);
     var hRaw = parseInt(hex4.substr(6, 2) + hex4.substr(4, 2), 16);
     /* Signed 16-bit */
@@ -874,6 +1256,9 @@ function tcZbNetStart() {
       tcState.zb.netUp = true;
       tcSetStatus('zb', 'ok', 'Network up');
       tcShowToast('Zigbee network started');
+      return tcEnsureCoordinatorIeee().catch(function (e) {
+        tcLog('warn', '[ZB] Coordinator IEEE still unavailable: ' + (e && e.message ? e.message : e));
+      });
     })
     .catch(function () {});
 }
@@ -886,20 +1271,117 @@ function tcZbPermitJoin() {
     .catch(function () {});
 }
 
-/* One READ_ATTR poll: build Ebyte ZCL Read Attribute frames like the working Zigbee widget */
-function tcZbPollOnce() {
+function tcZbVerifyNode() {
   tcReadUiState();
   var addr = tcState.zb.shortAddr.trim().toUpperCase();
-  var ep   = tcState.zb.ep.trim().toUpperCase() || '0B';
-  if (!addr) { tcLog('warn', 'ZB: no short address configured'); return Promise.resolve(); }
-  tcState.zb.tReq = Date.now();
-  var tempHex = tcBytesToHexStr(tcBuildZclReadAttrFrame(parseInt(addr, 16), parseInt(ep, 16), 0x0402, '0000'));
-  var humHex  = tcBytesToHexStr(tcBuildZclReadAttrFrame(parseInt(addr, 16), parseInt(ep, 16), 0x0405, '0000'));
-  return tcSendCFZB('MODULE_ZCL_READ_ATTR', tempHex, 8000)
+  var ep = tcState.zb.ep.trim().toUpperCase() || '0B';
+  if (!addr) {
+    tcShowToast('Set or auto-detect Zigbee short address first');
+    tcRefreshZbStatus();
+    return;
+  }
+  
+  var code = Math.floor(Math.random() * 10000) + 50000;
+  tcState.zb.verifyCode = code;
+  
+  tcState.zb.awaitingVerify = true;
+  tcState.zb.verified = false;
+  tcState.zb.reportConfigured = false;
+  tcLog('info', '[ZB] Send Verify Code ' + code + ' to 0x' + addr + ' (IdentifyTime)…');
+  tcSetStatus('zb', 'warn', 'Verify sent for 0x' + addr + ' — waiting auth');
+  
+  var writeBytes = [code & 0xFF, (code >> 8) & 0xFF];
+  var writeHex = tcBytesToHexStr(tcBuildZclWriteAttrFrame(parseInt(addr, 16), parseInt(ep, 16), 0x0003, '0000', 0x21, writeBytes));
+  var readHex = tcBytesToHexStr(tcBuildZclReadAttrFrame(parseInt(addr, 16), parseInt(ep, 16), 0x0003, '0000'));
+  
+  tcSendCFZB('MODULE_ZCL_WRITE_ATTR', writeHex, 8000)
     .then(function () {
-      return tcSendCFZB('MODULE_ZCL_READ_ATTR', humHex, 8000);
+      tcLog('info', '[ZB] Verify Code sent, reading back to verify…');
+      setTimeout(function() {
+        tcSendCFZB('MODULE_ZCL_READ_ATTR', readHex, 8000)
+          .catch(function(e) {
+            tcState.zb.awaitingVerify = false;
+            tcLog('fail', '[ZB] Verify Read failed: ' + (e && e.message ? e.message : e));
+          });
+      }, 500);
     })
-    .catch(function () {});
+    .catch(function (e) {
+      tcState.zb.awaitingVerify = false;
+      tcLog('fail', '[ZB] Verify Write failed: ' + (e && e.message ? e.message : e));
+      tcSetStatus('zb', 'fail', 'Verify RPC failed');
+    });
+}
+
+function tcZbSetupPush() {
+  tcReadUiState();
+  var addr = tcState.zb.shortAddr.trim().toUpperCase();
+  var ep = tcState.zb.ep.trim().toUpperCase() || '0B';
+  var intervalMs = parseInt(document.getElementById('tc-zb-interval').value) || 1000;
+  if (!addr) {
+    tcShowToast('Set or auto-detect Zigbee short address first');
+    return;
+  }
+  if (!tcState.zb.verified) {
+    tcShowToast('Verify node first');
+    tcRefreshZbStatus();
+    return;
+  }
+  if (!tcState.zb.targetIeee) {
+    tcShowToast('Waiting for Zigbee node IEEE from join/announce');
+    tcRefreshZbStatus();
+    return;
+  }
+  
+  if (intervalMs < 100) intervalMs = 100;
+  if (intervalMs > 30000) intervalMs = 30000;
+  
+  tcState.zb.bindReady = false;
+  tcState.zb.bindFailed = false;
+  tcState.zb.bindFailureReason = '';
+  tcState.zb.bindTarget = '';
+  tcState.zb.reportConfigured = false;
+  tcLog('info', '[ZB] Setup push for 0x' + addr + ' @ ' + intervalMs + ' ms via direct bind…');
+  tcSetStatus('zb', 'warn', 'Resolving coordinator IEEE and configuring push…');
+  
+  tcEnsureCoordinatorIeee()
+    .then(function () {
+      tcSetStatus('zb', 'warn', 'Binding sensor to coordinator and configuring push…');
+      var tempBindHex = tcBytesToHexStr(tcBuildZclBindFrame(parseInt(addr, 16), tcState.zb.targetIeee, parseInt(ep, 16), 0x0402, tcState.zb.coordinatorIeee, 0x01));
+      var humBindHex = tcBytesToHexStr(tcBuildZclBindFrame(parseInt(addr, 16), tcState.zb.targetIeee, parseInt(ep, 16), 0x0405, tcState.zb.coordinatorIeee, 0x01));
+      return tcSendCFZB('MODULE_ZCL_BIND', tempBindHex, 10000)
+        .then(function () { return tcSendCFZB('MODULE_ZCL_BIND', humBindHex, 10000); });
+    })
+    .then(function () {
+      tcState.zb.bindReady = true;
+      tcState.zb.bindTarget = addr;
+      // 1. ZCL Configure Reporting: Min=0, Max=0xFFFE, Change=0 to report on EVERY sensor update
+      var tempHex = tcBytesToHexStr(tcBuildZclConfigureReportingFrame(parseInt(addr, 16), parseInt(ep, 16), 0x0402, '0000', 0x29, 0, 0xFFFE, 0));
+      var humHex = tcBytesToHexStr(tcBuildZclConfigureReportingFrame(parseInt(addr, 16), parseInt(ep, 16), 0x0405, '0000', 0x21, 0, 0xFFFE, 0));
+      // 2. Write intervalMs to IdentifyTime (0003/0000) so node updates its internal loop
+      var intBytes = [intervalMs & 0xFF, (intervalMs >> 8) & 0xFF];
+      var writeIntHex = tcBytesToHexStr(tcBuildZclWriteAttrFrame(parseInt(addr, 16), parseInt(ep, 16), 0x0003, '0000', 0x21, intBytes));
+      
+      return tcSendCFZB('MODULE_ZCL_SET_REPORT_RULE', tempHex, 10000)
+        .then(function () { return tcSendCFZB('MODULE_ZCL_SET_REPORT_RULE', humHex, 10000); })
+        .then(function () { return tcSendCFZB('MODULE_ZCL_WRITE_ATTR', writeIntHex, 10000); });
+    })
+    .then(function () {
+      tcState.zb.reportConfigured = true;
+      tcLog('info', '[ZB] Push armed @ ' + intervalMs + ' ms for 0x' + addr);
+      tcRefreshZbStatus();
+      tcShowToast('Push setup complete ✓');
+    })
+    .catch(function (e) {
+      tcState.zb.reportConfigured = false;
+      tcLog('fail', '[ZB] Setup push failed: ' + (e && e.message ? e.message : e));
+      tcSetStatus('zb', 'fail', 'Setup push failed: ' + (tcState.zb.bindFailureReason || (e && e.message ? e.message : e)));
+    });
+}
+
+/* One READ_ATTR poll: build Ebyte ZCL Read Attribute frames like the working Zigbee widget */
+function tcZbPollOnce() {
+  tcRefreshZbStatus();
+  return Promise.resolve();
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -929,7 +1411,10 @@ function tcLrSetupTestMode() {
 /* One LoRa poll: TX_MODE → SEND request → RX_MODE → wait RXLRPKT via telemetry */
 function tcLrPollOnce() {
   tcReadUiState();
-  if (!tcState.lr.configured) { tcLog('warn', 'LoRa not configured'); return Promise.resolve(); }
+  if (!tcState.lr.configured) {
+    tcSetStatus('lr', 'warn', 'P2P not configured');
+    return Promise.resolve();
+  }
   var seq = (tcState.lr.seq + 1) & 0xFF;
   tcState.lr.seq = seq;
   tcState.lr.pendingSeq = seq;
@@ -965,8 +1450,11 @@ function tcStartPolling() {
   if (tcState.polling) return;
   tcReadUiState();
   tcSaveLocalState();
-  var anyEnabled = tcState.ble.enabled || tcState.zb.enabled || tcState.lr.enabled;
-  if (!anyEnabled) { tcShowToast('Enable at least one technology'); return; }
+  var anyEnabled = tcState.ble.enabled || tcState.lr.enabled;
+  if (!anyEnabled) {
+    tcShowToast('Enable BLE or LoRa polling. Zigbee now uses Verify + Setup Push.');
+    return;
+  }
   tcState.polling = true;
   tcState.techIdx  = 0;
   tcSetPill('polling', 'Polling');
@@ -997,23 +1485,34 @@ function tcSchedTick() {
   for (var i = 0; i < order.length; i++) {
     var idx  = (startIdx + i) % order.length;
     var tech = order[idx];
-    if (tcState[tech].enabled) {
+    if (tcCanScheduleTech(tech)) {
       tcState.techIdx = (idx + 1) % order.length; /* advance for next tick */
       found = true;
       var intervalMs = Math.max(100, tcState[tech].intervalMs || 1000);
-      tcSetSchedInfo('Polling ' + tech.toUpperCase() + ' (every ' + intervalMs + ' ms)…');
+      var tickStartedAt = Date.now();
+      tcSetSchedInfo('Polling ' + tech.toUpperCase() + ' (target ' + intervalMs + ' ms)…');
       tcRunPollForTech(tech)
         .then(function () {
           if (!tcState.polling) return;
-          tcState.schedTimer = setTimeout(tcSchedTick, intervalMs);
+          var delayMs = intervalMs - (Date.now() - tickStartedAt);
+          if (delayMs < 0) delayMs = 0;
+          tcState.schedTimer = setTimeout(tcSchedTick, delayMs);
         });
       break;
     }
   }
   if (!found) {
-    tcLog('warn', 'No technologies enabled — stopping');
+    tcLog('warn', 'No runnable technologies — stopping');
     tcStopPolling();
   }
+}
+
+function tcCanScheduleTech(tech) {
+  if (!tcState[tech] || !tcState[tech].enabled) return false;
+  if (tech === 'ble') return !!tcState.ble.connected;
+  if (tech === 'lr') return !!tcState.lr.configured;
+  if (tech === 'zb') return false;
+  return true;
 }
 
 function tcRunPollForTech(tech) {
@@ -1090,6 +1589,7 @@ function tcSyncUI() {
   var lrEn = document.getElementById('tc-lr-en');
   if (lrEn) lrEn.checked = tcState.lr.enabled;
   tcRefreshTechCards();
+  tcRefreshZbStatus();
 }
 
 function tcBindInputs() {
@@ -1114,6 +1614,8 @@ function tcBindActions() {
     { id: 'tc-ble-set-interval', type: 'click', fn: tcBleSetInterval },
     { id: 'tc-zb-net-start', type: 'click', fn: tcZbNetStart },
     { id: 'tc-zb-permit-join', type: 'click', fn: tcZbPermitJoin },
+    { id: 'tc-zb-verify', type: 'click', fn: tcZbVerifyNode },
+    { id: 'tc-zb-setup-push', type: 'click', fn: tcZbSetupPush },
     { id: 'tc-lr-setup', type: 'click', fn: tcLrSetupTestMode },
     { id: 'tc-btn-start', type: 'click', fn: tcStartPolling },
     { id: 'tc-btn-stop', type: 'click', fn: tcStopPolling },
@@ -1129,7 +1631,14 @@ function tcBindActions() {
 }
 
 function tcOnConfigInputChange() {
+  if (this && (this.id === 'tc-zb-addr' || this.id === 'tc-zb-ep')) {
+    tcState.zb.autoSelected = false;
+    tcResetZbSession('manual target edit');
+  }
   tcReadUiState();
+  if (this && this.id === 'tc-zb-interval' && tcState.zb.reportConfigured) {
+    tcSetStatus('zb', 'warn', 'Interval changed — click Setup Push to apply');
+  }
   tcSaveLocalState();
 }
 
@@ -1207,7 +1716,7 @@ function tcSaveLocalState() {
   try {
     var saved = {
       ble: { slot: tcState.ble.slot, enabled: tcState.ble.enabled, intervalMs: tcState.ble.intervalMs },
-      zb:  { slot: tcState.zb.slot, enabled: tcState.zb.enabled, shortAddr: tcState.zb.shortAddr, ep: tcState.zb.ep, intervalMs: tcState.zb.intervalMs },
+      zb:  { slot: tcState.zb.slot, enabled: tcState.zb.enabled, shortAddr: tcState.zb.shortAddr, targetIeee: tcState.zb.targetIeee, coordinatorIeee: tcState.zb.coordinatorIeee, ep: tcState.zb.ep, intervalMs: tcState.zb.intervalMs },
       lr:  { slot: tcState.lr.slot, enabled: tcState.lr.enabled, intervalMs: tcState.lr.intervalMs, rttTimeoutMs: tcState.lr.rttTimeoutMs }
     };
     localStorage.setItem(TC_LS_KEY, JSON.stringify(saved));
@@ -1228,6 +1737,8 @@ function tcLoadLocalState() {
       tcState.zb.slot       = saved.zb.slot || '0';
       tcState.zb.enabled    = !!saved.zb.enabled;
       tcState.zb.shortAddr  = saved.zb.shortAddr || '';
+      tcState.zb.targetIeee = saved.zb.targetIeee || '';
+      tcState.zb.coordinatorIeee = saved.zb.coordinatorIeee || '';
       tcState.zb.ep         = saved.zb.ep || '0B';
       tcState.zb.intervalMs = Math.max(100, saved.zb.intervalMs || 1000);
     }

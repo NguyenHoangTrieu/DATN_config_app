@@ -4,8 +4,8 @@
  *
  * Behaviour matches the native Zigbee sensor reference sketch:
  * - Zigbee.h end-device on endpoint 0x0B
- * - silent after join; gateway reads 0x0402/0x0405 with ZCL Read Attr
- * - reporting suppression is re-applied to avoid spontaneous reports
+ * - silent after join until the dashboard verifies the node and configures push reporting
+ * - reporting suppression is only applied on join/rejoin so widget Configure Reporting can take over
  *
  * Difference for total-test:
  * - the local attribute refresh interval is adjustable at runtime over Serial
@@ -19,10 +19,9 @@
 #include "Zigbee.h"
 
 #define ZIGBEE_EP_TEMP                    11
-#define ATTR_UPDATE_INTERVAL_DEFAULT_MS   2000UL
+#define ATTR_UPDATE_INTERVAL_DEFAULT_MS   1000UL
 #define ATTR_UPDATE_INTERVAL_MIN_MS       100UL
 #define ATTR_UPDATE_INTERVAL_MAX_MS       60000UL
-#define REPORT_SUPPRESS_MS                5000UL
 #define REJOIN_TIMEOUT_MS                 10000UL
 
 #define TEMP_MIN_C  20.0f
@@ -37,9 +36,9 @@
 
 static unsigned long g_attrUpdateIntervalMs = ATTR_UPDATE_INTERVAL_DEFAULT_MS;
 static unsigned long g_lastAttrUpdateMs = 0;
-static unsigned long g_lastReportSuppressMs = 0;
 static unsigned long g_disconnectedSinceMs = 0;
 static bool g_disconnectPending = false;
+static bool g_isReportingActive = false;
 
 ZigbeeTempSensor zbTempSensor(ZIGBEE_EP_TEMP);
 
@@ -62,9 +61,25 @@ static void updateSensorAttrs(void) {
 
   zbTempSensor.setTemperature(tempC);
   zbTempSensor.setHumidity(humidRH);
+  
+  // Explicitly send report to gateway with a delay to prevent buffer collision
+  zbTempSensor.reportTemperature();
+  delay(50);
+  zbTempSensor.reportHumidity();
 
   Serial.printf("[ATTR] Temp=%.1fC  Humid=%.1f%%RH  interval=%lu ms\n",
                 tempC, humidRH, g_attrUpdateIntervalMs);
+}
+
+static void handleIdentify(uint16_t time) {
+  if (time >= ATTR_UPDATE_INTERVAL_MIN_MS && time <= ATTR_UPDATE_INTERVAL_MAX_MS) {
+    g_attrUpdateIntervalMs = time;
+    g_isReportingActive = true; // Enable reporting when widget sets interval
+    Serial.printf("[CFG] Interval updated via ZCL IdentifyTime: %lu ms\n", g_attrUpdateIntervalMs);
+    g_lastAttrUpdateMs = 0; // force immediate update
+  } else if (time >= 50000) {
+    Serial.printf("[CFG] Verify Code received: %u\n", time);
+  }
 }
 
 static void printStatus(void) {
@@ -113,8 +128,9 @@ static void handleSerialCommand(void) {
   }
 
   g_attrUpdateIntervalMs = value;
+  g_isReportingActive = true;
   g_lastAttrUpdateMs = 0;
-  Serial.printf("[CFG] Attribute refresh interval set to %lu ms\n", g_attrUpdateIntervalMs);
+  Serial.printf("[CFG] Attribute refresh interval set to %lu ms (Reporting Activated)\n", g_attrUpdateIntervalMs);
 }
 
 void setup() {
@@ -131,6 +147,7 @@ void setup() {
   zbTempSensor.setManufacturerAndModel("Espressif", "DATN_AUTH_KEY:" DEVICE_NAME);
   zbTempSensor.addHumiditySensor(0.0f, 100.0f, HUMID_DELTA_IMPOSSIBLE,
                                  (HUMID_MIN_RH + HUMID_MAX_RH) / 2.0f);
+  zbTempSensor.onIdentify(handleIdentify);
 
   Zigbee.addEndpoint(&zbTempSensor);
 
@@ -144,7 +161,7 @@ void setup() {
     }
   }
 
-  Serial.println("Silent mode enabled; gateway must poll with ZCL Read Attr");
+  Serial.println("Silent mode enabled; wait for Verify Node + Setup Push from dashboard");
   Serial.println("Waiting to join coordinator network...");
   while (!Zigbee.connected()) {
     Serial.print('.');
@@ -158,7 +175,7 @@ void setup() {
   Serial.println();
   Serial.println("*** Joined Zigbee network ***");
   Serial.println("Coordinator: run MODULE_START_NETWORK + MODULE_SET_PERMIT_JOIN");
-  Serial.println("Gateway may poll 0402/0000 and 0405/0000 on endpoint 0x0B");
+  Serial.println("Gateway must verify Basic/0005, then configure push reporting on endpoint 0x0B");
 }
 
 void loop() {
@@ -176,6 +193,7 @@ void loop() {
       g_disconnectPending = false;
       applyReportingSuppression();
       updateSensorAttrs();
+      Serial.println("[REPORT] Suppressed after rejoin; waiting for Setup Push");
     }
     lastConn = conn;
   }
@@ -190,12 +208,7 @@ void loop() {
     }
   }
 
-  if (conn && (millis() - g_lastReportSuppressMs >= REPORT_SUPPRESS_MS)) {
-    g_lastReportSuppressMs = millis();
-    applyReportingSuppression();
-  }
-
-  if (conn && (millis() - g_lastAttrUpdateMs >= g_attrUpdateIntervalMs)) {
+  if (conn && g_isReportingActive && (millis() - g_lastAttrUpdateMs >= g_attrUpdateIntervalMs)) {
     g_lastAttrUpdateMs = millis();
     updateSensorAttrs();
   }

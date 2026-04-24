@@ -13,9 +13,9 @@
  *                                   Built-in temp sensor + humidity, endpoint 11 (0x0B)
  *
  * ─── REPORTING FLOW ─────────────────────────────────────────────────
- *   Device is ALWAYS SILENT after joining — never pushes attribute reports
- *   on its own. The JS Control widget polls via ZCL Read Attr every 2 s
- *   (when the user clicks Connect) to pull current values.
+ *   Device boots SILENT after joining. The JS widget first verifies the
+ *   node by reading Basic/0x0005, then enables push reporting by sending
+ *   ZCL Configure Reporting with the dashboard's chosen/default interval.
  *
  *   WHY SILENT IS HARD: addHumiditySensor() registers cluster 0x0405 with
  *   SDK default reporting (min=0, max=5s, change=50). When MODULE_AUTO_FIND_TARGET
@@ -24,14 +24,13 @@
  *   setHumidityReporting() once after join is not enough because it runs
  *   BEFORE the binding exists — the stack resets to defaults on bind.
  *
- *   SOLUTION: Three-layer suppression:
+ *   SOLUTION: Join-time suppression only:
  *     1. addHumiditySensor tolerance=655.35f → ZCL reportable change = 0xFFFF
  *        (impossible to reach) prevents change-triggered reports.
  *     2. setHumidityReporting(0xFFFF, 0xFFFF, 655.35f) after join sets
  *        max_interval=0xFFFF (no time-based reports) + impossible delta.
- *     3. loop() re-applies setHumidityReporting every 5 s so that even
- *        after MODULE_AUTO_FIND_TARGET creates a binding and the stack
- *        resets to SDK defaults, the override takes effect within 5 s.
+ *   After verification, the widget sends Configure Reporting to replace
+ *   this silent default and start push-mode telemetry.
  *
  * ─── WIRING ─────────────────────────────────────────────────────────
  *   Just power the ESP32-C6 Super Mini via USB.
@@ -48,8 +47,6 @@
 /* ─── Configuration ───────────────────────────────────────────────── */
 #define ZIGBEE_EP_TEMP        11      /* Temperature + Humidity endpoint (0x0B) */
 #define ATTR_UPDATE_INTERVAL  2000    /* How often to refresh temperature (ms) */
-#define REPORT_SUPPRESS_MS    5000    /* Re-apply reporting suppression every 5 s */
-
 /* ─── Simulated sensor values: random within realistic ranges ───────── */
 #define TEMP_MIN_C     20.0f   /* minimum simulated temperature °C */
 #define TEMP_MAX_C     35.0f   /* maximum simulated temperature °C */
@@ -76,7 +73,6 @@ static float getSimulatedHumidity() {
 #define TEMP_DELTA_IMPOSSIBLE    200.0f
 
 static unsigned long  g_lastAttrUpdateMs    = 0;
-static unsigned long  g_lastReportSuppressMs = 0;
 
 /* ─── Device name: embedded in Model Identifier attr (Basic Cluster 0x0005).
    Format: "DATN_AUTH_KEY:<name>"  — JS widget parses auth key + friendly name
@@ -97,6 +93,11 @@ static bool          g_disconnectPending   = false;
 /* ZigbeeHumiditySensor does not exist in SDK 3.3.8 — use addHumiditySensor()
    on ZigbeeTempSensor instead (both clusters 0x0402 + 0x0405 share EP 11) */
 ZigbeeTempSensor zbTempSensor(ZIGBEE_EP_TEMP);
+
+static void applyReportingSuppression() {
+   zbTempSensor.setReporting(0xFFFF, 0xFFFF, TEMP_DELTA_IMPOSSIBLE);
+   zbTempSensor.setHumidityReporting(0xFFFF, 0xFFFF, HUMID_DELTA_IMPOSSIBLE);
+}
 
 
 /* ─── Internal temperature sensor reading ────────────────────────── */
@@ -153,7 +154,7 @@ void setup() {
         for (;;) delay(1000);   /* unreachable — factoryReset reboots */
     }
 
-    Serial.println("Silent mode: waits for ZCL Configure Reporting from JS widget (Connect button)");
+   Serial.println("Silent mode: waits for auth verify, then JS widget Configure Reporting");
 
     Serial.println("Waiting to join coordinator network...");
     Serial.println("(Run MODULE_START_NETWORK + MODULE_SET_PERMIT_JOIN on coordinator)");
@@ -169,8 +170,7 @@ void setup() {
        This call may not stick if no binding exists yet (stack resets on
        bind). Layer 2 (loop re-application every 5 s) handles that case.
        Must be called AFTER Zigbee.begin() so the Zigbee OS mutex exists. */
-    zbTempSensor.setReporting(0xFFFF, 0xFFFF, TEMP_DELTA_IMPOSSIBLE);
-    zbTempSensor.setHumidityReporting(0xFFFF, 0xFFFF, HUMID_DELTA_IMPOSSIBLE);
+   applyReportingSuppression();
 
     /* Set initial humidity value */
     zbTempSensor.setHumidity((HUMID_MIN_RH + HUMID_MAX_RH) / 2.0f);
@@ -178,7 +178,7 @@ void setup() {
     Serial.println();
     Serial.println("*** Joined Zigbee network! ***");
     Serial.println("Coordinator: run MODULE_AUTO_FIND_TARGET to bind");
-    Serial.println("Device is SILENT — JS Control widget polls via ZCL Read Attr every 2s");
+   Serial.println("Device is SILENT — verify first, then JS widget enables push reporting");
 }
 
 /* ─── loop ───────────────────────────────────────────────────────── */
@@ -195,6 +195,8 @@ void loop() {
         } else {
             Serial.println("*** Re-joined network ***");
             g_disconnectPending = false;
+         applyReportingSuppression();
+         Serial.println("[REPORT] Suppressed after rejoin; waiting for Configure Reporting");
         }
         lastConn = conn;
     }
@@ -212,23 +214,11 @@ void loop() {
         for (;;) delay(1000);    /* unreachable — factoryReset reboots */
     }
 
-    /* ── Reporting suppressor (Layer 2) ──────────────────────────────
-       Re-apply impossible deltas every REPORT_SUPPRESS_MS.
-       When MODULE_AUTO_FIND_TARGET creates a binding, the Zigbee stack
-       may reset the humidity cluster's reporting config back to the SDK
-       default (min=0, max=5s). This periodic call overrides it within 5 s
-       of binding creation, keeping the device permanently silent.         ── */
-    if (conn && (millis() - g_lastReportSuppressMs >= REPORT_SUPPRESS_MS)) {
-        g_lastReportSuppressMs = millis();
-        zbTempSensor.setReporting(0xFFFF, 0xFFFF, TEMP_DELTA_IMPOSSIBLE);
-        zbTempSensor.setHumidityReporting(0xFFFF, 0xFFFF, HUMID_DELTA_IMPOSSIBLE);
-    }
-
     /* ── Temperature + Humidity updater ─────────────────────────────
        Refresh both attributes every ATTR_UPDATE_INTERVAL ms so the device
        has current data ready for ZCL Read Attr requests (0x0402 + 0x0405).
-       setHumidity() is safe to call here because HUMID_DELTA_IMPOSSIBLE
-       (655.35f → ZCL unit 0xFFFF) ensures no change-based reports fire.   ── */
+       Once Configure Reporting is received, the updated attributes are
+       pushed automatically by the Zigbee stack.                           ── */
     if (conn && (millis() - g_lastAttrUpdateMs >= ATTR_UPDATE_INTERVAL)) {
         g_lastAttrUpdateMs = millis();
 
@@ -237,7 +227,7 @@ void loop() {
         zbTempSensor.setTemperature(tempC);
         zbTempSensor.setHumidity(humidRH);
 
-        Serial.printf("[ATTR] Temp=%.1f°C  Humid=%.1f%%RH  (waiting for read)\n", tempC, humidRH);
+      Serial.printf("[ATTR] Temp=%.1f°C  Humid=%.1f%%RH  (awaiting/reporting by config)\n", tempC, humidRH);
     }
 
     delay(100);

@@ -27,12 +27,23 @@ var _tmBridgeHandler   = null;
 var _tmStaleTimer      = null;
 var _tmLsTimer         = null;
 var TM_RAW_BRIDGE_KEY  = 'da2_total_raw_bridge';
+var TM_DEBUG_MAX_LINES = 10;
+var _tmDebugLines      = [];
+
+function tmNormalizeBleNotifyHex(rawPayload) {
+  var raw = String(rawPayload || '').trim();
+  if (!raw) return '';
+  var patched = raw.replace(/xy/ig, '16').replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
+  return patched.length >= 8 ? patched.substr(0, 8) : '';
+}
 
 /* ═══════════════════════════════════════════════════════════════════
    ThingsBoard Lifecycle
    ═══════════════════════════════════════════════════════════════════ */
 self.onInit = function () {
+  tmEnsureDebugUI();
   tmSetPill('idle', 'Waiting');
+  tmDebugLog('parse', 'Monitor ready');
   /* Listen for events from control widget (same-page CustomEvent) */
   _tmBridgeHandler = function (e) {
     var d = e && e.detail;
@@ -70,7 +81,14 @@ self.onDataUpdated = function () {
         if (ts <= _tmLastProcessedTs) continue;
         _tmLastProcessedTs = ts;
         var decoded = tmDecodeHex(raw);
-        tmSplitLines(decoded).forEach(function (line) {
+        var lines = tmSplitLines(decoded);
+        tmDebugLog('raw', 'WS ts=' + ts + ' raw=' + tmShortText(raw));
+        tmDebugLog('raw', 'Decoded: ' + tmShortText(decoded));
+        if (!lines.length) {
+          tmDebugLog('warn', 'No split lines from decoded payload');
+        }
+        lines.forEach(function (line) {
+          tmDebugLog('line', 'LINE: ' + tmShortText(line));
           tmParseLine(line, ts);
           try {
             window.dispatchEvent(new CustomEvent('da2_total_raw_line', {
@@ -97,12 +115,20 @@ function tmParseLine(line, ts) {
   var now = Date.now();
 
   /* ── BLE NOTIFY: CFBG:OK:NOTIFY:<idx>:0x<handle>:<hex4B> ── */
-  var m = line.match(/CFBG:OK:NOTIFY:\d+:0x[0-9A-Fa-f]+:([0-9A-Fa-f]{8,})/i);
+  var m = line.match(/CFBG:OK:NOTIFY:\d+:0x[0-9A-Fa-f]+:([^\s\x1E]+)/i);
   if (m) {
-    var hex4 = m[1].toUpperCase();
+    var hex4 = tmNormalizeBleNotifyHex(m[1]);
+    if (!hex4) {
+      tmDebugLog('warn', 'BLE notify ignored, malformed payload: ' + tmShortText(m[1]));
+      return;
+    }
     var tRaw = parseInt(hex4.substr(2, 2) + hex4.substr(0, 2), 16);
     var hRaw = parseInt(hex4.substr(6, 2) + hex4.substr(4, 2), 16);
     if (tRaw & 0x8000) tRaw = tRaw - 0x10000;
+    if (/xy/i.test(m[1])) {
+      tmDebugLog('parse', 'BLE notify normalized: ' + m[1] + ' -> ' + hex4);
+    }
+    tmDebugLog('parse', 'BLE notify parsed: ' + (tRaw * 0.01).toFixed(2) + ' C / ' + (hRaw * 0.01).toFixed(2) + ' %');
     tmUpdateTech('ble', { temp: tRaw * 0.01, hum: hRaw * 0.01, ts: now });
     return;
   }
@@ -117,10 +143,12 @@ function tmParseLine(line, ts) {
     if (cluster === '0402' && attr === '0000') {
       if (raw16 & 0x8000) raw16 = raw16 - 0x10000;
       tmState.zb._pendingTemp = raw16 * 0.01;
+      tmDebugLog('parse', 'ZB temp attr: ' + tmState.zb._pendingTemp.toFixed(2) + ' C');
     }
     if (cluster === '0405' && attr === '0000') {
       var hum = raw16 * 0.01;
       if (tmState.zb._pendingTemp !== undefined) {
+        tmDebugLog('parse', 'ZB hum attr: ' + hum.toFixed(2) + ' %');
         tmUpdateTech('zb', { temp: tmState.zb._pendingTemp, hum: hum, ts: now });
         delete tmState.zb._pendingTemp;
       }
@@ -131,12 +159,22 @@ function tmParseLine(line, ts) {
   /* ── LoRa RXLRPKT (single-line format from monitor widget bridge) ── */
   m = line.match(/\+TEST:\s*RXLRPKT\s+(\d+),\s*(-?\d+),\s*(-?\d+),\s*([0-9A-Fa-f]+)/i);
   if (m) {
+    tmDebugLog('parse', 'LoRa RXLRPKT: RSSI ' + m[2] + ', SNR ' + m[3]);
     tmParseLoraHex(m[4], parseInt(m[2], 10), parseInt(m[3], 10), now);
     return;
   }
   /* Two-line format: +TEST: RX "hex" */
   m = line.match(/\+TEST:\s*RX\s*"([0-9A-Fa-f]+)"/i);
-  if (m) { tmParseLoraHex(m[1], null, null, now); return; }
+  if (m) {
+    tmDebugLog('parse', 'LoRa RX hex: ' + tmShortText(m[1]));
+    tmParseLoraHex(m[1], null, null, now);
+    return;
+  }
+
+  if (/CFZB:/i.test(line)) {
+    tmDebugLog('warn', 'ZB raw line seen but not parsed by monitor: ' + tmShortText(line));
+    return;
+  }
 }
 
 function tmParseLoraHex(hex, rssi, snr, now) {
@@ -182,8 +220,8 @@ function tmRenderCard(tech) {
   card.setAttribute('data-state', 'active');
 
   /* Values */
-  tmSetEl('tm-' + tech + '-temp', s.temp !== null ? s.temp.toFixed(1) : '—');
-  tmSetEl('tm-' + tech + '-hum',  s.hum  !== null ? s.hum.toFixed(1)  : '—');
+  tmSetEl('tm-' + tech + '-temp', typeof s.temp === 'number' ? s.temp.toFixed(1) : '—');
+  tmSetEl('tm-' + tech + '-hum',  typeof s.hum === 'number'  ? s.hum.toFixed(1)  : '—');
 
   /* RTT badge */
   var rttEl = document.getElementById('tm-' + tech + '-rtt');
@@ -262,6 +300,7 @@ function tmPollLocalStorage() {
         if (!d || !d.updatedAt) continue;
         if (d.updatedAt <= _tmLsLastPoll) continue;
         _tmLsLastPoll = d.updatedAt;
+        tmDebugLog('parse', 'LS bridge ' + tech.toUpperCase() + ': ' + tmShortText(JSON.stringify(d)));
         tmUpdateTech(tech, d);
       }
     } catch (e) {}
@@ -310,4 +349,99 @@ function tmSetPill(state, text) {
   var txt  = document.getElementById('tm-pill-txt');
   if (pill) pill.setAttribute('data-state', state);
   if (txt)  txt.textContent = text;
+}
+
+function tmDebugLog(kind, text) {
+  var stamp = new Date().toTimeString().substr(0, 8);
+  _tmDebugLines.push({ kind: kind || 'raw', text: '[' + stamp + '] ' + text });
+  if (_tmDebugLines.length > TM_DEBUG_MAX_LINES) _tmDebugLines.shift();
+  tmRenderDebug();
+}
+
+function tmRenderDebug() {
+  tmEnsureDebugUI();
+  var host = document.getElementById('tm-debug-lines');
+  var meta = document.getElementById('tm-debug-meta');
+  if (meta) meta.textContent = _tmDebugLines.length + ' latest entries';
+  if (!host) return;
+  host.innerHTML = _tmDebugLines.map(function (entry) {
+    return '<div class="tm-debug-line" data-kind="' + entry.kind + '">' + tmEscapeHtml(entry.text) + '</div>';
+  }).join('');
+  host.scrollTop = host.scrollHeight;
+}
+
+function tmShortText(value) {
+  if (value === null || value === undefined) return '';
+  var s = String(value).replace(/\s+/g, ' ').trim();
+  if (s.length > 140) return s.substr(0, 137) + '...';
+  return s;
+}
+
+function tmEnsureDebugUI() {
+  if (document.getElementById('tm-debug-lines')) return;
+  var root = document.getElementById('tm-root');
+  if (!root) return;
+
+  var panel = document.createElement('div');
+  panel.id = 'tm-debug';
+  panel.style.margin = '0 12px 12px';
+  panel.style.border = '1px solid rgba(148,163,184,0.18)';
+  panel.style.borderRadius = '12px';
+  panel.style.overflow = 'hidden';
+  panel.style.background = 'linear-gradient(180deg, rgba(13,20,34,0.98), rgba(9,15,28,0.98))';
+  panel.style.boxShadow = 'inset 0 0 0 1px rgba(148,163,184,0.05)';
+  panel.style.flexShrink = '0';
+
+  var header = document.createElement('div');
+  header.style.display = 'flex';
+  header.style.alignItems = 'center';
+  header.style.justifyContent = 'space-between';
+  header.style.gap = '8px';
+  header.style.padding = '8px 12px';
+  header.style.background = 'rgba(24,36,59,0.9)';
+  header.style.borderBottom = '1px solid rgba(148,163,184,0.18)';
+
+  var title = document.createElement('span');
+  title.textContent = 'Monitor Debug';
+  title.style.fontSize = '11px';
+  title.style.fontWeight = '700';
+  title.style.letterSpacing = '0.5px';
+  title.style.textTransform = 'uppercase';
+  title.style.color = '#e8eef8';
+
+  var meta = document.createElement('span');
+  meta.id = 'tm-debug-meta';
+  meta.textContent = 'Waiting for telemetry...';
+  meta.style.fontSize = '11px';
+  meta.style.color = '#9fb0c8';
+
+  var lines = document.createElement('div');
+  lines.id = 'tm-debug-lines';
+  lines.style.maxHeight = '124px';
+  lines.style.overflowY = 'auto';
+  lines.style.padding = '8px 12px 10px';
+  lines.style.fontFamily = 'Consolas, Courier New, monospace';
+  lines.style.fontSize = '11px';
+  lines.style.lineHeight = '1.45';
+  lines.style.color = '#cdd9ec';
+
+  header.appendChild(title);
+  header.appendChild(meta);
+  panel.appendChild(header);
+  panel.appendChild(lines);
+
+  var statsBar = document.querySelector('.tm-stats-bar');
+  if (statsBar && statsBar.parentNode === root) {
+    root.insertBefore(panel, statsBar);
+  } else {
+    root.appendChild(panel);
+  }
+}
+
+function tmEscapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }

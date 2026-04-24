@@ -1,4 +1,4 @@
-﻿/* =====================================================================
+/* =====================================================================
    DA2 Zigbee Gateway Control — ThingsBoard Widget JavaScript v2 (HEX)
    Protocol: CFML:CFZB:<slot>:<function_name|HEX_frame>
    Routing: CF → WAN MCU → ML:CFZB → Zigbee handler → UART to E180-ZG120B
@@ -36,6 +36,7 @@
 var CFG = {
   RPC_MIN_GAP_MS:   1000,   /* minimum ms between consecutive RPC calls (≥1000 recommended) */
   SENSOR_POLL_MS:   3000,   /* how often each sensor node is enqueued for a poll cycle       */
+  SENSOR_PUSH_S:       5,   /* default report interval for verified sensor nodes             */
   SENSOR_NODE_GAP:   1000,   /* ms pause between finishing one node's reads and starting next */
 };
 
@@ -46,6 +47,7 @@ var state = {
   ep:           '01',
   cluster:      '0006',
   networkUp:    false,
+  coordinatorIeee: '',
   nodes:        {},          /* { shortAddr: { ieee, type, ep } } */
   selectedNode: null,        /* shortAddr string */
   rpcTimeout:   15000,
@@ -158,27 +160,47 @@ function runVerifyQueue() {
   if (n.verified || n.verifyFailed) { setTimeout(runVerifyQueue, 200); return; }
 
   n.verifyAttempts = (n.verifyAttempts || 0) + 1;
-  logInfo('Auto-verify 0x' + item.short + ' attempt ' + n.verifyAttempts + '/' + MAX_VERIFY_ATTEMPTS + ' (reading Basic/0x0005)…');
+  var code = Math.floor(Math.random() * 10000) + 50000;
+  n.verifyCode = code;
+  logInfo('Auto-verify 0x' + item.short + ' attempt ' + n.verifyAttempts + '/' + MAX_VERIFY_ATTEMPTS + ' (Code: ' + code + ' to IdentifyTime)…');
 
-  sendZclReadAttr(item.short, item.ep, '0000', '0005', 10000)
-    .catch(function () {
-      /* RPC timed out or gateway error — count as a failed attempt */
+  var writeBytes = [code & 0xFF, (code >> 8) & 0xFF];
+  var writeHex = bytesToHexStr(buildZclWriteAttrFrame(parseInt(item.short, 16), parseInt(item.ep, 16), 0x0003, '0000', 0x21, writeBytes));
+  
+  sendCFML('MODULE_ZCL_WRITE_ATTR:' + writeHex, 8000)
+    .then(function() {
+      setTimeout(function() {
+        sendZclReadAttr(item.short, item.ep, '0003', '0000', 10000)
+          .catch(function () {
+            var nn = state.nodes[item.short];
+            if (!nn || nn.verified) return;
+            if (nn.verifyAttempts >= MAX_VERIFY_ATTEMPTS) {
+              nn.verifyFailed = true;
+              logWarn('Auto-verify GAVE UP on 0x' + item.short + ' after ' + MAX_VERIFY_ATTEMPTS + ' attempts — node blocked');
+              showToast('⚠ Node 0x' + item.short + ' verify failed (3×)');
+              renderNodeList();
+              updateControlPanel();
+              saveLocalState();
+            } else {
+              logWarn('Auto-verify read attempt ' + nn.verifyAttempts + ' failed for 0x' + item.short + ' — will retry');
+              g_verifyQueue.push(item);
+            }
+          })
+          .then(function () { setTimeout(runVerifyQueue, 500); });
+      }, 500);
+    })
+    .catch(function() {
       var nn = state.nodes[item.short];
       if (!nn || nn.verified) return;
       if (nn.verifyAttempts >= MAX_VERIFY_ATTEMPTS) {
         nn.verifyFailed = true;
-        logWarn('Auto-verify GAVE UP on 0x' + item.short + ' after ' + MAX_VERIFY_ATTEMPTS + ' attempts — node blocked');
         showToast('⚠ Node 0x' + item.short + ' verify failed (3×)');
         renderNodeList();
-        updateControlPanel();
-        saveLocalState();
       } else {
-        logWarn('Auto-verify attempt ' + nn.verifyAttempts + ' failed for 0x' + item.short + ' — will retry');
-        /* Re-queue for another attempt */
         g_verifyQueue.push(item);
       }
-    })
-    .then(function () { setTimeout(runVerifyQueue, 500); });
+      setTimeout(runVerifyQueue, 500);
+    });
 }
 
 /* ────────────────────────────────────────────────────────────────────
@@ -436,6 +458,26 @@ function buildZclFrame(code, targetAddr, targetPort, clusterId, extData) {
 function buildZdoFrame(code, shortAddr, params) {
   var data = [shortAddr & 0xFF, (shortAddr >> 8) & 0xFF].concat(params || []);
   return buildEbyteFrame(0x01, code, data);
+}
+
+function buildZclWriteAttrFrame(shortAddr, ep, cluster, attrId, dataType, dataBytes) {
+  var seq = (state._hexSeq++) & 0xFF;
+  var aH = parseInt(attrId.substring(0, 2), 16);
+  var aL = parseInt(attrId.substring(2, 4), 16);
+  var ext = [0x01, aL, aH, dataType & 0xFF].concat(dataBytes);
+  var zclHeader = [
+    0x00,
+    shortAddr & 0xFF,
+    (shortAddr >> 8) & 0xFF,
+    ep & 0xFF,
+    seq,
+    0x00,
+    cluster & 0xFF,
+    (cluster >> 8) & 0xFF,
+    0x00, 0x00,
+    0x00
+  ];
+  return buildEbyteFrame(0x02, 0x01, zclHeader.concat(ext));
 }
 
 /**
@@ -711,11 +753,9 @@ function sendZclConfigureReporting(shortAddr, ep, cluster, attrId, dataType, min
   var aL = parseInt(attrId.substring(2, 4), 16);
   var dt = parseInt(dataType, 16);
   /* ZCL Configure Reporting payload:
-     [NumRecords(1B)] [Direction(1B)=0x00] [AttrID(2B LE)] [DataType(1B)]
+     [AttrID(2B LE)] [DataType(1B)]
      [MinInterval(2B LE)] [MaxInterval(2B LE)] [ReportableChange(2B LE)] */
   var extData = [
-    0x01,                                       /* NumRecords = 1 */
-    0x00,                                       /* Direction: client configures device to report */
     aL, aH,                                     /* AttrID LE */
     dt,                                         /* DataType */
     minInterval  & 0xFF, (minInterval  >> 8) & 0xFF,  /* MinInterval LE */
@@ -895,6 +935,7 @@ function handleBootNotify(data) {
   var resetMode = data[0];
   var version   = data[1];
   var mac = data.slice(2, 10).reverse().map(function (b) { return pad2(b); }).join(':');
+  state.coordinatorIeee = mac.replace(/:/g, '').toUpperCase();
   logInfo('Boot: reset=' + resetMode + ' ver=' + version + ' MAC=' + mac);
 }
 
@@ -1171,21 +1212,25 @@ function handleAttrReport(short, cluster, attr, value) {
      nodeAnnounce (2s after join) before the user has clicked on the node,
      so state.selectedNode is null at that point. Without this exception the
      verified flag is never set and the node stays locked behind verify-overlay. */
-  if (cluster === '0000' && attr === '0005') {
+  if (cluster === '0003' && attr === '0000') {
     if (state.nodes[short]) {
-      /* Format: "DATN_AUTH_KEY:<device_name>" or legacy "DATN_AUTH_KEY" */
-      if (value === 'DATN_AUTH_KEY' || value.indexOf('DATN_AUTH_KEY:') === 0) {
+      var raw16 = parseInt(value, 16);
+      var expCode = state.nodes[short].verifyCode || 0;
+      if (expCode && raw16 <= expCode && raw16 >= expCode - 5) {
         state.nodes[short].verified = true;
-        var deviceName = (value.indexOf(':') >= 0) ? value.split(':')[1] : '';
-        state.nodes[short].name = deviceName || ('DATN-' + short);
-        logOk('Auth OK: 0x' + short + ' — name="' + state.nodes[short].name + '"');
+        state.nodes[short].name = 'DATN-' + short;
+        logOk('Auth OK: 0x' + short + ' (Code matched: ' + raw16 + ')');
         showToast('Auth ✓ ' + state.nodes[short].name);
-        /* Flow: after auth, only the name has been read. No sensor data is fetched
-           until the user clicks Connect. This satisfies requirement 1. */
+        
+        if (isSensorNode(state.nodes[short]) || state.nodes[short].name.indexOf('DATN-') >= 0) {
+           setTimeout(function() {
+             toggleNodeConnect(short);
+           }, 1000);
+        }
       } else {
         state.nodes[short].verified = false;
         state.nodes[short].verifyAttempts = (state.nodes[short].verifyAttempts || 0) + 1;
-        logWarn('Auth FAIL: 0x' + short + ' key="' + value + '" (expected DATN_AUTH_KEY...) attempt ' +
+        logWarn('Auth FAIL: 0x' + short + ' key="' + raw16 + '" (expected ~' + expCode + ') attempt ' +
           state.nodes[short].verifyAttempts + '/' + MAX_VERIFY_ATTEMPTS);
         if (state.nodes[short].verifyAttempts >= MAX_VERIFY_ATTEMPTS) {
           state.nodes[short].verifyFailed = true;
@@ -1386,6 +1431,27 @@ function bindSelectedNode() {
     .catch(function () {});
 }
 
+function buildSensorBindFrame(shortAddr, srcIeee, epHex, clusterHex, dstIeee, dstEpHex) {
+  function ieeeToLeBytes(ieee) {
+    var clean = String(ieee || '').replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
+    if (clean.length !== 16) return null;
+    var out = [];
+    for (var i = 14; i >= 0; i -= 2) out.push(parseInt(clean.substring(i, i + 2), 16));
+    return out;
+  }
+
+  var srcBytes = ieeeToLeBytes(srcIeee);
+  var dstBytes = ieeeToLeBytes(dstIeee);
+  if (!srcBytes || !dstBytes) throw new Error('Missing IEEE for bind');
+
+  return buildZdoFrame(0x21, parseInt(shortAddr, 16), srcBytes.concat([
+    parseInt(epHex, 16) & 0xFF,
+    parseInt(clusterHex.substring(2, 4), 16),
+    parseInt(clusterHex.substring(0, 2), 16),
+    0x03
+  ], dstBytes, [parseInt(dstEpHex, 16) & 0xFF]));
+}
+
 function setNetState(st) {
   state.networkUp = (st === 'on');
   var b = ge('net-badge');
@@ -1447,10 +1513,9 @@ function isSensorNode(n) {
  * toggleNodeConnect — Connect/Disconnect the data stream for a node.
  *
  * SENSOR (detected by name):
- *   ON  connect : send ZCL Configure Reporting to device (5s interval) so the
- *                 device starts pushing temp+humid; also do an immediate read.
+ *   ON  connect : after verify, auto-bind target and send Configure Reporting
+ *                 so the device starts pushing temp+humid at a fixed interval.
  *   ON  disconnect: send Configure Reporting with maxInterval=0xFFFF to stop.
- *   Falls back to polling if Configure Reporting is not acked.
  *
  * BULB / other:
  *   ON  connect : show control panel (on/off, color) — no data polling needed.
@@ -1465,29 +1530,68 @@ function toggleNodeConnect(shortAddr) {
     var ep = n.ep || '0B';
 
     if (isSensorNode(n)) {
-      /* ── SENSOR CONNECT ───────────────────────────────────────────────
-         Enqueues this node into the global sensor poll queue every 3 s.
-         The queue reads temp (0x0402) then humid (0x0405) sequentially —
-         no concurrent ZCL transactions. Multiple sensor nodes are also
-         serialized through the same queue (one node at a time).           */
-      logInfo('🔗 Sensor connect 0x' + shortAddr + ' — starting polling…');
+      if (n.verified !== true) {
+        n.connected = false;
+        showToast('Verify node 0x' + shortAddr + ' first');
+        logWarn('Connect blocked for unverified sensor 0x' + shortAddr);
+        renderNodeList();
+        updateControlPanel();
+        saveLocalState();
+        return;
+      }
 
-      /* Immediate poll on connect */
-      enqueueSensorPoll(shortAddr, ep);
+      logInfo('🔗 Sensor connect 0x' + shortAddr + ' — enabling push reports…');
+      if (g_pollTimers[shortAddr]) {
+        clearInterval(g_pollTimers[shortAddr]);
+        delete g_pollTimers[shortAddr];
+      }
 
-      /* 3 s tick: enqueue this node — queue drains sequentially */
-      if (g_pollTimers[shortAddr]) { clearInterval(g_pollTimers[shortAddr]); }
-      g_pollTimers[shortAddr] = setInterval(function () {
-        var nn = state.nodes[shortAddr];
-        if (!nn || !nn.connected) {
-          clearInterval(g_pollTimers[shortAddr]);
-          delete g_pollTimers[shortAddr];
-          return;
-        }
-        enqueueSensorPoll(shortAddr, ep);
-      }, CFG.SENSOR_POLL_MS);
+      if (!n.ieee || n.ieee.indexOf('?') >= 0) {
+        n.connected = false;
+        logWarn('Sensor 0x' + shortAddr + ' missing IEEE — wait for join/announce first');
+        showToast('Node 0x' + shortAddr + ' missing IEEE');
+        renderNodeList();
+        updateControlPanel();
+        saveLocalState();
+        return;
+      }
 
-      logInfo('✓ Sensor 0x' + shortAddr + ' polling active (3s queue)');
+      if (!state.coordinatorIeee) {
+        n.connected = false;
+        logWarn('Coordinator IEEE unknown — need boot info before bind');
+        showToast('Coordinator IEEE not ready');
+        renderNodeList();
+        updateControlPanel();
+        saveLocalState();
+        return;
+      }
+
+      var tempBindHex = bytesToHexStr(buildSensorBindFrame(shortAddr, n.ieee, ep, '0402', state.coordinatorIeee, '01'));
+      var humBindHex = bytesToHexStr(buildSensorBindFrame(shortAddr, n.ieee, ep, '0405', state.coordinatorIeee, '01'));
+      
+      var intervalMs = CFG.SENSOR_PUSH_S * 1000; // if CFG has SENSOR_PUSH_S
+      if (intervalMs < 100) intervalMs = 100;
+      var intBytes = [intervalMs & 0xFF, (intervalMs >> 8) & 0xFF];
+      var writeIntHex = bytesToHexStr(buildZclWriteAttrFrame(parseInt(shortAddr, 16), parseInt(ep, 16), 0x0003, '0000', 0x21, intBytes));
+
+      sendCFML('MODULE_ZCL_BIND:' + tempBindHex, 8000)
+        .then(function () { return sendCFML('MODULE_ZCL_BIND:' + humBindHex, 8000); })
+        .then(function () { return sendZclConfigureReporting(shortAddr, ep, '0402', '0000', '29', 0, 0xFFFE, 0); })
+        .then(function () { return sendZclConfigureReporting(shortAddr, ep, '0405', '0000', '21', 0, 0xFFFE, 0); })
+        .then(function () { return sendCFML('MODULE_ZCL_WRITE_ATTR:' + writeIntHex, 5000); })
+        .then(function () {
+          logInfo('✓ Sensor 0x' + shortAddr + ' push active (' + intervalMs + ' ms)');
+          showToast('Sensor 0x' + shortAddr + ' push active');
+        })
+        .catch(function () {
+          var nn = state.nodes[shortAddr];
+          if (nn) nn.connected = false;
+          logWarn('Sensor 0x' + shortAddr + ' push setup failed');
+          showToast('⚠ Push setup failed for 0x' + shortAddr);
+          renderNodeList();
+          updateControlPanel();
+          saveLocalState();
+        });
 
     } else {
       /* ── BULB / other: just enable the control panel — no data polling ── */
@@ -1497,7 +1601,10 @@ function toggleNodeConnect(shortAddr) {
   } else {
     /* ── DISCONNECT ── */
     if (isSensorNode(n)) {
-      logInfo('⛔ Sensor 0x' + shortAddr + ' disconnected — polling stopped');
+      var stopEp = n.ep || '0B';
+      sendZclConfigureReporting(shortAddr, stopEp, '0402', '0000', '29', 0xFFFF, 0xFFFF, 10).catch(function () {});
+      sendZclConfigureReporting(shortAddr, stopEp, '0405', '0000', '21', 0xFFFF, 0xFFFF, 100).catch(function () {});
+      logInfo('⛔ Sensor 0x' + shortAddr + ' disconnected — push stopped');
     }
     if (g_pollTimers[shortAddr]) {
       clearInterval(g_pollTimers[shortAddr]);
@@ -1995,6 +2102,7 @@ function resetState() {
   /* Reset runtime state */
   state.nodes        = {};
   state.networkUp    = false;
+  state.coordinatorIeee = '';
   state.selectedNode = null;
   state.onOffState   = false;
 
@@ -2024,6 +2132,7 @@ function saveLocalState() {
       cluster:      state.cluster,
       hue:          state.hue,
       brightness:   state.brightness,
+      coordinatorIeee: state.coordinatorIeee,
       networkUp:    state.networkUp,
       selectedNode: state.selectedNode,
       nodes:        state.nodes   /* includes name, ieee, type, ep, connected, lastTemp, lastHumid */
@@ -2041,6 +2150,7 @@ function loadLocalState() {
     if (s.cluster)               state.cluster      = s.cluster;
     if (s.hue        !== undefined) state.hue        = s.hue;
     if (s.brightness !== undefined) state.brightness = s.brightness;
+    if (s.coordinatorIeee)       state.coordinatorIeee = s.coordinatorIeee;
     if (s.networkUp  !== undefined) state.networkUp  = s.networkUp;
     if (s.selectedNode)          state.selectedNode = s.selectedNode;
     if (s.nodes && typeof s.nodes === 'object') state.nodes = s.nodes;

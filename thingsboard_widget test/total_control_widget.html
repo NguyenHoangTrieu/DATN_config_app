@@ -23,9 +23,9 @@
                 stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
         </svg>
       </div>
-      <div>
+        <div>
         <div class="tc-title">DA2 Total Sensor Control</div>
-        <div class="tc-sub">BLE · Zigbee · LoRa — Sequential Poller</div>
+        <div class="tc-sub">BLE · LoRa polling + Zigbee verify/setup push</div>
       </div>
     </div>
     <div class="tc-hdr-right">
@@ -85,6 +85,7 @@
         <div class="tc-row">
           <button class="tc-btn" id="tc-zb-net-start">▶ Net Start</button>
           <button class="tc-btn" id="tc-zb-permit-join">🔓 Permit Join</button>
+          <button class="tc-btn" id="tc-zb-verify">✓ Verify Node</button>
         </div>
         <div class="tc-row">
           <label class="tc-lbl">Short addr (hex)</label>
@@ -93,8 +94,9 @@
           <input id="tc-zb-ep" class="tc-input-sm" type="text" value="0B" maxlength="2">
         </div>
         <div class="tc-row">
-          <label class="tc-lbl">Poll interval (ms)</label>
+          <label class="tc-lbl">Send interval (ms)</label>
           <input id="tc-zb-interval" class="tc-input-num" type="number" value="1000" min="100" max="60000" step="100">
+          <button class="tc-btn-sm" id="tc-zb-setup-push">Setup Push</button>
         </div>
         <div id="tc-zb-status" class="tc-status-row">Network not started</div>
       </div>
@@ -134,7 +136,7 @@
       <div class="tc-sched-head">
         <div>
           <div class="tc-sched-title">Global Poll Scheduler</div>
-          <div class="tc-sched-sub">Controls polling for all enabled BLE, Zigbee and LoRa panels</div>
+          <div class="tc-sched-sub">Controls polling for BLE and LoRa. Zigbee runs in gated push mode.</div>
         </div>
       </div>
       <div class="tc-sched-bar">
