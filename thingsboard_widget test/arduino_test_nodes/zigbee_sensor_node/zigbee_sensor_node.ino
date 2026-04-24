@@ -1,213 +1,204 @@
-/*
- * DA2 Zigbee Sensor Node — ESP32-C6
- * Target board : ESP32-C6 (Arduino IDE: "ESP32C6 Dev Module")
- * Zigbee SDK   : ESP-Zigbee-SDK (esp-zigbee-lib, part of ESP-IDF / Arduino ESP32 ≥3.x)
+/**
+ * @file    zigbee_sensor_node.ino
+ * @brief   DA2 total-test Zigbee sensor node for ESP32-C6.
  *
- * Role      : Zigbee End Device (ZED)
- * Clusters  :
- *   0x0000  Basic      (mandatory)
- *   0x0402  Temperature Measurement  — Attr 0x0000 MeasuredValue (int16, × 0.01 °C)
- *   0x0405  Relative Humidity        — Attr 0x0000 MeasuredValue (uint16, × 0.01 %)
+ * Behaviour matches the native Zigbee sensor reference sketch:
+ * - Zigbee.h end-device on endpoint 0x0B
+ * - silent after join; gateway reads 0x0402/0x0405 with ZCL Read Attr
+ * - reporting suppression is re-applied to avoid spontaneous reports
  *
- * Behaviour:
- *   - Joins coordinator on any open channel (auto-scan)
- *   - Responds to ZCL Read Attribute requests for 0402/0000 and 0405/0000
- *   - Does NOT configure reporting (gateway polls explicitly)
- *   - Simulated sensor data (sine-wave, same formula as BLE node)
- *
- * NOTE: Requires ESP32 Arduino core ≥ 3.0.0 with Zigbee support enabled.
- *       In Arduino IDE: Tools → Zigbee mode → "Zigbee ED (end device)"
+ * Difference for total-test:
+ * - the local attribute refresh interval is adjustable at runtime over Serial
+ *   with ATTR=<ms>, READ=<ms>, or INT=<ms>
  */
 
 #ifndef ZIGBEE_MODE_ED
-#error "Select Zigbee End Device mode in Arduino IDE: Tools > Zigbee mode > ED"
+#error "Select Zigbee End Device mode in Arduino IDE: Tools > Zigbee mode > Zigbee ED (end device)"
 #endif
 
-#include "esp_zigbee_core.h"
-#include "zboss_api.h"
-#include <math.h>
+#include "Zigbee.h"
 
-/* ── Zigbee configuration ─────────────────────────────── */
-#define DA2_ZB_ENDPOINT      0x0B   /* endpoint 11 decimal */
-#define DA2_ZB_DEVICE_ID     0x0302 /* Temperature Sensor device ID */
-#define DA2_ZB_CHANNEL_MASK  ESP_ZB_TRANSCEIVER_ALL_CHANNELS_MASK
+#define ZIGBEE_EP_TEMP                    11
+#define ATTR_UPDATE_INTERVAL_DEFAULT_MS   2000UL
+#define ATTR_UPDATE_INTERVAL_MIN_MS       100UL
+#define ATTR_UPDATE_INTERVAL_MAX_MS       60000UL
+#define REPORT_SUPPRESS_MS                5000UL
+#define REJOIN_TIMEOUT_MS                 10000UL
 
-/* ── Sensor simulation ────────────────────────────────── */
-/* Temperature: 25.00 °C ± 2 °C (period 60 s), stored as int16 × 100 */
-static int16_t sim_temp_raw(void) {
-  float t   = (float)(millis()) / 1000.0f;
-  float deg = 25.0f + 2.0f * sinf(2.0f * (float)M_PI * t / 60.0f);
-  return (int16_t)(deg * 100.0f);
+#define TEMP_MIN_C  20.0f
+#define TEMP_MAX_C  35.0f
+#define HUMID_MIN_RH 45.0f
+#define HUMID_MAX_RH 75.0f
+
+#define HUMID_DELTA_IMPOSSIBLE 655.35f
+#define TEMP_DELTA_IMPOSSIBLE  200.0f
+
+#define DEVICE_NAME "total_zb_sensor"
+
+static unsigned long g_attrUpdateIntervalMs = ATTR_UPDATE_INTERVAL_DEFAULT_MS;
+static unsigned long g_lastAttrUpdateMs = 0;
+static unsigned long g_lastReportSuppressMs = 0;
+static unsigned long g_disconnectedSinceMs = 0;
+static bool g_disconnectPending = false;
+
+ZigbeeTempSensor zbTempSensor(ZIGBEE_EP_TEMP);
+
+static float getSimulatedTemp(void) {
+  return TEMP_MIN_C + (random(0, 1501) / 100.0f);
 }
 
-/* Humidity: 60.00 % ± 5 % (period 45 s), stored as uint16 × 100 */
-static uint16_t sim_hum_raw(void) {
-  float t   = (float)(millis()) / 1000.0f;
-  float pct = 60.0f + 5.0f * sinf(2.0f * (float)M_PI * t / 45.0f);
-  if (pct < 0.0f)   pct = 0.0f;
-  if (pct > 100.0f) pct = 100.0f;
-  return (uint16_t)(pct * 100.0f);
+static float getSimulatedHumidity(void) {
+  return HUMID_MIN_RH + (random(0, 3001) / 100.0f);
 }
 
-/* ── Zigbee attribute list builders ──────────────────── */
-
-/* Basic cluster (0x0000) attributes */
-static esp_zb_attribute_list_t* build_basic_cluster(void) {
-  esp_zb_basic_cluster_cfg_t cfg = {
-    .zcl_version   = ESP_ZB_ZCL_BASIC_ZCL_VERSION_DEFAULT_VALUE,
-    .power_source  = 0x01  /* Mains single phase */
-  };
-  esp_zb_attribute_list_t* list = esp_zb_basic_cluster_create(&cfg);
-  uint8_t  app_ver   = 0x01;
-  uint8_t  stack_ver = 0x02;
-  char     mfr[]     = "DA2";
-  char     model[]   = "DA2_ZB_SENSOR";
-  esp_zb_basic_cluster_add_attr(list, ESP_ZB_ZCL_ATTR_BASIC_APPLICATION_VERSION_ID, &app_ver);
-  esp_zb_basic_cluster_add_attr(list, ESP_ZB_ZCL_ATTR_BASIC_STACK_VERSION_ID, &stack_ver);
-  esp_zb_basic_cluster_add_attr(list, ESP_ZB_ZCL_ATTR_BASIC_MANUFACTURER_NAME_ID, mfr);
-  esp_zb_basic_cluster_add_attr(list, ESP_ZB_ZCL_ATTR_BASIC_MODEL_IDENTIFIER_ID, model);
-  return list;
+static void applyReportingSuppression(void) {
+  zbTempSensor.setReporting(0xFFFF, 0xFFFF, TEMP_DELTA_IMPOSSIBLE);
+  zbTempSensor.setHumidityReporting(0xFFFF, 0xFFFF, HUMID_DELTA_IMPOSSIBLE);
 }
 
-/* Temperature Measurement cluster (0x0402) */
-static esp_zb_attribute_list_t* build_temp_cluster(void) {
-  esp_zb_temperature_meas_cluster_cfg_t cfg = {
-    .measured_value     = (int16_t)0x8000,  /* invalid sentinel per ZCL spec */
-    .min_value          = -4000,   /* -40.00 °C */
-    .max_value          =  8500,   /* +85.00 °C */
-  };
-  return esp_zb_temperature_meas_cluster_create(&cfg);
+static void updateSensorAttrs(void) {
+  float tempC = getSimulatedTemp();
+  float humidRH = getSimulatedHumidity();
+
+  zbTempSensor.setTemperature(tempC);
+  zbTempSensor.setHumidity(humidRH);
+
+  Serial.printf("[ATTR] Temp=%.1fC  Humid=%.1f%%RH  interval=%lu ms\n",
+                tempC, humidRH, g_attrUpdateIntervalMs);
 }
 
-/* Relative Humidity Measurement cluster (0x0405) */
-static esp_zb_attribute_list_t* build_hum_cluster(void) {
-  esp_zb_humidity_meas_cluster_cfg_t cfg = {
-    .measured_value = 0,
-    .min_value      = 0,
-    .max_value      = 10000   /* 100.00 % */
-  };
-  return esp_zb_humidity_meas_cluster_create(&cfg);
+static void printStatus(void) {
+  Serial.printf("[STATUS] joined=%d interval=%lu ms endpoint=0x%02X model=DATN_AUTH_KEY:%s\n",
+                Zigbee.connected() ? 1 : 0,
+                g_attrUpdateIntervalMs,
+                ZIGBEE_EP_TEMP,
+                DEVICE_NAME);
 }
 
-/* ── Update simulated values in the Zigbee attribute database ─── */
-static void update_sensor_attrs(void) {
-  int16_t  t = sim_temp_raw();
-  uint16_t h = sim_hum_raw();
-  esp_zb_lock_acquire(portMAX_DELAY);
-  esp_zb_zcl_set_attribute_val(DA2_ZB_ENDPOINT,
-    ESP_ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT,
-    ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
-    ESP_ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_ID,
-    &t, false);
-  esp_zb_zcl_set_attribute_val(DA2_ZB_ENDPOINT,
-    ESP_ZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT,
-    ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
-    ESP_ZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_VALUE_ID,
-    &h, false);
-  esp_zb_lock_release();
-  Serial.printf("[ZB] Attrs updated T=%.2f°C H=%.2f%%\n", t * 0.01f, h * 0.01f);
-}
-
-/* ── Zigbee signal handler ────────────────────────────── */
-void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_s) {
-  if (!signal_s || !signal_s->p_app_signal) {
+static void handleSerialCommand(void) {
+  if (!Serial.available()) {
     return;
   }
-  uint32_t *p = signal_s->p_app_signal;
-  esp_err_t err = signal_s->esp_err_status;
-  esp_zb_app_signal_type_t sig = (esp_zb_app_signal_type_t)(*p);
 
-  switch (sig) {
-    case ESP_ZB_ZDO_SIGNAL_SKIP_STARTUP:
-      Serial.println("[ZB] Stack ready — starting…");
-      esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_INITIALIZATION);
-      break;
-
-    case ESP_ZB_BDB_SIGNAL_DEVICE_FIRST_START:
-    case ESP_ZB_BDB_SIGNAL_DEVICE_REBOOT:
-      if (err == ESP_OK) {
-        Serial.println("[ZB] Device started — scanning for coordinator…");
-        if (esp_zb_bdb_is_factory_new()) {
-          esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
-        } else {
-          Serial.println("[ZB] Rejoining network…");
-        }
-      } else {
-        Serial.printf("[ZB] Start failed (0x%x) — retrying\n", err);
-        esp_zb_scheduler_alarm((esp_zb_callback_t)esp_zb_bdb_start_top_level_commissioning,
-                               ESP_ZB_BDB_MODE_NETWORK_STEERING, 1000);
-      }
-      break;
-
-    case ESP_ZB_BDB_SIGNAL_STEERING:
-      if (err == ESP_OK) {
-        esp_zb_ieee_addr_t ext;
-        esp_zb_get_long_address(ext);
-        Serial.printf("[ZB] Joined! IEEE=%02X:%02X:%02X:%02X:%02X:%02X:%02X:%02X\n",
-          ext[7],ext[6],ext[5],ext[4],ext[3],ext[2],ext[1],ext[0]);
-        update_sensor_attrs();
-      } else {
-        Serial.println("[ZB] Join failed — retrying in 5 s…");
-        esp_zb_scheduler_alarm((esp_zb_callback_t)esp_zb_bdb_start_top_level_commissioning,
-                               ESP_ZB_BDB_MODE_NETWORK_STEERING, 5000);
-      }
-      break;
-
-    default:
-      break;
+  String line = Serial.readStringUntil('\n');
+  line.trim();
+  if (!line.length()) {
+    return;
   }
+
+  line.toUpperCase();
+  if (line == "STATUS") {
+    printStatus();
+    return;
+  }
+
+  int eq = line.indexOf('=');
+  if (eq <= 0) {
+    Serial.printf("[CFG] Unknown command: %s\n", line.c_str());
+    return;
+  }
+
+  String key = line.substring(0, eq);
+  unsigned long value = (unsigned long)line.substring(eq + 1).toInt();
+  if (key != "ATTR" && key != "READ" && key != "INT") {
+    Serial.printf("[CFG] Unsupported key: %s\n", key.c_str());
+    return;
+  }
+
+  if (value < ATTR_UPDATE_INTERVAL_MIN_MS) {
+    value = ATTR_UPDATE_INTERVAL_MIN_MS;
+  }
+  if (value > ATTR_UPDATE_INTERVAL_MAX_MS) {
+    value = ATTR_UPDATE_INTERVAL_MAX_MS;
+  }
+
+  g_attrUpdateIntervalMs = value;
+  g_lastAttrUpdateMs = 0;
+  Serial.printf("[CFG] Attribute refresh interval set to %lu ms\n", g_attrUpdateIntervalMs);
 }
 
-/* ── Zigbee task (runs in FreeRTOS task context) ─────── */
-static void zigbee_task(void* arg) {
-  /* Config as End Device */
-  esp_zb_cfg_t zb_cfg = {};
-  zb_cfg.esp_zb_role = ESP_ZB_DEVICE_TYPE_ED;
-  zb_cfg.install_code_policy = false;
-  zb_cfg.nwk_cfg.zed_cfg.ed_timeout = ESP_ZB_ED_AGING_TIMEOUT_64MIN;
-  zb_cfg.nwk_cfg.zed_cfg.keep_alive = 3000;   /* ms */
-  esp_zb_init(&zb_cfg);
-
-  /* ── Cluster lists ── */
-  esp_zb_cluster_list_t* cl = esp_zb_zcl_cluster_list_create();
-  esp_zb_cluster_list_add_basic_cluster(cl, build_basic_cluster(), ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
-  esp_zb_cluster_list_add_temperature_meas_cluster(cl, build_temp_cluster(), ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
-  esp_zb_cluster_list_add_humidity_meas_cluster(cl, build_hum_cluster(), ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
-
-  /* ── Endpoint list ── */
-  esp_zb_ep_list_t*  ep_list = esp_zb_ep_list_create();
-  esp_zb_endpoint_config_t ep_cfg = {
-    .endpoint        = DA2_ZB_ENDPOINT,
-    .app_profile_id  = ESP_ZB_AF_HA_PROFILE_ID,
-    .app_device_id   = DA2_ZB_DEVICE_ID,
-    .app_device_version = 0
-  };
-  esp_zb_ep_list_add_ep(ep_list, cl, ep_cfg);
-  esp_zb_device_register(ep_list);
-
-  /* Channel + power */
-  esp_zb_set_primary_network_channel_set(DA2_ZB_CHANNEL_MASK);
-  esp_zb_set_tx_power(20);
-
-  ESP_ERROR_CHECK(esp_zb_start(false));
-  esp_zb_stack_main_loop();
-}
-
-/* ── Setup & Loop ─────────────────────────────────────── */
 void setup() {
   Serial.begin(115200);
-  Serial.println("[DA2] Zigbee Sensor Node booting…");
+  randomSeed(esp_random());
 
-  /* Start Zigbee stack in its own task (required by ESP-IDF Zigbee) */
-  xTaskCreate(zigbee_task, "zigbee_main", 4096, NULL, 5, NULL);
+  Serial.println("\nDA2 Total Test — Zigbee Sensor Node");
+  Serial.printf("Endpoint: %d (0x%02X)\n", ZIGBEE_EP_TEMP, ZIGBEE_EP_TEMP);
+  Serial.printf("Default attr refresh interval: %lu ms\n", g_attrUpdateIntervalMs);
+  Serial.println("Serial commands: STATUS | ATTR=<ms> | READ=<ms> | INT=<ms>");
+
+  zbTempSensor.setMinMaxValue(TEMP_MIN_C, TEMP_MAX_C);
+  zbTempSensor.setTolerance(1);
+  zbTempSensor.setManufacturerAndModel("Espressif", "DATN_AUTH_KEY:" DEVICE_NAME);
+  zbTempSensor.addHumiditySensor(0.0f, 100.0f, HUMID_DELTA_IMPOSSIBLE,
+                                 (HUMID_MIN_RH + HUMID_MAX_RH) / 2.0f);
+
+  Zigbee.addEndpoint(&zbTempSensor);
+
+  if (!Zigbee.begin(ZIGBEE_END_DEVICE, true)) {
+    Serial.println("[ERROR] Zigbee.begin() failed");
+    Serial.println("[ERROR] Set Tools > Zigbee mode to Zigbee ED (end device)");
+    delay(3000);
+    Zigbee.factoryReset();
+    for (;;) {
+      delay(1000);
+    }
+  }
+
+  Serial.println("Silent mode enabled; gateway must poll with ZCL Read Attr");
+  Serial.println("Waiting to join coordinator network...");
+  while (!Zigbee.connected()) {
+    Serial.print('.');
+    delay(500);
+  }
+
+  applyReportingSuppression();
+  zbTempSensor.setHumidity((HUMID_MIN_RH + HUMID_MAX_RH) / 2.0f);
+  updateSensorAttrs();
+
+  Serial.println();
+  Serial.println("*** Joined Zigbee network ***");
+  Serial.println("Coordinator: run MODULE_START_NETWORK + MODULE_SET_PERMIT_JOIN");
+  Serial.println("Gateway may poll 0402/0000 and 0405/0000 on endpoint 0x0B");
 }
 
 void loop() {
-  /* Update simulated values every 5 s so READ Attr always returns fresh data */
-  static uint32_t last = 0;
-  if (millis() - last >= 5000) {
-    last = millis();
-    update_sensor_attrs();
+  handleSerialCommand();
+
+  static bool lastConn = true;
+  bool conn = Zigbee.connected();
+  if (conn != lastConn) {
+    if (!conn) {
+      Serial.println("*** Lost network — starting rejoin watchdog ***");
+      g_disconnectPending = true;
+      g_disconnectedSinceMs = millis();
+    } else {
+      Serial.println("*** Re-joined network ***");
+      g_disconnectPending = false;
+      applyReportingSuppression();
+      updateSensorAttrs();
+    }
+    lastConn = conn;
   }
+
+  if (!conn && g_disconnectPending &&
+      (millis() - g_disconnectedSinceMs >= REJOIN_TIMEOUT_MS)) {
+    Serial.println("[REJOIN] Timeout — factoryReset() for full channel scan");
+    delay(200);
+    Zigbee.factoryReset();
+    for (;;) {
+      delay(1000);
+    }
+  }
+
+  if (conn && (millis() - g_lastReportSuppressMs >= REPORT_SUPPRESS_MS)) {
+    g_lastReportSuppressMs = millis();
+    applyReportingSuppression();
+  }
+
+  if (conn && (millis() - g_lastAttrUpdateMs >= g_attrUpdateIntervalMs)) {
+    g_lastAttrUpdateMs = millis();
+    updateSensorAttrs();
+  }
+
   delay(100);
 }

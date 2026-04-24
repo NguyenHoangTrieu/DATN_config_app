@@ -76,16 +76,37 @@ var tcState = {
 
 var _tcLastTeleTs = 0;
 var _tcLastProcessedTs = 0;
+var _tcRawLineHandler = null;
+var _tcRawBridgeTimer = null;
+var _tcLastRawBridgeTs = 0;
+var TC_RAW_BRIDGE_KEY = 'da2_total_raw_bridge';
+var _tcTeleSubscriber = null;
 
 /* ═══════════════════════════════════════════════════════════════════
    ThingsBoard Lifecycle
    ═══════════════════════════════════════════════════════════════════ */
 self.onInit = function () {
   try {
+    if (_tcTeleSubscriber) {
+      try {
+        if (self.ctx && self.ctx.telemetryWsService) {
+          self.ctx.telemetryWsService.unsubscribe(_tcTeleSubscriber);
+        }
+      } catch (e0) {}
+      _tcTeleSubscriber = null;
+    }
     tcLoadLocalState();
     tcSyncUI();
     tcBindInputs();
     tcBindActions();
+    _tcRawLineHandler = function (evt) {
+      var detail = evt && evt.detail;
+      if (!detail || !detail.line) return;
+      tcDispatchLine(detail.line, detail.ts || Date.now());
+    };
+    window.addEventListener('da2_total_raw_line', _tcRawLineHandler);
+    tcStartRawBridgePolling();
+    tcSubscribeTelemetry();
     tcLog('info', 'Total Control ready');
   } catch (e) {
     tcLog('fail', 'onInit: ' + e);
@@ -93,6 +114,22 @@ self.onInit = function () {
 };
 
 self.onDestroy = function () {
+  if (_tcRawLineHandler) {
+    window.removeEventListener('da2_total_raw_line', _tcRawLineHandler);
+    _tcRawLineHandler = null;
+  }
+  if (_tcTeleSubscriber) {
+    try {
+      if (self.ctx && self.ctx.telemetryWsService) {
+        self.ctx.telemetryWsService.unsubscribe(_tcTeleSubscriber);
+      }
+    } catch (e0) {}
+    _tcTeleSubscriber = null;
+  }
+  if (_tcRawBridgeTimer) {
+    clearInterval(_tcRawBridgeTimer);
+    _tcRawBridgeTimer = null;
+  }
   tcStopPolling();
 };
 
@@ -110,7 +147,7 @@ self.onDataUpdated = function () {
         if (ts <= _tcLastProcessedTs) continue;
         _tcLastProcessedTs = ts;
         var decoded = tcDecodeHex(raw);
-        tcSplitLines(decoded).forEach(function (line) { tcHandleAsyncLine(line, ts); });
+        tcSplitLines(decoded).forEach(function (line) { tcDispatchLine(line, ts); });
       }
     }
   } catch (e) {
@@ -212,6 +249,268 @@ function tcSplitLines(s) {
   }).filter(Boolean);
 }
 
+function tcResolveTargetEntityId() {
+  var ctx = self.ctx;
+  if (!ctx) return null;
+
+  try {
+    var td = ctx.widgetContext && ctx.widgetContext.targetDevice;
+    if (td && td.id) return td.id;
+  } catch (e) {}
+
+  try {
+    var sc = ctx.stateController;
+    if (sc) {
+      var eid = typeof sc.getEntityId === 'function' ? sc.getEntityId() : null;
+      if (eid && eid.entityType === 'DEVICE' && eid.id) return eid.id;
+      var sp = typeof sc.getStateParams === 'function' ? sc.getStateParams() : null;
+      if (sp && sp.entityId && sp.entityId.entityType === 'DEVICE') return sp.entityId.id;
+    }
+  } catch (e2) {}
+
+  try {
+    var ds = ctx.defaultSubscription;
+    if (ds && ds.targetDeviceId) return ds.targetDeviceId;
+  } catch (e3) {}
+
+  try {
+    var ca = ctx.controlApi;
+    if (ca && ca.targetDeviceId) return ca.targetDeviceId;
+  } catch (e4) {}
+
+  return null;
+}
+
+function tcSubscribeTelemetry() {
+  try {
+    if (!self.ctx || !self.ctx.telemetryWsService) {
+      tcLog('warn', 'Telemetry WS unavailable in this widget context');
+      return;
+    }
+    var entityId = tcResolveTargetEntityId();
+    if (!entityId) {
+      tcLog('warn', 'Cannot resolve target device for telemetry subscription');
+      return;
+    }
+    var subscriber = {
+      entityId: entityId,
+      entityType: 'DEVICE',
+      keys: ['data'],
+      onData: function (data) {
+        if (!data) return;
+        var arr = data.data;
+        if (!arr || !arr.length) return;
+        for (var i = 0; i < arr.length; i++) {
+          var latest = arr[i];
+          if (!latest || latest.length < 2) continue;
+          var ts = latest[0];
+          var raw = latest[1];
+          if (ts <= _tcLastProcessedTs) continue;
+          _tcLastProcessedTs = ts;
+          var decoded = tcDecodeHex(raw);
+          tcSplitLines(decoded).forEach(function (line) { tcDispatchLine(line, ts); });
+        }
+      }
+    };
+    self.ctx.telemetryWsService.subscribe(subscriber);
+    _tcTeleSubscriber = subscriber;
+    tcLog('info', 'Telemetry WS subscribed → key=data');
+  } catch (e) {
+    tcLog('warn', 'Telemetry subscribe failed: ' + (e && e.message ? e.message : e));
+  }
+}
+
+function tcHexWordsToBytes(hexStr) {
+  if (!hexStr) return [];
+  return String(hexStr).trim().split(/\s+/).map(function (b) {
+    return parseInt(b, 16);
+  }).filter(function (b) {
+    return !isNaN(b);
+  });
+}
+
+function tcParseEbyteFrame(hexStr) {
+  var bytes = tcHexWordsToBytes(hexStr);
+  if (bytes.length < 4 || bytes[0] !== 0x55) return null;
+  var length = bytes[1];
+  var dataLen = length - 3;
+  if (dataLen < 0) dataLen = 0;
+  var end = 4 + dataLen;
+  if (end >= bytes.length + 1) return null;
+  var type = bytes[2];
+  var code = bytes[3];
+  var data = bytes.slice(4, end);
+  var recvChk = bytes[end];
+  var calcChk = type ^ code;
+  for (var i = 0; i < data.length; i++) calcChk ^= data[i];
+  return { type: type, code: code, data: data, valid: calcChk === recvChk };
+}
+
+function tcParseZbAttrValue(data, offset, dataType) {
+  if (dataType === 0x10 || dataType === 0x20 || dataType === 0x30) {
+    return { hex: tcPad2(data[offset] || 0), size: 1 };
+  }
+  if (dataType === 0x21 || dataType === 0x29) {
+    var value16 = ((data[offset + 1] || 0) << 8) | (data[offset] || 0);
+    return { hex: tcPad2(value16 & 0xFF) + tcPad2((value16 >> 8) & 0xFF), size: 2 };
+  }
+  return { hex: tcPad2(data[offset] || 0), size: 1 };
+}
+
+function tcHandleZbAttrValue(shortAddr, ep, cluster, attr, valueHex, now) {
+  var currentShort = String(tcState.zb.shortAddr || '').toUpperCase();
+  if (!currentShort || shortAddr !== currentShort) return;
+
+  var raw16 = parseInt(valueHex, 16);
+  if (cluster === '0402' && attr === '0000') {
+    if (raw16 & 0x8000) raw16 = raw16 - 0x10000;
+    tcState.zb._lastTemp = raw16 * 0.01;
+    return;
+  }
+
+  if (cluster === '0405' && attr === '0000') {
+    tcState.zb._lastHum = raw16 * 0.01;
+    var zbRtt = (tcState.zb.tReq > 0) ? (now - tcState.zb.tReq) : null;
+    tcState.zb.rtt = zbRtt;
+    tcState.zb.tReq = 0;
+    if (tcState.zb._lastTemp !== undefined) {
+      tcEmitData('zb', { temp: tcState.zb._lastTemp, hum: tcState.zb._lastHum, rtt: zbRtt, ts: now });
+      tcLog('evt', '[ZB] T=' + tcState.zb._lastTemp.toFixed(2) + '°C H=' + tcState.zb._lastHum.toFixed(2) + '%' + (zbRtt ? ' RTT=' + zbRtt + 'ms' : ''));
+      tcSetStatus('zb', 'ok', 'T=' + tcState.zb._lastTemp.toFixed(1) + '°C H=' + tcState.zb._lastHum.toFixed(1) + '%');
+    }
+  }
+}
+
+function tcHandleZbHexFrame(hexStr, ts) {
+  var frame = tcParseEbyteFrame(hexStr);
+  var now = ts || Date.now();
+  if (!frame || !frame.valid) return;
+
+  if (frame.type === 0x80) {
+    if (frame.code === 0x01 && frame.data.length >= 1) {
+      tcState.zb.netUp = frame.data[0] === 0x01;
+      tcSetStatus('zb', tcState.zb.netUp ? 'ok' : 'warn', tcState.zb.netUp ? 'Network up' : 'Network down');
+      tcLog('evt', '[ZB] NetStatus: ' + (tcState.zb.netUp ? 'UP' : 'DOWN'));
+      return;
+    }
+    if (frame.code === 0x02 && frame.data.length >= 1) {
+      tcLog('evt', '[ZB] Network open: ' + frame.data[0] + 's');
+      return;
+    }
+    if (frame.code === 0x03 && frame.data.length >= 10) {
+      var joinShort = tcPad2(frame.data[9] || 0) + tcPad2(frame.data[8] || 0);
+      tcLog('evt', '[ZB] Node joined: 0x' + joinShort);
+      return;
+    }
+    if (frame.code === 0x05 && frame.data.length >= 13) {
+      var annShort = tcPad2(frame.data[11] || 0) + tcPad2(frame.data[10] || 0);
+      var annEp = tcPad2(frame.data[12] || 0);
+      tcLog('evt', '[ZB] Node announce: 0x' + annShort + ' EP:' + annEp);
+      return;
+    }
+    if (frame.code === 0x06 && frame.data.length >= 8) {
+      tcLog('evt', '[ZB] Node leave notify');
+      return;
+    }
+  }
+
+  if (frame.type === 0x82 && frame.code === 0x00) {
+    if (frame.data.length < 16) return;
+    var srcAddrRsp = tcPad2(frame.data[2] || 0) + tcPad2(frame.data[1] || 0);
+    var srcEpRsp = tcPad2(frame.data[3] || 0);
+    var clusterRsp = tcPad2(frame.data[7] || 0) + tcPad2(frame.data[6] || 0);
+    var numAttrRsp = frame.data[11] || 0;
+    var posRsp = 12;
+    for (var i = 0; i < numAttrRsp && posRsp + 3 < frame.data.length; i++) {
+      var attrRsp = tcPad2(frame.data[posRsp + 1] || 0) + tcPad2(frame.data[posRsp] || 0);
+      var statusRsp = frame.data[posRsp + 2] || 0;
+      posRsp += 3;
+      if (statusRsp !== 0x00 || posRsp >= frame.data.length) continue;
+      var dataTypeRsp = frame.data[posRsp] || 0;
+      posRsp += 1;
+      var parsedRsp = tcParseZbAttrValue(frame.data, posRsp, dataTypeRsp);
+      posRsp += parsedRsp.size;
+      tcHandleZbAttrValue(srcAddrRsp, srcEpRsp, clusterRsp, attrRsp, parsedRsp.hex, now);
+    }
+    return;
+  }
+
+  if (frame.type === 0x82 && frame.code === 0x0A) {
+    if (frame.data.length < 15) return;
+    var srcAddrRpt = tcPad2(frame.data[2] || 0) + tcPad2(frame.data[1] || 0);
+    var srcEpRpt = tcPad2(frame.data[3] || 0);
+    var clusterRpt = tcPad2(frame.data[7] || 0) + tcPad2(frame.data[6] || 0);
+    var numAttrRpt = frame.data[11] || 0;
+    var posRpt = 12;
+    for (var j = 0; j < numAttrRpt && posRpt + 2 < frame.data.length; j++) {
+      var attrRpt = tcPad2(frame.data[posRpt + 1] || 0) + tcPad2(frame.data[posRpt] || 0);
+      var dataTypeRpt = frame.data[posRpt + 2] || 0;
+      posRpt += 3;
+      var parsedRpt = tcParseZbAttrValue(frame.data, posRpt, dataTypeRpt);
+      posRpt += parsedRpt.size;
+      tcHandleZbAttrValue(srcAddrRpt, srcEpRpt, clusterRpt, attrRpt, parsedRpt.hex, now);
+    }
+  }
+}
+
+function tcParseAndDispatchAllHexFrames(hexStr, ts) {
+  var bytes = tcHexWordsToBytes(hexStr);
+  var pos = 0;
+  while (pos < bytes.length) {
+    if (bytes[pos] !== 0x55) {
+      pos++;
+      continue;
+    }
+    if (pos + 1 >= bytes.length) break;
+    var totalLen = 2 + bytes[pos + 1];
+    if (pos + totalLen > bytes.length) break;
+    var frameHex = bytes.slice(pos, pos + totalLen).map(function (b) {
+      return tcPad2(b);
+    }).join(' ');
+    tcHandleZbHexFrame(frameHex, ts);
+    pos += totalLen;
+  }
+}
+
+function tcDispatchLine(line, ts) {
+  var evtMatch = line.match(/CFZB:\d+:EVT:((?:[0-9A-Fa-f]{2}\s*)+)$/i);
+  if (evtMatch) {
+    var evtHex = evtMatch[1].trim();
+    if (/^55\b/i.test(evtHex)) {
+      tcLog('evt', '[ZB] HEX EVT: ' + evtHex.substring(0, 48) + (evtHex.length > 48 ? '…' : ''));
+      tcParseAndDispatchAllHexFrames(evtHex, ts);
+      return;
+    }
+  }
+
+  var okMatch = line.match(/CFZB:\d+:OK:[^:]+:([0-9A-Fa-f]{2}(?:\s+[0-9A-Fa-f]{2})+)$/i);
+  if (okMatch) {
+    tcParseAndDispatchAllHexFrames(okMatch[1], ts);
+  }
+
+  if (/^55\s+[0-9A-Fa-f]{2}/i.test(line)) {
+    tcParseAndDispatchAllHexFrames(line, ts);
+    return;
+  }
+
+  tcHandleAsyncLine(line, ts);
+}
+
+function tcStartRawBridgePolling() {
+  if (_tcRawBridgeTimer) return;
+  _tcRawBridgeTimer = setInterval(function () {
+    try {
+      var raw = localStorage.getItem(TC_RAW_BRIDGE_KEY);
+      if (!raw) return;
+      var obj = JSON.parse(raw);
+      if (!obj || !obj.updatedAt || !obj.line) return;
+      if (obj.updatedAt <= _tcLastRawBridgeTs) return;
+      _tcLastRawBridgeTs = obj.updatedAt;
+      tcDispatchLine(obj.line, obj.ts || obj.updatedAt);
+    } catch (e) {}
+  }, 500);
+}
+
 /* Send CFBG command */
 function tcSendCFBG(verb, params, timeout, options) {
   options = options || {};
@@ -238,7 +537,10 @@ function tcSendCFZB(verb, params, timeout) {
   return tcSendRpc('sendCommand', tcStrToHex(cmd), timeout || tcState.rpcTimeout)
     .then(function (r) {
       var d = tcDecodeHex(r);
-      tcSplitLines(d).forEach(function (l) { tcLog('rx', l); });
+      tcSplitLines(d).forEach(function (l) {
+        tcLog('rx', l);
+        tcDispatchLine(l, Date.now());
+      });
       return d;
     })
     .catch(function (e) {
@@ -297,11 +599,10 @@ function tcHandleAsyncLine(line, ts) {
   m = line.match(/CFBG:OK:NOTIFY:(\d+):0x[0-9A-Fa-f]+:([0-9A-Fa-f]{8,})/i);
   if (m) {
     var hex4 = m[2].toUpperCase();
-    var tRaw = parseInt(hex4.substr(0, 4), 16);
-    var hRaw = parseInt(hex4.substr(4, 4), 16);
+    var tRaw = parseInt(hex4.substr(2, 2) + hex4.substr(0, 2), 16);
+    var hRaw = parseInt(hex4.substr(6, 2) + hex4.substr(4, 2), 16);
     /* Signed 16-bit */
     if (tRaw & 0x8000) tRaw = tRaw - 0x10000;
-    if (hRaw & 0x8000) hRaw = hRaw - 0x10000;
     var temp = tRaw * 0.01;
     var hum  = hRaw * 0.01;
     /* RTT: time since NOTIFY was enabled (continuous) — use last tx time */

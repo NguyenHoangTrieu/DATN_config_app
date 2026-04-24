@@ -26,6 +26,7 @@ var _tmLastProcessedTs = 0;
 var _tmBridgeHandler   = null;
 var _tmStaleTimer      = null;
 var _tmLsTimer         = null;
+var TM_RAW_BRIDGE_KEY  = 'da2_total_raw_bridge';
 
 /* ═══════════════════════════════════════════════════════════════════
    ThingsBoard Lifecycle
@@ -69,7 +70,21 @@ self.onDataUpdated = function () {
         if (ts <= _tmLastProcessedTs) continue;
         _tmLastProcessedTs = ts;
         var decoded = tmDecodeHex(raw);
-        tmSplitLines(decoded).forEach(function (line) { tmParseLine(line, ts); });
+        tmSplitLines(decoded).forEach(function (line) {
+          tmParseLine(line, ts);
+          try {
+            window.dispatchEvent(new CustomEvent('da2_total_raw_line', {
+              detail: { ts: ts, line: line }
+            }));
+          } catch (e2) {}
+          try {
+            localStorage.setItem(TM_RAW_BRIDGE_KEY, JSON.stringify({
+              updatedAt: Date.now(),
+              ts: ts,
+              line: line
+            }));
+          } catch (e3) {}
+        });
       }
     }
   } catch (e) {}
@@ -85,10 +100,9 @@ function tmParseLine(line, ts) {
   var m = line.match(/CFBG:OK:NOTIFY:\d+:0x[0-9A-Fa-f]+:([0-9A-Fa-f]{8,})/i);
   if (m) {
     var hex4 = m[1].toUpperCase();
-    var tRaw = parseInt(hex4.substr(0, 4), 16);
-    var hRaw = parseInt(hex4.substr(4, 4), 16);
+    var tRaw = parseInt(hex4.substr(2, 2) + hex4.substr(0, 2), 16);
+    var hRaw = parseInt(hex4.substr(6, 2) + hex4.substr(4, 2), 16);
     if (tRaw & 0x8000) tRaw = tRaw - 0x10000;
-    if (hRaw & 0x8000) hRaw = hRaw - 0x10000;
     tmUpdateTech('ble', { temp: tRaw * 0.01, hum: hRaw * 0.01, ts: now });
     return;
   }
