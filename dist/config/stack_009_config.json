@@ -1,0 +1,44 @@
+{
+  "module_id": "009",
+  "module_type": "BLE_MESH",
+  "stack_type": "esp32_native_ble_mesh",
+  "module_name": "ESP32-S3 BLE Mesh Provisioner",
+  "is_crlf_terminated": true,
+  "stack_id": 0,
+  "ble_native": {
+    "mesh": {
+      "provisioner_name": "DA2_GW",
+      "net_key": "A1B2C3D4E5F6A7B8C9DAEBFCAD1E2F30",
+      "app_key": "0102030405060708090A0B0C0D0E0F10",
+      "ttl": 7,
+      "primary_unicast_addr": 1
+    },
+    "commands": [
+      {
+        "name": "ONOFF",
+        "model_id": "0x1000",
+        "opcode": "0x8202",
+        "ack_model_id": "0x1000",
+        "ack_opcode": "0x8201",
+        "param_schema": "value:uint8"
+      },
+      {
+        "name": "LIGHTNESS",
+        "model_id": "0x1300",
+        "opcode": "0x824C",
+        "ack_model_id": "0x1300",
+        "ack_opcode": "0x824E",
+        "param_schema": "lightness:uint16"
+      },
+      {
+        "name": "CTL",
+        "model_id": "0x1303",
+        "opcode": "0x8265",
+        "ack_model_id": "0x1303",
+        "ack_opcode": "0x8260",
+        "param_schema": "lightness:uint16,temperature:uint16,delta_uv:int16"
+      }
+    ]
+  },
+  "functions": []
+}

@@ -381,6 +381,9 @@ class GatewayConfigApp:
         """
         if not line:
             return
+
+        self._handle_config_result_line(line)
+
         is_ble_line = (
             line.startswith("CFBL:")
             or line.startswith("+SCAN:")
@@ -394,6 +397,49 @@ class GatewayConfigApp:
             # Advanced panel stack tabs (BLE, Zigbee, …)
             for widget in getattr(self.advanced_panel, '_stack_tabs', {}).values():
                 self.root.after(0, lambda w=widget, l=line: w.handle_response(l))
+
+    def _parse_config_result_line(self, line: str):
+        # Use find() instead of startswith() because ESP-IDF log output and
+        # direct uart_write_bytes() can interleave on the same UART, producing
+        # lines like "I (xxx) TAG: CMD_QUEUEDCONFIG_ACK:SUCCESS:SV:OK".
+        for marker, ok in (("CONFIG_ACK:SUCCESS:", True), ("CONFIG_ACK:FAIL:", False)):
+            idx = line.find(marker)
+            if idx != -1:
+                payload = line[idx + len(marker):].strip()
+                return ok, payload
+
+        # LAN-side config result prefixes (always arrive on their own line)
+        config_prefixes = ("CFBL:", "CFLR:", "CFZB:", "CFRS:", "CFBG:", "BR:JSON:", "LR:JSON:")
+        if line.startswith(config_prefixes):
+            if ":FAIL" in line:
+                return False, line
+            if ":OK" in line:
+                return True, line
+
+        return None
+
+    def _handle_config_result_line(self, line: str):
+        parsed = self._parse_config_result_line(line)
+        if not parsed:
+            return
+
+        success, message = parsed
+        level = "SUCCESS" if success else "ERROR"
+        status = f"Config {'success' if success else 'failed'}: {message}"
+
+        self._log(status, level)
+        self.root.after(0, lambda s=status: self._set_status(s))
+        self.root.after(0, lambda m=message, ok=success: self._show_toast(m, ok))
+
+    def _show_toast(self, message: str, success: bool):
+        """Show a standard Windows-style modal popup for config results."""
+        title = "Success" if success else "Error"
+        text = message if message else ("Configuration applied successfully" if success else "Configuration failed")
+
+        if success:
+            messagebox.showinfo(title, text, parent=self.root)
+        else:
+            messagebox.showerror(title, text, parent=self.root)
     
     def _on_serial_tx(self, data: str):
         """Handle outgoing serial data - display in UART Log"""

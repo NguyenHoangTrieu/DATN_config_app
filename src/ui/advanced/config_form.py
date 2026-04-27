@@ -903,4 +903,16 @@ class ConfigForm(ttk.Frame):
     # ── Response handler ──────────────────────────────────────────
     def handle_response(self, line: str):
         """Called by serial_manager on response."""
-        pass  # Status panel removed
+        if not line:
+            return
+
+        prefixes = (f"{self._cmd_prefix}:", "CONFIG_ACK:")
+        if not line.startswith(prefixes):
+            return
+
+        if ":FAIL" in line:
+            self.log(f"Config failed: {line}", "ERROR")
+        elif ":OK" in line or line.startswith("CONFIG_ACK:SUCCESS:"):
+            self.log(f"Config success: {line}", "SUCCESS")
+        else:
+            self.log(line, "INFO")

@@ -1,0 +1,22 @@
+{
+  "module_id": "008",
+  "module_type": "BLE_GATT",
+  "stack_type": "esp32_native_ble_gatt",
+  "module_name": "ESP32-S3 BLE GATT Central",
+  "is_crlf_terminated": true,
+  "stack_id": 0,
+  "ble_gatt": {
+    "scan": {
+      "interval": 160,
+      "window": 80,
+      "active": true
+    },
+    "connection": {
+      "interval_min": 16,
+      "interval_max": 32,
+      "latency": 0,
+      "supervision_timeout": 500
+    }
+  },
+  "functions": []
+}

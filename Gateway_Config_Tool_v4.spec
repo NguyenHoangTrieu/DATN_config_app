@@ -1,20 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-import shutil, os
+import glob
+import os
+import shutil
 
 # JSON config files — bundled inside the EXE as fallback,
 # AND copied to dist/config/ so users can edit without rebuilding.
-# (Removed stack_XXX_app_commands.json files — no longer needed, functionality now in stack_XXX_config.json)
-_CONFIG_FILES = [
-    'src/config/stack_id_map.json',
-    'src/config/stack_001_config.json',
-    'src/config/stack_002_config.json',
-    'src/config/stack_003_config.json',
-    'src/config/stack_004_config.json',
-    'src/config/stack_005_config.json',
-    'src/config/stack_006_config.json',
-    'src/config/stack_011_config.json',
-]
+# Keep this list generated from disk so newly added stack_XXX_config.json files
+# are packaged automatically instead of silently missing in frozen builds.
+_CONFIG_FILES = ['src/config/stack_id_map.json']
+_CONFIG_FILES.extend(sorted(glob.glob('src/config/stack_*_config.json')))
 
 a = Analysis(
     ['main.py'],

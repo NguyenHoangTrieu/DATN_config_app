@@ -599,22 +599,32 @@ class Rs485Tab(ttk.Frame):
                      values=["0", "1"], state="readonly",
                      width=4).pack(side=tk.LEFT, padx=4)
 
+        modes_frame = ttk.Frame(gpio_section)
+        modes_frame.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
+        modes_frame.columnconfigure(0, weight=1)
+        modes_frame.columnconfigure(1, weight=1)
+        modes_frame.columnconfigure(2, weight=0)
+
         # Send mode pin list
-        self._send_list = _GpioPinList(gpio_section, "SEND Mode (TX / DE+RE = HIGH)",
-                                        _DEFAULT_SEND_GPIO)
-        self._send_list.pack(fill=tk.X, pady=2)
+        self._send_list = _GpioPinList(modes_frame,
+                           "SEND Mode (TX / DE+RE = HIGH)",
+                           _DEFAULT_SEND_GPIO)
+        self._send_list.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
 
         # Receive mode pin list
-        self._recv_list = _GpioPinList(gpio_section, "RECEIVE Mode (RX / DE+RE = LOW)",
-                                        _DEFAULT_RECV_GPIO)
-        self._recv_list.pack(fill=tk.X, pady=2)
+        self._recv_list = _GpioPinList(modes_frame,
+                           "RECEIVE Mode (RX / DE+RE = LOW)",
+                           _DEFAULT_RECV_GPIO)
+        self._recv_list.grid(row=0, column=1, sticky="nsew", padx=(6, 6))
 
-        btn_frame = ttk.Frame(gpio_section)
-        btn_frame.pack(fill=tk.X, pady=(8, 0))
-        ttk.Button(btn_frame, text="Preview JSON",
-                   command=self._preview_json).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btn_frame, text="Send GPIO Config to Gateway", style="Set.TButton",
-                   command=self._send_gpio_config).pack(side=tk.RIGHT, padx=4)
+        action_frame = ttk.LabelFrame(modes_frame, text="Actions", padding=8)
+        action_frame.grid(row=0, column=2, sticky="ns")
+
+        ttk.Button(action_frame, text="Preview JSON",
+               command=self._preview_json).pack(fill=tk.X, pady=(0, 6))
+        ttk.Button(action_frame, text="Send GPIO Config to Gateway",
+               style="Set.TButton",
+               command=self._send_gpio_config).pack(fill=tk.X)
 
     # ── Connection check ────────────────────────────────────────────────────
 
