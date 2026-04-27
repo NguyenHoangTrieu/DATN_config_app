@@ -1,0 +1,362 @@
+
+During the LOWPOWER mode, level of UART RX pin must keep unchanged, any signal on UART RX
+pin will make modem exit LOWPOWER mode. When LOWPOWER mode is triggered, there are
+extra 30ms before modem really enter sleep mode, host device should use this time to de-initial its
+UART if it is needed.
+It also supplies feature to set a lowpower alarm from 100ms to 129600000ms (36hrs).
+Format:
+eg: AT+LOWPOWER // Sleep until woke up by UART TX
+eg: AT+LOWPOWER=1000 / / Sleep 1000ms until timeout
+eg: AT+LOWPOWER=AUTOON / / Enter extremely low power mode
+eg: AT+ LOWPOWER=AUTOOFF1 8 / / Exit extremely low power mode
+/ / Query symbol is not available
+Return
++ LOWPOWER: SLEEP
++ LOWPOWER:
+WAKEUP
+Example:
+AT+ LOWPOWER= 1 0 0 0
+/ / Enter SLEEP mode successfully
+/ / Modem is woke up.
++ LOWPOWER: WAKEUP
+Note: Extra 0x55 will be sent to host MCU to perform a wakeup signal for it, LoRaWAN AT Modem will wait for 15ms before
+sending “+LOWPOWER: WAKEUP” frame , host MCU could use this 15ms to initialize then to receive the WAKEUP frame.
+C example:
+printf( "AT+LOWPOWER\r\n") ; // Set low-power mode
+// ...
+/ / HOST do other operation.
+// ...
+printf("A");
+DelayMs(5);
+/ / Send any character to wake- up the modem
+/ / Wait modem ready
+printf("AT+ID\r\n"); // New operation
+4.30.1 Low Power Auto Mode
+AT+LOWPOWER=AUTOON command could be used to enable extremely low power mode. In this
+mode modem will enter deep sleep mode when it is idle. The idle status means no ongoing
+receiving commands, no ongoing LoRaWAN service needed. If this mode is enabled, when
+sending commands to modem, at least four 0xFFs need to be added to the start of each AT
+command. At the same time, each return message is also added with four 0xFFs. The host mcu
+parser should be able to handle these wakeup characters.
+Example to send AT+ID command with low power auto mode
+0xFF 0xFF 0xFF 0xFF ‘ A’ ‘ T’ ‘ + ’ ‘ I’ ‘ D’ ‘ \ r’ ‘ \ n’
+Use AT+LOWPOWER=AUTOOFF command to turn off low power auto mode, four 0xFFs are
+also needed to add to the start of the command.
+FF FF FF FF A T + L O W P O W E R = A U T O O F F \r \n
+FF FF FF FF 61 74 2B 6C 6F 77 70 6F 77 65 72 3D 61 75 74 6F 6F 66 66 0D 0A
+18 It is better to use AT+LOWPOWER=AUTOOFF always with heading 0xFFs
+© 2008-2023 Seeed Technology Co., Ltd. All rights reserved. www .seeedstudio.com
+49 / 58
+Below hex string equals to the table above, send it to modem in hex format could also disable the
+low power auto on feature.
+FFFFFFFF6 1742B6C6F77706F7765723D6175746F6F66660D0A
+C example:
+uint8_t buf[256];
+printf( "AT+LOWPOWER=AUTOON\r\n") ; // Set low-power auto on mode
+// ...
+/ / HOST do other operation.
+// ...
+buf[0] = 0xFF;
+buf[1] = 0xFF;
+buf[2] = 0xFF;
+buf[3] = 0xFF;
+//DelayMs(5); // If user use higher baud rate than 9600, uncomment this line
+sprintf(buf+4, "AT+MSG=\"string\"\r\n");
+uart_ putbuf( buf, strlen(buf+ 4) + 4) ; // Send command to LoRaWAN modem
+4.31 VDD
+Get supply voltage, return value in unit 0.01V. Format:
+AT+ VDD
+AT+ VDD?
+AT+ VDD= ?
+Example:
+AT+ VDD
++VDD: 3.30V
+4.32 TEMP
+Get temperature, return value in unit °C. Format:
+AT+ TEMP
+AT+ TEMP?
+AT+ TEMP= ?
+Example:
+AT+ TEMP
++TEMP: 20.5
+Note: Temperature command returns temperature sensed by on chip sensor which gives precision about +/-5°C in worst
+case, this feature provides a cheap temperature measurement solution for low precision application
+4.33 RTC
+Get real time from LoRaWAN modem. When modem is powered on, it always starts from 2000-01
+-01 00:00:00, user could set new time to modem to sync to the real time.
+1. Check current time
+AT+ RTC
++RTC: 2000-01-01 01:00:28 // this means the modem has kept running for 1 hour
+© 2008-2023 Seeed Technology Co., Ltd. All rights reserved. www .seeedstudio.com
+50 / 58
+2. Set new time to "2016-06- 14 18:16:11", this format is very critical, must keep the same format as
+“yyyy-MM-dd HH:mm:ss”, year must starts with 20xx.
+AT+RTC="2016-06-14 18:16:11"
++RTC: 2016-06- 14 18:16:11
+3. Get time zone
+AT+ RTC= ZONE
++RTC: ZONE, +00:00
+4. Set time zone
+AT+ RTC=ZONE, " +08:00"
++RTC: ZONE, +00:00
+5. Get verbose RTC time
+AT+ RTC= FULL
++RTC: YY-MM-DD hh:mm:ss UTCshh:mm, epoch, age
+UTCshh:mm: s -> -/+, hh -> hour, mm -> minute
+epoch: GPS epoch (if LoRaWAN V102 is enabled it is in UTC epoch 19 )
+age: device start up age in second (AT+RESET / POWER ON / WDT Reset clears age to 0)
+6. Check Leap seconds setting
+AT+ RTC= LEAPSEC
++RTC: LEAPSEC, 37
+7. Set new leap seconds
+AT+ RTC= LEAPSEC, 3 7
++RTC: LEAPSEC, 37
+8. Get UTC time in ms
+AT+ RTC= UTCMS
++RTC: 2016-06- 14 18:16:11.576
+4 . 33. 1 Time Synchronization
+When modem is powered on, it always starts from 2000-01-01 00:00:00, there are 3 ways for user
+to sync real time:
+➢ user could set new time to modem to sync to the real time.
+➢ Use AT+LW=DTR command trigger DeviceTimeReq to sync time manually
+◼ LoRaWAN V102B or higher protocol
+➢ In class B mode, time will be synchronized with beacon automatically
+4.33.2 Leap second
+Check http://www.ietf.org/timezones/data/leap-seconds.list to know the leap second list. As of this
+document (year 2017), there has been 37 leap seconds ever. The firmware has preset this value to
+calculate the UTC time. In the future, more leap seconds will occur, at that time user should update
+the leap second to real one so that AT+RTC command returns right time.
+4.33.3 Time Zone
+AT+RTC=ZONE command can be used to set time zone. Default set to UTC+00:00.
+19 UTC epoch is already deprecated by LoRa Alliance due to the leap second issue, however AT modem keeps
+this mode for users whose LoRaWAN server still doesn’t support GPS epoch
+© 2008-2023 Seeed Technology Co., Ltd. All rights reserved. www .seeedstudio.com
+51 / 58
+4.34 EEPROM
+LoRaWAN Modem supports maximum 256 bytes to save user data. Format:
+AT+ EEPROM= ADDR
+AT+ EEPROM= ADDR, VAL
+Return:
++ EEPROM: ADDR, VAL
+Both ADDR and VAL are in hex format. Valid range is 0x00 ~ 0xFF. Example:
+AT+ EEPROM= 00, AB
++EEPROM: 00, AB
+4.35 UART
+4.35.1 TIMEOUT
+LoRaWAN AT modem supports UART receive timeout feature, AT parser inside the modem
+start counts from first "AT" character is received, when counter overflows, a "Input timeout"
+event will be triggered. One message like below will be showed. Maximum timeout value is
+300ms.
++ INFO: Input timeout
+AT+ UART= TIMEOUT, 0 / / Di s a bl e t i me o ut f e a t ur e
+AT+ UART=TIMEOUT, 1 000 / / Se t t i me o ut 1 s f e a t ur e
+AT+ UART= TIMEOUT // Get timeout value
+4.35.2 BR
+BR command could be used to set new baud rate. Available baud rate are 9600 14400 19200
+38400 57600 76800 115200 and 230400. New baud rate will be validated after reset or repower.
+Format:
+AT+ UART= BR
+AT+ UART= BR, br
+Return:
++ UART= BR, br
+© 2008-2023 Seeed Technology Co., Ltd. All rights reserved. www .seeedstudio.com
+52 / 58
+4.36 TEST
+TEST command is not like other command, it is a serious command, includes several sub-
+commands, refer to table below. With test mode, user could do RF performance test quickly
+without any knowledge of LoRa chip. Commands which are related to RF configuration is
+disabled in test mode.
+Sub-Command Comment
+STOP Set LoRaWAN Modem to TEST stop mode
+TXCW Transmit continuous wave
+TXCLORA Transmit continuous LoRa signal
+RFCFG Set RF configuration in TEST mode
+RXLRPKT Continuous receive pure LoRa packet, print once there is new packet received
+TXLRPKT Send one HEX format packet out
+TXLRSTR Send one string format packet
+RSSI Get RSSI value of specified channel
+Table 4-5 TEST mode sub-command list
+4. 36. 1 Help Inf ormation
+STOP - - AT+ TEST= STOP
+HELP - - AT+ TEST= HELP
+TXCW -- AT+TEST=TXCW
+TXCLORA - - AT+ TEST= TXCLORA
+RFCFG -- AT+TEST=RFCFG, [ F] , [ SF] , [ BW] , [ TXPR] , [ RXPR] , [ POW] , [ CRC] , [ IQ] , [ NET]
+RXLRPKT - - AT+ TEST= RXLRPKT
+TXLRPKT - - AT+ TEST= TXLRPKT, " HEX"
+TXLRSTR - - AT+ TEST= TXLRSTR, " TEXT"
+RSSI -- AT+TEST=RSSI, F, [ CNT]
+"[]" means the parameter is omissible together with parameters behind it
+4.36.2 Enter TEST mode
+Before use any TEST command, LoRaWAN should work in test mode, or error code - 12
+will be reported.
+Command:
+AT+ MODE= TEST
+Return:
++ MODE: TEST / / LoRaWAN modem enter TEST mode successfully
+4. 36. 3 Query RF configuration
+First thing after enter TEST mode should be check RF configuration.
+Command:
+AT+TEST=? / / Query test mode and RF configuration
+Return Error:
++TEST: ERROR(-12)
+© 2008-2023 Seeed Technology Co., Ltd. All rights reserved. www .seeedstudio.com
+53 / 58
+When come with ERROR(- 12), user could try "AT+MODE=?" to check if LoRaWAN modem is in TEST mode, if not user
+should enter test mode first.
+Return STOP:
++ TEST: STOP
++TEST: RFCFG F: 433300000, SF12, BW125K, TXPR: 8, RXPR: 8, POW: 14dBm, CRC: ON,
+IQ: OFF, NET: ON
+Return TXLRPKT:
++ TEST: TXLRPKT
++TEST: RFCFG F: 433300000, SF12, BW125K, TXPR: 8, RXPR: 8, POW: 14dBm, CRC: ON,
+IQ: OFF, NET: ON
+Return RXLRPKT:
++ TEST: RXLRPKT
++TEST: RFCFG F: 433300000, SF12, BW125K, TXPR: 8, RXPR: 8, POW: 14dBm, CRC: ON,
+IQ: OFF, NET: ON
+Return TXCW:
++ TEST: TXCW
++TEST: RFCFG F: 433300000, SF12, BW125K, TXPR: 8, RXPR: 8, POW: 14dBm, CRC: ON,
+IQ: OFF, NET: ON
+4 .36.4 Set RF Configuration
+RFCFG supports set frequency, SF, band width, TX preamble, RX preamble and TX power settings.
+TX and RX shares all configuration except "preamble length", user could choose different
+preamble length. For LoRa communication, it is strongly recommended to set RX preamble
+length longer than TX's. Bandwidth only supports 125KHz / 250KHz / 500KHz.
+Depend onSemtech SX1276(PA_BOOST/RFO) and design solution of Seeed module, MAX
+output power of different band LoRaWAN modem could be different. Check below table about
+the details.
+Device Bootloader Interface LF Band20 HF Band21
+LoRa-E5 UART UART 22dBm 22dBm
+Table 4-6 MAX output power of HF and LF band
+Format:
+"[]" means the parameter is omissible together with parameters after it
+AT+TEST=RFCFG,[FREQUENCY],[SF],[BANDWIDTH],[TX PR],[RX PR],[TX
+POWER],[CRC],[IQ],[NET] eg: AT+TEST=RFCFG,866,SF12,125,12,15,14,ON,OFF, OFF
+FREQUENCY:
+866MHz
+SpreadFactor:
+SF12
+BandWidth:
+125KHz
+TX Preamble:
+12
+RX Preamble:
+15
+Power:
+14dBm
+20 LF Band: Frequency is less than 525MHz
+21 HF Band: Frequency is larger than 525MHz
+© 2008-2023 Seeed Technology Co., Ltd. All rights reserved. www .seeedstudio.com
+54 / 58
+CRC:
+ON
+Inverted IQ:
+OFF
+Public LoRaWAN:
+OFF
+Return:
++TEST: RFCFG F:868100000, SF12, BW125K, TXPR:8, RXPR:8, POW:14dBm, CRC:ON, IQ:OFF,
+PNET:ON
+4.36.5 TX LoRa Packet
+After enter test mode, user could send LoRa packet through "AT+TEST=TXLRPKT" sub-
+command. The command format is like below:
+AT+ TEST= TXLRPKT, " HEX STRING"
+Command sequence to send LoRa packet:
+/ / Set test mode
+AT+ MODE= TEST
+/ / Query test mode, check RF configuration
+AT+ TEST= ?
+/ / Set RF Configuration
+AT+ TEST= RFCFG, [ FREQUENCY] , [ SF] , [ BANDWIDTH] , [ TXPR] , [ RXPR] , [ POW] , [ CRC] , [ IQ] , [ NET]
+/ / Send HEX format packet
+AT+ TEST= TXLRPKT, " HEX String"
+eg: AT+TEST=TXLRPKT, " 00 AA 11 BB 22 CC"
+/ / Send TEXT format packet
+AT+ TEST= TXLRSTR, " TEXT"
+eg: AT+ TEST= TXLRSTR, " LoRaWAN Modem"
+Return:
++TEST: TXLRPKT “ 404EA99000800A00089F6E770959”
++ TEST: TXLRSTR " LoRaWAN Modem"
++ TEST: TX DONE
+4.36.6 RX LoRa Packet
+After enter test mode, user could enter LoRa packet continuous RX mode through RXLRPKT
+sub- command. Like below:
+AT+ TEST= RXLRPKT
+Command sequence to receive LoRa packet:
+/ / Set test mode
+AT+ MODE= TEST
+/ / Query test mode, check RF configuration
+AT+ TEST= ?
+/ / Set RF Configuration
+AT+ TEST= RFCFG, [ FREQUENCY] , [ SF] , [ BANDWIDTH] , [ TXPR] , [ RXPR] , [ POW] , [ CRC] , [ IQ] , [ NET]
+/ / Enter RX continuous mode
+AT+ TEST= RXLRPKT
+Return:
++ TEST: LEN:250, RSSI:-106, SNR:10
+© 2008-2023 Seeed Technology Co., Ltd. All rights reserved. www .seeedstudio.com
+55 / 58
++TEST: RX 404EA99000800A00089F6E770959
+4 .36.7 TX Continuous Wave
+Before enable TXCW function, right frequency and TX power should be set. Format:
+AT+ TEST= TXCW
+Return:
++ TEST: TXCW
+4.36.8 TX Continuous LoRa
+Before enable TXCLORA function, right frequency and TX power should be set. Format:
+AT+ TEST= TXCLORA
+Return:
++ TEST: TXCLORA
+4.36.9 RSSI
+Read RSSI from a specified channel. Format:
+AT+ TEST = RSSI, frequency( MHz) , [ times]
+Return:
++ TEST: RSSI, average, maximum, minimum
+4.36.10 Beacon Sniffer
+AT+TEST=BEACON command can be used to set AT modem into beacon sniffer mode, which
+could be useful for server and gateway designer to debug beacon timing.
+Format:
+AT+ TEST= BEACON
++ TEST: BEACON
+When beacon is received one beacon message is returned to host controller.
++ TEST: BEACON, ms, payload, rssi, snr, ticks, vdd, temp
+ms: beacon received time in ms
+payload: hex string
+rssi: unit dBm
+© 2008-2023 Seeed Technology Co., Ltd. All rights reserved. www .seeedstudio.com
+56 / 58
+snr: unit dB
+ticks: unit 8192Hz
+vdd: unit 0.01V
+temp: unit 0.01°C
+Before use Beacon, user also need use AT+TEST=RFCFG command to set CRC OFF, IQ OFF, NET
+ON, and use AT+DR=band to select correct band, use AT+LW=VER command to select correct
+LoRaWAN protocol.
+Command flow to sniff EU868 beacon:
+AT+ DR=EU868
+AT+ LW=VER, 1 02B
+AT+ MODE= TEST
+AT+TEST=RFCFG, 869.525, SF9, 125, 8, 8, 20, OFF, OFF, ON
+AT+ TEST= BEACON
++TEST: BEACON, 232509, 0000804D67475A28000000000000000000, -66, 5, 1905042, 320, 2197
++TEST: BEACON, 232509, 0000804D67475A28000000000000000000, -66, 5, 1905042, 320, 2197
++TEST: BEACON, 360509, 0000004E674732AC000000000000000000, -66, 5, 2953807, 319, 2187
++TEST: BEACON, 488510, 0000804E67470A71000000000000000000, -66, 5, 4002572, 319, 2223
++TEST: BEACON, 616511, 0000004F6747029B000000000000000000, -66, 4, 5051336, 319, 2223
++TEST: BEACON, 744512, 0000804F67473A46000000000000000000, -66, 5, 6100101, 319, 2205
+Note: For beacon frequency hopping band like US915/CN470/AU915, BEACON sniffer mode can only sniff a single selected
+channel.
+4.37 LOG
+LOG command is for user debugging purpose, after log is enabled, AT modem will returns extra
+log message to host controller, check these log could help user locate issue quickly when it
+happens. Log is turned by default.
+Format:
+AT+ LOG= level / / DEBUG/ INFO/ WARN/ ERROR/ FATAL/ PANIC/ QUIET
+Enable log:
+AT+ LOG= DEBUG
+Disable log:
+AT+ LOG= QUIET
+Note: if log is enabled it will takes extra energy, for low power application it is recommended to turn off log.
+© 2008-2023 Seeed Technology Co., Ltd. All rights reserved.

@@ -1,0 +1,413 @@
+
+
+
+
+
+
+
+Highlight All
+
+Match Case
+
+Match Diacritics
+
+Whole Words
+⁨3⁩ of ⁨4⁩ matches
+
+
+
+of ⁨18⁩
+
+
+
+
+ZigBee Ad Hoc Network Module Chengdu Ebyte Electronic Technology Co.,Ltd..
+Sample website: cdebyte.com For more product info, please visit www. Cdebyte.com
+Choose Ebyte because of professionalism! IOT application expert.
+page 2_ Ebyte owns the copyright and the final interpretation right of the product
+2.9 Set or read device type (AT+DEVTYPE) ........................................................................8
+2.10 Set or read baud rate (AT+BAUD) ................................................................................ 8
+2.11 Set or read target address (AT +DSTADDR ) ............................................................... 9
+2.12 Set or read the target port (AT+DSTEP) ........................................................................9
+2.13 Set or read the current low power consumption level (AT+LPLEVEL) ....................... 9
+2.14 Turn on the switch (AT+TURNON) ............................................................................ 10
+2.15 Turn off the switch (AT+TURNOFF) ..........................................................................10
+2.16 Invert switch (AT+TOGGLE) ......................................................................................11
+2.17 Level up (AT+LEVELUP) ...........................................................................................11
+2.18 Level down (AT+LEVELDOWN) ...............................................................................12
+2.19 Set the level (AT+LEVELSET) ................................................................................... 13
+2.20 Mark the target (AT+IDENTIFY) ................................................................................13
+2.21 Unbind (AT+UNBIND) ............................................................................................... 14
+2.22 Set PWM output (AT+PWMOUT) .............................................................................. 14
+2.23 PWM marker mode (AT +PWMIDENT ) ................................................................... 14
+2.24 Passthrough MODE type (AT+MODE) .......................................................................15
+2.25 Modbus ID (AT+MBID) Only DTU supports this command ......................................15
+2.26 View the connected Modbus ID slave (AT+MBLST) Only DTU supports this
+command .............................................................................................................................. 16
+3 Asynchronous print command parsing ..................................................................................16
+3.1 Network status print information (NET:) .......................................................................16
+3.2 Nodes join the network (JOIN: ) .................................................................................... 16
+3.3 Node address notification (NODE:) ............................................................................... 16
+3.4 Node leave notification (LEAVE:) .................................................................................17
+3.5 Remote device status reporting and printing information .............................................. 17
+3.6 Device control status return information ........................................................................17
+3.7 Modbus slave connection information ........................................................................... 17
+4 Revision history .....................................................................................................................17
+5 About us ................................................................................................................................ 18
+ZigBee Ad Hoc Network Module Chengdu Ebyte Electronic Technology Co.,Ltd..
+Sample website: cdebyte.com For more product info, please visit www. Cdebyte.com
+Choose Ebyte because of professionalism! IOT application expert.
+page 3_ Ebyte owns the copyright and the final interpretation right of the product
+1 AT commands and basic format
+1.1 Introduction to Ebyte ZigBee 3.0 AT commands:
+What are AT commands:
+Ebyte AT commands are used for networking and control of ZigBee 3.0 devices. They are
+input and output in ASC code string format, which is convenient for users to develop quickly.
+Advantages of using AT commands:
+AT commands use ASC code strings for input and output, which is convenient for developers
+to remember each command and its purpose. At the same time, the output information of the
+ZigBee module during the running process is in the format of ASC code string, which is
+convenient for users to read the running status of the module.
+Notes on using AT commands:
+AT commands have the advantage of convenient development in small-scale networking, but
+ZigBee large-scale networking applications occupy high hardware resources due to string
+processing, low wireless transmission efficiency, and inability to distinguish different targets in a
+many-to-many communication environment. Therefore, it is recommended that in large-scale
+networking applications, the mode with HEX command should be switched (refer to the document
+"Ebyte ZigBee3.0 Module HEX Command Standard Specification").
+1.2 Basic Format of Ebyte ZigBee 3.0 AT Command
+Ebyte ZigBee 3.0 AT commands start with the string "AT + ", with uppercase string
+commands, such as "AT+EXIT". There are three types of commands: execute command, set
+command, and query command.
+1.2.1 Execute commands:
+The execution command ends directly with an uppercase string, which means to perform an
+operation without any parameters, such as "AT+EXIT".
+1.2.2 Set command:
+The setting command adds the "=" symbol after the last string, followed by the setting
+parameters, such as "AT+BAUD=115200".
+1.2.3 query command:
+The query command adds a "?" symbol after the last string without any parameters.
+1.3 Switch between AT command mode and other modes:
+1.3.1 Switch from other modes to AT mode
+To switch to AT mode in transparent transmission mode:
+ZigBee Ad Hoc Network Module Chengdu Ebyte Electronic Technology Co.,Ltd..
+Sample website: cdebyte.com For more product info, please visit www. Cdebyte.com
+Choose Ebyte because of professionalism! IOT application expert.
+page 4_ Ebyte owns the copyright and the final interpretation right of the product
+Use the command " locally set serial port data transmission related properties (local
+configuration command type, command code 0x11) ", set "port index=0", "attribute ID=0x0003",
+"parameter data=0x01", make the module enter the data transmission Transmission mode: Then
+input "+AT" three ASC code characters in data transparent transmission mode.
+example:
+Send: 55 07 00 11 00 03 00 01 13
+Feedback: 55 04 00 11 00 11
+Successfully enter the transparent transmission mode, send "+AT" in the transparent transmission
+mode, return " AT Mode" , enter transparent transmission mode
+Note: Modules in transparent transmission mode and AT mode can read the attribute "transparent
+transmission mode" remotely (see "Ebyte ZigBee3.0 Module HEX Command Standard
+Specification" 4.4.7 "Ebyte Data Transmission Control Cluster" " ), the values are all 0x01.
+HEX command mode to switch to AT command mode:
+Use the command "Enter AT command mode ( local configuration command type, command
+code 0x16 )"
+example:
+Send: 55 03 00 16 16
+Feedback: 55 04 00 16 00 16
+1.3.2 Switch from AT mode to other modes
+Switch to HEX mode:
+Use the AT command "AT+ EXIT " to enter the HEX command mode
+example:
+Send: "AT+ EXIT "
+Feedback: "OK\r\n"
+The module enters HEX command mode
+Switch to transparent transmission mode:
+Use AT command "AT+SEND" to enter transparent transmission mode
+example:
+Send: "AT+ SEND "
+Feedback: " SEND MODE \r\n"
+Mode enter data transparent transmission mode
+1.3.3 Switch back to HEX command mode from transparent transmission mode
+In the transparent transmission mode, send the "+++" string to the module to switch back to
+the HEX command mode.
+1.4 List of AT commands
+Order Function type
+AT+EXIT Exit to HEX command mode implement
+ZigBee Ad Hoc Network Module Chengdu Ebyte Electronic Technology Co.,Ltd..
+Sample website: cdebyte.com For more product info, please visit www. Cdebyte.com
+Choose Ebyte because of professionalism! IOT application expert.
+page 5_ Ebyte owns the copyright and the final interpretation right of the product
+AT+JOIN Network or create a new
+network
+implement
+AT+STOP stop networking implement
+AT+RESET Module reset implement
+AT+LEAVE Exit the current network implement
+AT+SEND Enter transparent transmission
+mode
+implement
+AT +FIND automatic search target implement
+AT+INFO Read device information Inquire
+AT+DEVTYPE Set or read device class set/query
+AT+BADU Set or read baud rate set/query
+AT+DSTADDR Set or read target short address set/query
+AT+DSTEP Set or read target port set/query
+AT+LPLEVEL Set or read low power level set/query
+AT+TURNON switch on implement
+AT+TURNOFF open switch implement
+AT+TOGGLE Invert switch implement
+AT+LEVELUP Level increased implement
+AT+LEVELDOWN Reduced level implement
+AT+LEVELSET set level set up
+2 AT command function and its explanation
+Note - big and small endian mode in AT commands :
+Regarding the big-endian mode in the AT command, all data in hexadecimal format,
+including short addresses and MAC addresses, all start with 0x are in big-endian mode; if it does
+not start with 0x, and there is a "." in the middle. On, all are small segment mode.
+MAC address: 8-byte big-endian mode starting with 0x
+PANID: 2-byte big-endian mode starting with 0x
+Short address: 2-byte big-endian mode starting with 0x
+Virtual SN: 9-byte little-endian mode enclosed by "[]", and each byte is separated by ".". (For the
+introduction of virtual SN, see the description of "Virtual Device SN Number" in "Ebyte
+ZigBee3.0 Module HEX Command Standard Specification")
+2.1 Exit to HEX command mode (AT+EXIT)
+Function:
+Exit from AT command mode to HEX command mode
+Input: " AT+EXIT "
+Return: "OK\r\n"
+Effect:
+After executing this command and returning "OK", the module will continue to output the
+ZigBee Ad Hoc Network Module Chengdu Ebyte Electronic Technology Co.,Ltd..
+Sample website: cdebyte.com For more product info, please visit www. Cdebyte.com
+Choose Ebyte because of professionalism! IOT application expert.
+page 6_ Ebyte owns the copyright and the final interpretation right of the product
+system notification command "device startup (command code 0x00 )" (see "Ebyte ZigBee3.0
+Module HEX Command Standard Specification"), indicating that the module has been The AT
+command mode switches back to the HEX command mode.
+2.2 Start network configuration (AT+JOIN)
+Function:
+Nodes that are not connected to the network create a new network when they are configured
+as coordinators. When they are configured as routers or terminal nodes, they look for an open
+coordinator and join it. If the coordinator of the created network executes this command, the
+device will be allowed to enter the network within 180 seconds for other devices to join in. The
+routers and terminal nodes that have already entered the network will execute this command
+without any response.
+Input: " AT+ JOIN"
+Return: "OK\r\n"
+Effect:
+Execute this command in a coordinator environment with an open network. After a few
+seconds, the module outputs "NET:JOIN\r\n", or " NET:IDLE \r\n" if the network connection fails.
+When the coordinator executes this command, it outputs " NETOPEN:180-Sec \r\n " and starts the
+network opening countdown for 180 seconds.
+2.3 Stop network configuration (AT+STOP)
+Function:
+The coordinator stops the network configuration. If the coordinator does not need to add new
+nodes after the coordinator starts to configure the network, use this command to stop the
+coordinator from adding new devices. Even if routers and terminal nodes that are not connected to
+the network are triggered to join the network, they cannot join the coordinator. However, if there
+are other coordinators in the space that allow access to the network, routers and terminal nodes
+that are not connected to the network can join other coordinators.
+Input: "AT+STOP"
+Return: "OK\r\n"
+Effect:
+Execute this command, the module outputs "NETCLOSE\r\n"
+2.4 Module reset (AT+RESET)
+Function:
+Module reset
+Enter: "AT+RESET"
+Return: "OK\r\n"
+ZigBee Ad Hoc Network Module Chengdu Ebyte Electronic Technology Co.,Ltd..
+Sample website: cdebyte.com For more product info, please visit www. Cdebyte.com
+Choose Ebyte because of professionalism! IOT application expert.
+page 7_ Ebyte owns the copyright and the final interpretation right of the product
+Effect:
+module resets and outputs " BOOT=0\r\n" and "VERSION=0\r\n" .
+2.5 Leave the network (AT +LEAVE )
+Function:
+The mod leaves the current network
+Enter: "AT+LEAVE"
+Returns: "OK\r\n"
+Effect:
+When the module exits the current network, the coordinator will receive the node's leave
+message and delete the network entry record. The module will output "BOOT=0\r\n" and
+"VERSION=0\r\n" to indicate that it has been rebooted.
+2.6 Enter transparent transmission mode (AT+SEND)
+Function:
+Enter transparent transmission mode
+Input: "AT+SEND"
+Returns: " SEND MODE \r\n "
+Effect:
+The module enters the transparent transmission mode. Any data entered in the transparent
+transmission mode will be sent to the target device corresponding to the target address.
+2.7 Automatic search target (AT+FIND)
+Function:
+Automatically search for the other party's transparent transmission module, in addition to
+searching for other data transmission modules, you can also search for ZigBee 3.0 lighting
+equipment.
+Input: "AT+FIND"
+Returns: " OK\r\n "
+Effect:
+Two data transmission modules can execute this command at the same time, or press the
+network key. After finding the target, it will output " FIND:ADDR= 0x%04x EP= %d cluster=
+0x%04x \r\n" . If the target cannot be found, it will return "FIND:MISS\r\n " . According to the EP
+value and the cluster value, you can determine what the found target is. cluster=0xFC08 is the
+transparent transmission module, cluster=0x0006 is the switch and lighting equipment,
+cluster=0x0008 is the dimmable light (including the PWM output on the module).
+2.8 Read device information (AT+INFO)
+ZigBee Ad Hoc Network Module Chengdu Ebyte Electronic Technology Co.,Ltd..
+Sample website: cdebyte.com For more product info, please visit www. Cdebyte.com
+Choose Ebyte because of professionalism! IOT application expert.
+page 8_ Ebyte owns the copyright and the final interpretation right of the product
+Function:
+This command only supports query, ie ending with "?" . Read the current network
+information of the device, including channel, PANID, device type, MAC address and other
+information.
+Input: "AT+INFO?"
+Return: networking information
+Effect: Return when not networked
+"NO NET\r\n"
+"TYPE=Router\r\n"
+"MAC= 0xHHHHHHHHHHHHHHHH \r\n"
+Networked and returned:
+"TYPE=SleepyEndDevice\r\n" //( Coordinate \Router\EndDevice)
+"MAC= 0xHHHHHHHHHHHHHHHH \r\n"
+"PANID= 0xHHHH \r\n"
+"CHANNEL=%d\r\n"
+"ADDR= 0x HHHH\r\n"
+2.9 Set or read device type (AT+DEVTYPE)
+Function:
+The setting device is coordinator, router, terminal node or dormant terminal 4 types, or query
+the current setting type. After setting the device type, you need to reset the module to take effect.
+Perform network operations after setup to create or join a network. Setting type needs to be useful
+before screening.
+set up
+Enter: "AT+DEVTYPE =%d "
+Returns: "OK\r\n" or "FAIL\r\n"
+Inquire
+Type: "AT+DEVTYPE?"
+Returns: "DEVTYPE= COORDINATOR\r\n " or
+"DEVTYPE= ROUTER\r\n " or
+" DEVTYPE= END_DEVICE\r\n " or
+"DEVTYPE=SLEEPY_END_DEVICE\r\n"
+2.10 Set or read baud rate (AT+BAUD)
+Function:
+When used to set the baud rate of the module, it needs to be restarted to take effect. It can
+also be used to read the current baud rate and directly return the currently set baud rate.
+Set the baud rate:
+ZigBee Ad Hoc Network Module Chengdu Ebyte Electronic Technology Co.,Ltd..
+Sample website: cdebyte.com For more product info, please visit www. Cdebyte.com
+Choose Ebyte because of professionalism! IOT application expert.
+page 9_ Ebyte owns the copyright and the final interpretation right of the product
+Enter: "AT+BAUD=%d"
+Return: "OK\r\n"
+Read baud rate:
+Input: "AT+BAUD?"
+Returns: " BAUD= %d \r\n "
+2.11 Set or read target address (AT +DSTADDR )
+Function:
+Used to set the target short address for transparent data transmission or read the current target
+address. When the target address is set to 0xFFFE, it is the MAC address binding target sending
+mode (you can bind the transparent transmission target through "AT+FIND") to prevent the short
+address of the target node from jumping due to the large amount of network data. When the
+destination port is 0, the destination short address is the multicast address.
+Set the destination address:
+Input: "AT+DSTADDR=%04x"
+Returns: "OK\r\n"
+read target address
+Enter: "AT+DSTADDR?"
+Returns: " DSTADDR= %04x\r\n"
+2.12 Set or read the target port (AT+DSTEP)
+Function:
+Used to set or read the transparent transmission destination port. The target port is usually set
+to 1, which is the transparent transmission port of the other device. If it is set to 0, it is in multicast
+mode, and the target short address is the multicast address.
+Set the destination port:
+Input: "AT+DSTEP =%d"
+Returns: "OK\r\n"
+read target port
+Input: "AT+DST EP ?"
+Returns: " DSTADDR= %04x\r\n"
+2.13 Set or read the current low power consumption level (AT+LPLEVEL)
+Function:
+It is used to set or read the low power consumption level of the module. The low power
+consumption level is only valid in the sleep terminal mode. There are a total of 4 low-power gears,
+which are wake up in 1 second, wake up in 3.3 seconds, wake up in 5 seconds, and sleep
+permanently.
+ZigBee Ad Hoc Network Module Chengdu Ebyte Electronic Technology Co.,Ltd..
+Sample website: cdebyte.com For more product info, please visit www. Cdebyte.com
+Choose Ebyte because of professionalism! IOT application expert.
+page 10_ Ebyte owns the copyright and the final interpretation right of the product
+To set the low power level:
+Input: "AT+LPLEVEL=%d"
+Returns: "OK\r\n" or "FAIL\r\n"
+Read the low power level:
+Input: "AT+LPLEVEL ? "
+Returns: " LPLEVEL=%d\r\n "
+2.14 Turn on the switch (AT+TURNON)
+Function:
+To turn on the switch remotely, it can control the switch, plug-in, lamps and other equipment.
+The module needs to bind the target switch first. After binding the target switch, you can query the
+list of bound switches.
+Display the list of switches:
+ Input: "AT+TURNON?"
+ Return: "( %d )ONOFF:
+SN=[%02X.%02X.%02X.%02X.%02X.%02X.%02X.%02X.%02X]\r\n"
+"OK\r\n"
+ Effect: Display the list of switches bound to the module. The device format displayed in the
+list is displayed in the form of "virtual SN" of port + MAC address.
+Turn on:
+ Input: "AT+TURNON=%d" (%d is the serial number corresponding to the display switch
+list)
+ Returns: "OK\r\n" or "FAIL\r\n".
+ Effect: The single light specified in the list is turned on
+Turn on all switches:
+ Input: "AT+TURNON"
+ Returns: "OK\r\n"
+ Effect: Turn on all switches in the list, and the broadcast will be turned on when the list is
+empty.
+2.15 Turn off the switch (AT+TURNOFF)
+Function:
+To turn off the switch remotely, it can control the switch, plug-in, lamps and other equipment.
+The module needs to bind the target switch first. After binding the target switch, you can query the
+list of bound switches.
+Display the list of switches:
+ Input: "AT+TURNOFF?"
+ZigBee Ad Hoc Network Module Chengdu Ebyte Electronic Technology Co.,Ltd..
+Sample website: cdebyte.com For more product info, please visit www. Cdebyte.com
+Choose Ebyte because of professionalism! IOT application expert.
+page 11_ Ebyte owns the copyright and the final interpretation right of the product
+ Return: "( %d )ONOFF:
+SN=[%02X.%02X.%02X.%02X.%02X.%02X.%02X.%02X.%02X]\r\n"
+"OK\r\n"
+ Effect: Display the list of switches bound by the module, and the virtual SN of the target
+device is displayed in the list.
+Turn off the switch:
+ Input: "AT+TURNOFF=%d" (%d is the serial number corresponding to the display switch
+list)
+ Returns: "OK\r\n" or "FAIL\r\n".
+ Effect: The specified switch in the list is turned off
+Turn off the full switch:
+ Input: "AT+TURNOFF"
+ Returns: "OK\r\n"
+ Effect: Turn off all switches in the list, and the broadcast will be turned off when the list is
+empty.
+2.16 Invert switch (AT+TOGGLE)
+Function:
+Remote switch lights, can control lamps, switch equipment, you need to bind the target first.
+Display the list of switches:
+ Type: "AT+TOGGLE?"
+ Return: "( %d )ONOFF:
+SN=[%02X.%02X.%02X.%02X.%02X.%02X.%02X.%02X.%02X]\r\n"
+"OK\r\n"
+ Effect: Display the list of switches bound by the module, and the virtual SN of the target
+device is displayed in the list.
+Invert switch:
+ Input: "AT+TOGGLE=%d" (%d is the serial number corresponding to the display switch list)
+ Returns: "OK\r\n" or "FAIL\r\n".
+ Effect: The specified switch in the list is inverted
+Invert all switches
+ Enter: "AT+TOGGLE"
+ Returns: "OK\r\n"
+ Effect: Invert all switches in the list, broadcast the inversion switch when the list is empty.
+2.17 Level up (AT+LEVELUP)
+Function:
+Control the output level of the target light to become brighter, including the increase of the
+PWM output on the module.
