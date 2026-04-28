@@ -1,0 +1,63 @@
+<!-- =====================================================================
+     total_application_test_monitor — ThingsBoard Latest Values Widget
+     Type    : Latest Values (no controlApi — read-only)
+     Datasource: Entity → Gateway device → telemetry key "data"
+
+     Aggregate monitor for gateway config, BLE, Zigbee, and LoRa flows.
+     Sources:
+       1. ThingsBoard WebSocket telemetry
+       2. window CustomEvent 'da2_total_app_event'
+       3. localStorage keys from the companion control widget
+     ===================================================================== -->
+
+<div id="tam-root" class="tam-root">
+  <div class="tam-header">
+    <div class="tam-hdr-left">
+      <div class="tam-logo">A</div>
+      <div>
+        <div class="tam-title">total_application_test_monitor</div>
+        <div class="tam-sub">Gateway + BLE + Zigbee + LoRa live aggregation</div>
+      </div>
+    </div>
+    <div id="tam-pill" class="tam-pill" data-state="idle">
+      <span class="tam-dot"></span>
+      <span id="tam-pill-txt">Waiting</span>
+    </div>
+  </div>
+
+  <div class="tam-toolbar">
+    <div class="tam-filter-group" id="tam-filter-group">
+      <button class="tam-filter active" data-filter="all">All</button>
+      <button class="tam-filter" data-filter="gw">Gateway</button>
+      <button class="tam-filter" data-filter="ble">BLE</button>
+      <button class="tam-filter" data-filter="zb">Zigbee</button>
+      <button class="tam-filter" data-filter="lr">LoRa</button>
+    </div>
+    <div class="tam-toolbar-meta" id="tam-toolbar-meta">No samples yet</div>
+  </div>
+
+  <div id="tam-grid" class="tam-grid"></div>
+
+  <div id="tam-hint" class="tam-hint">
+    <div class="tam-hint-icon">📡</div>
+    <div class="tam-hint-title">Waiting for application test traffic…</div>
+    <div class="tam-hint-sub">
+      Bind datasource to gateway telemetry key <code>data</code> and place the companion
+      control widget on the same dashboard to receive full aggregate updates.
+    </div>
+  </div>
+
+  <div class="tam-debug">
+    <div class="tam-debug-hdr">
+      <span class="tam-debug-title">Monitor Debug</span>
+      <span id="tam-debug-meta" class="tam-debug-meta">0 entries</span>
+    </div>
+    <div id="tam-debug-lines" class="tam-debug-lines"></div>
+  </div>
+
+  <div class="tam-footer">
+    <span id="tam-total-rx">0 samples</span>
+    <span id="tam-tech-count">0 cards</span>
+    <span id="tam-last-ts">—</span>
+  </div>
+</div>

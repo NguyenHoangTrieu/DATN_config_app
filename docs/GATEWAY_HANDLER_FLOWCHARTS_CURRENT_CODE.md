@@ -1,8 +1,9 @@
-# Gateway Handler Diagrams - Current Firmware
+﻿# Gateway Handler Diagrams - Current Firmware
 
 ## Hình 1: Luồng xử lý dữ liệu End-to-End Uplink
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'fontSize': '30px', 'fontWeight': '900', 'fontFamily': 'Segoe UI, Arial, sans-serif', 'lineColor': '#111', 'primaryBorderColor': '#111', 'secondaryBorderColor': '#111', 'tertiaryBorderColor': '#111', 'textColor': '#000', 'primaryTextColor': '#000'}, 'themeCSS': '.label, .nodeLabel, .edgeLabel, .messageText, .actor, .noteText, .loopText, .taskText, .sectionTitle, text, tspan { font-size: 30px !important; font-weight: 900 !important; font-family: Segoe UI, Arial, sans-serif !important; fill: #000 !important; } .messageLine0, .messageLine1, .messageLine2, .signal, .edgePath path, .flowchart-link, .actor-line { stroke-width: 2.6px !important; stroke: #111 !important; } rect, circle, polygon, path { stroke-width: 2.4px !important; stroke: #111 !important; }'}}}%%
 sequenceDiagram
     participant Sensor
     participant LAN_MCU as LAN MCU
@@ -24,6 +25,7 @@ sequenceDiagram
 ## Hình 2: Luồng xử lý dữ liệu End-to-End Downlink
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'fontSize': '30px', 'fontWeight': '900', 'fontFamily': 'Segoe UI, Arial, sans-serif', 'lineColor': '#111', 'primaryBorderColor': '#111', 'secondaryBorderColor': '#111', 'tertiaryBorderColor': '#111', 'textColor': '#000', 'primaryTextColor': '#000'}, 'themeCSS': '.label, .nodeLabel, .edgeLabel, .messageText, .actor, .noteText, .loopText, .taskText, .sectionTitle, text, tspan { font-size: 30px !important; font-weight: 900 !important; font-family: Segoe UI, Arial, sans-serif !important; fill: #000 !important; } .messageLine0, .messageLine1, .messageLine2, .signal, .edgePath path, .flowchart-link, .actor-line { stroke-width: 2.6px !important; stroke: #111 !important; } rect, circle, polygon, path { stroke-width: 2.4px !important; stroke: #111 !important; }'}}}%%
 sequenceDiagram
     participant Cloud
     participant WAN_MCU as WAN MCU
@@ -45,6 +47,7 @@ sequenceDiagram
 ## Hình 3: Giao tiếp LAN-MCU ↔ WAN-MCU qua SPI (Async GPIO Handshake)
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'fontSize': '30px', 'fontWeight': '900', 'fontFamily': 'Segoe UI, Arial, sans-serif', 'lineColor': '#111', 'primaryBorderColor': '#111', 'secondaryBorderColor': '#111', 'tertiaryBorderColor': '#111', 'textColor': '#000', 'primaryTextColor': '#000'}, 'themeCSS': '.label, .nodeLabel, .edgeLabel, .messageText, .actor, .noteText, .loopText, .taskText, .sectionTitle, text, tspan { font-size: 30px !important; font-weight: 900 !important; font-family: Segoe UI, Arial, sans-serif !important; fill: #000 !important; } .messageLine0, .messageLine1, .messageLine2, .signal, .edgePath path, .flowchart-link, .actor-line { stroke-width: 2.6px !important; stroke: #111 !important; } rect, circle, polygon, path { stroke-width: 2.4px !important; stroke: #111 !important; }'}}}%%
 sequenceDiagram
     participant LAN_MCU as LAN-MCU (SPI Master)
     participant WAN_MCU as WAN-MCU (SPI Slave)
@@ -76,6 +79,7 @@ sequenceDiagram
 ## Hình 4: Cập nhật cấu hình từ App PC (USB/UART)
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'fontSize': '30px', 'fontWeight': '900', 'fontFamily': 'Segoe UI, Arial, sans-serif', 'lineColor': '#111', 'primaryBorderColor': '#111', 'secondaryBorderColor': '#111', 'tertiaryBorderColor': '#111', 'textColor': '#000', 'primaryTextColor': '#000'}, 'themeCSS': '.label, .nodeLabel, .edgeLabel, .messageText, .actor, .noteText, .loopText, .taskText, .sectionTitle, text, tspan { font-size: 30px !important; font-weight: 900 !important; font-family: Segoe UI, Arial, sans-serif !important; fill: #000 !important; } .messageLine0, .messageLine1, .messageLine2, .signal, .edgePath path, .flowchart-link, .actor-line { stroke-width: 2.6px !important; stroke: #111 !important; } rect, circle, polygon, path { stroke-width: 2.4px !important; stroke: #111 !important; }'}}}%%
 sequenceDiagram
     participant PC as App PC (Python)
     participant WAN_MCU as WAN-MCU
@@ -107,6 +111,7 @@ sequenceDiagram
 ## Hình 5: Cập nhật cấu hình từ Web Config Portal
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'fontSize': '30px', 'fontWeight': '900', 'fontFamily': 'Segoe UI, Arial, sans-serif', 'lineColor': '#111', 'primaryBorderColor': '#111', 'secondaryBorderColor': '#111', 'tertiaryBorderColor': '#111', 'textColor': '#000', 'primaryTextColor': '#000'}, 'themeCSS': '.label, .nodeLabel, .edgeLabel, .messageText, .actor, .noteText, .loopText, .taskText, .sectionTitle, text, tspan { font-size: 30px !important; font-weight: 900 !important; font-family: Segoe UI, Arial, sans-serif !important; fill: #000 !important; } .messageLine0, .messageLine1, .messageLine2, .signal, .edgePath path, .flowchart-link, .actor-line { stroke-width: 2.6px !important; stroke: #111 !important; } rect, circle, polygon, path { stroke-width: 2.4px !important; stroke: #111 !important; }'}}}%%
 sequenceDiagram
     participant Browser as Browser (HTTP)
     participant WAN_MCU as WAN MCU (DA2_esp)
@@ -134,6 +139,7 @@ sequenceDiagram
 ## Hình 6: Lưu đồ giải thuật Data Communication Handler
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'fontSize': '30px', 'fontWeight': '900', 'fontFamily': 'Segoe UI, Arial, sans-serif', 'lineColor': '#111', 'primaryBorderColor': '#111', 'secondaryBorderColor': '#111', 'tertiaryBorderColor': '#111', 'textColor': '#000', 'primaryTextColor': '#000'}, 'themeCSS': '.label, .nodeLabel, .edgeLabel, .messageText, .actor, .noteText, .loopText, .taskText, .sectionTitle, text, tspan { font-size: 30px !important; font-weight: 900 !important; font-family: Segoe UI, Arial, sans-serif !important; fill: #000 !important; } .messageLine0, .messageLine1, .messageLine2, .signal, .edgePath path, .flowchart-link, .actor-line { stroke-width: 2.6px !important; stroke: #111 !important; } rect, circle, polygon, path { stroke-width: 2.4px !important; stroke: #111 !important; }'}}}%%
 flowchart TD
     A[PC send command] --> B[WAN parse command]
     B --> C{Scan/Read?}
@@ -160,6 +166,7 @@ flowchart TD
 ## Hình 7: Lưu đồ giải thuật FOTA Dual-MCU
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'fontSize': '30px', 'fontWeight': '900', 'fontFamily': 'Segoe UI, Arial, sans-serif', 'lineColor': '#111', 'primaryBorderColor': '#111', 'secondaryBorderColor': '#111', 'tertiaryBorderColor': '#111', 'textColor': '#000', 'primaryTextColor': '#000'}, 'themeCSS': '.label, .nodeLabel, .edgeLabel, .messageText, .actor, .noteText, .loopText, .taskText, .sectionTitle, text, tspan { font-size: 30px !important; font-weight: 900 !important; font-family: Segoe UI, Arial, sans-serif !important; fill: #000 !important; } .messageLine0, .messageLine1, .messageLine2, .signal, .edgePath path, .flowchart-link, .actor-line { stroke-width: 2.6px !important; stroke: #111 !important; } rect, circle, polygon, path { stroke-width: 2.4px !important; stroke: #111 !important; }'}}}%%
 flowchart TD
     A[Server gửi lệnh OTA] --> B[Gateway nhận lệnh, WAN đánh dấu OTA mode]
     B --> C[WAN khởi tạo chế độ WiFi AP]
@@ -180,6 +187,7 @@ flowchart TD
 ## Hình 8 Hệ thống cấu hình Module Base Setting (JSON)
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'fontSize': '30px', 'fontWeight': '900', 'fontFamily': 'Segoe UI, Arial, sans-serif', 'lineColor': '#111', 'primaryBorderColor': '#111', 'secondaryBorderColor': '#111', 'tertiaryBorderColor': '#111', 'textColor': '#000', 'primaryTextColor': '#000'}, 'themeCSS': '.label, .nodeLabel, .edgeLabel, .messageText, .actor, .noteText, .loopText, .taskText, .sectionTitle, text, tspan { font-size: 30px !important; font-weight: 900 !important; font-family: Segoe UI, Arial, sans-serif !important; fill: #000 !important; } .messageLine0, .messageLine1, .messageLine2, .signal, .edgePath path, .flowchart-link, .actor-line { stroke-width: 2.6px !important; stroke: #111 !important; } rect, circle, polygon, path { stroke-width: 2.4px !important; stroke: #111 !important; }'}}}%%
 flowchart TD
     A[Nhận JSON Config<br/>vào LAN MCU] --> B[LAN MCU Parse JSON]
     B --> C[Khởi tạo Hardware<br/>UART, SPI, I2C, GPIO]
@@ -200,6 +208,7 @@ flowchart TD
 
 ## Hình 9: Luồng điều khiển End-to-End từ ThingsBoard đến thiết bị BLE (ESP32 LED Bulb)
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'fontSize': '30px', 'fontWeight': '900', 'fontFamily': 'Segoe UI, Arial, sans-serif', 'lineColor': '#111', 'primaryBorderColor': '#111', 'secondaryBorderColor': '#111', 'tertiaryBorderColor': '#111', 'textColor': '#000', 'primaryTextColor': '#000'}, 'themeCSS': '.label, .nodeLabel, .edgeLabel, .messageText, .actor, .noteText, .loopText, .taskText, .sectionTitle, text, tspan { font-size: 30px !important; font-weight: 900 !important; font-family: Segoe UI, Arial, sans-serif !important; fill: #000 !important; } .messageLine0, .messageLine1, .messageLine2, .signal, .edgePath path, .flowchart-link, .actor-line { stroke-width: 2.6px !important; stroke: #111 !important; } rect, circle, polygon, path { stroke-width: 2.4px !important; stroke: #111 !important; }'}}}%%
 sequenceDiagram
     participant TB as ThingsBoard Dashboard
     participant WAN as WAN MCU (DA2_esp)
@@ -234,3 +243,5 @@ sequenceDiagram
     LAN-->>WAN: SPI uplink: OK
     WAN-->>TB: MQTT: lamp_on
 ```
+
+

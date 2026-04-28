@@ -1,0 +1,192 @@
+<div id="gwc-root" class="gwc-root">
+  <div class="gwc-header">
+    <div>
+      <div class="gwc-title">DA2 Gateway Config Control</div>
+      <div class="gwc-sub">Internet, Server, Firmware FOTA, and Console</div>
+    </div>
+    <div class="gwc-chip">RPC: sendCommand</div>
+  </div>
+
+  <div class="gwc-tabs" id="gwc-tabs">
+    <button class="gwc-tab active" data-tab="internet">Internet</button>
+    <button class="gwc-tab" data-tab="server">Server</button>
+    <button class="gwc-tab" data-tab="firmware">Firmware</button>
+  </div>
+
+  <div class="gwc-body">
+    <section class="gwc-pane" id="gwc-pane-internet">
+      <div class="gwc-card">
+        <div class="gwc-card-title">Internet Type</div>
+        <div class="gwc-row">
+          <label>Connection</label>
+          <select id="gwc-inet-type">
+            <option value="WiFi">WiFi</option>
+            <option value="LTE">LTE</option>
+            <option value="Ethernet">Ethernet</option>
+          </select>
+          <label class="gwc-inline-check">
+            <input type="checkbox" id="gwc-inet-fallback"> Enable fallback
+          </label>
+        </div>
+      </div>
+
+      <div class="gwc-card" id="gwc-wifi-box">
+        <div class="gwc-card-title">WiFi Settings</div>
+        <div class="gwc-grid-2">
+          <div>
+            <label>SSID</label>
+            <input id="gwc-wifi-ssid" type="text" placeholder="MyWiFi">
+          </div>
+          <div>
+            <label>Password</label>
+            <input id="gwc-wifi-pwd" type="password" placeholder="password">
+          </div>
+          <div>
+            <label>Auth Mode</label>
+            <select id="gwc-wifi-auth">
+              <option value="PERSONAL">PERSONAL</option>
+              <option value="ENTERPRISE">ENTERPRISE</option>
+            </select>
+          </div>
+          <div id="gwc-wifi-user-wrap" class="hidden">
+            <label>Username (Enterprise)</label>
+            <input id="gwc-wifi-user" type="text" placeholder="username">
+          </div>
+        </div>
+      </div>
+
+      <div class="gwc-card hidden" id="gwc-lte-box">
+        <div class="gwc-card-title">LTE Settings</div>
+        <div class="gwc-grid-3">
+          <div>
+            <label>APN</label>
+            <input id="gwc-lte-apn" type="text" value="m-wap">
+          </div>
+          <div>
+            <label>Username</label>
+            <input id="gwc-lte-user" type="text" placeholder="optional">
+          </div>
+          <div>
+            <label>Password</label>
+            <input id="gwc-lte-pwd" type="password" placeholder="optional">
+          </div>
+        </div>
+      </div>
+
+      <div class="gwc-card hidden" id="gwc-eth-box">
+        <div class="gwc-card-title">Ethernet</div>
+        <p>Ethernet mode requires no extra field. Click Set Internet Config to apply CFIN:ETHERNET.</p>
+      </div>
+
+      <div class="gwc-actions">
+        <button id="gwc-btn-set-internet" class="gwc-btn gwc-btn-primary">Set Internet Config</button>
+      </div>
+    </section>
+
+    <section class="gwc-pane hidden" id="gwc-pane-server">
+      <div class="gwc-card">
+        <div class="gwc-card-title">Server Type</div>
+        <div class="gwc-row">
+          <label>Type</label>
+          <select id="gwc-server-type">
+            <option value="MQTT">MQTT</option>
+            <option value="HTTP/HTTPS">HTTP/HTTPS</option>
+            <option value="CoAP">CoAP</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="gwc-card" id="gwc-mqtt-box">
+        <div class="gwc-card-title">MQTT Settings</div>
+        <div class="gwc-grid-2">
+          <div>
+            <label>Broker</label>
+            <input id="gwc-mq-broker" type="text" value="mqtt.thingsboard.cloud">
+          </div>
+          <div>
+            <label>Device Token</label>
+            <input id="gwc-mq-token" type="password" placeholder="token">
+          </div>
+        </div>
+      </div>
+
+      <div class="gwc-card hidden" id="gwc-http-box">
+        <div class="gwc-card-title">HTTP / HTTPS Settings</div>
+        <div class="gwc-grid-2">
+          <div>
+            <label>Server URL</label>
+            <input id="gwc-hp-url" type="text" value="http://server:8080/api/v1/{token}/telemetry">
+          </div>
+          <div>
+            <label>Auth Token</label>
+            <input id="gwc-hp-token" type="text" placeholder="token">
+          </div>
+        </div>
+        <label class="gwc-inline-check">
+          <input type="checkbox" id="gwc-hp-tls"> Use TLS (HTTPS)
+        </label>
+      </div>
+
+      <div class="gwc-card hidden" id="gwc-coap-box">
+        <div class="gwc-card-title">CoAP Settings</div>
+        <div class="gwc-grid-3">
+          <div>
+            <label>Host</label>
+            <input id="gwc-cp-host" type="text" value="demo.thingsboard.io">
+          </div>
+          <div>
+            <label>Resource Path</label>
+            <input id="gwc-cp-resource" type="text" value="/api/v1/{token}/telemetry">
+          </div>
+          <div>
+            <label>Device Token</label>
+            <input id="gwc-cp-token" type="text" placeholder="token">
+          </div>
+        </div>
+      </div>
+
+      <div class="gwc-actions">
+        <button id="gwc-btn-set-server" class="gwc-btn gwc-btn-primary">Set Server Config</button>
+      </div>
+    </section>
+
+    <section class="gwc-pane hidden" id="gwc-pane-firmware">
+      <div class="gwc-card">
+        <div class="gwc-card-title">LAN MCU OTA URL (via WiFi AP)</div>
+        <label>LAN Firmware URL</label>
+        <input id="gwc-lan-url" type="text" value="">
+        <div class="gwc-hint">Format: http://host:port/api/v1/token/firmware?title=TITLE&version=VER</div>
+        <div class="gwc-actions">
+          <button id="gwc-btn-save-lan-url" class="gwc-btn">Save LAN URL</button>
+        </div>
+      </div>
+
+      <div class="gwc-card">
+        <div class="gwc-card-title">WAN MCU OTA URL (Self-Update)</div>
+        <label>WAN Firmware URL</label>
+        <input id="gwc-wan-url" type="text" value="">
+        <div class="gwc-hint">Format: http://host:port/api/v1/token/firmware?title=TITLE&version=VER</div>
+        <div class="gwc-actions">
+          <button id="gwc-btn-save-wan-url" class="gwc-btn">Save WAN URL</button>
+        </div>
+      </div>
+
+      <div class="gwc-card">
+        <div class="gwc-card-title">Trigger FOTA</div>
+        <p>Update Firmware now triggers FOTA from server by sending command CFML:CFFW.</p>
+        <div class="gwc-actions">
+          <button id="gwc-btn-fota" class="gwc-btn gwc-btn-danger">Update Firmware (FOTA)</button>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <div class="gwc-console-wrap">
+    <div class="gwc-console-bar">
+      <div class="gwc-console-title">Server Data Console</div>
+      <button id="gwc-btn-clear-log" class="gwc-btn">Clear Log</button>
+    </div>
+    <div class="gwc-console" id="gwc-console"></div>
+  </div>
+</div>

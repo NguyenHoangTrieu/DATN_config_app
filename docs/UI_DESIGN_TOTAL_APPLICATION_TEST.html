@@ -1,0 +1,1076 @@
+<!DOCTYPE html><html><head>
+      <title>UI_DESIGN_TOTAL_APPLICATION_TEST</title>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      
+      <link rel="stylesheet" href="file:///c:\Users\ADMIN\.vscode\extensions\shd101wyy.markdown-preview-enhanced-0.8.24\crossnote\dependencies\katex\katex.min.css">
+      
+      
+      
+      
+      
+      
+      
+      <style>
+      code[class*=language-],pre[class*=language-]{color:#333;background:0 0;font-family:Consolas,"Liberation Mono",Menlo,Courier,monospace;text-align:left;white-space:pre;word-spacing:normal;word-break:normal;word-wrap:normal;line-height:1.4;-moz-tab-size:8;-o-tab-size:8;tab-size:8;-webkit-hyphens:none;-moz-hyphens:none;-ms-hyphens:none;hyphens:none}pre[class*=language-]{padding:.8em;overflow:auto;border-radius:3px;background:#f5f5f5}:not(pre)>code[class*=language-]{padding:.1em;border-radius:.3em;white-space:normal;background:#f5f5f5}.token.blockquote,.token.comment{color:#969896}.token.cdata{color:#183691}.token.doctype,.token.macro.property,.token.punctuation,.token.variable{color:#333}.token.builtin,.token.important,.token.keyword,.token.operator,.token.rule{color:#a71d5d}.token.attr-value,.token.regex,.token.string,.token.url{color:#183691}.token.atrule,.token.boolean,.token.code,.token.command,.token.constant,.token.entity,.token.number,.token.property,.token.symbol{color:#0086b3}.token.prolog,.token.selector,.token.tag{color:#63a35c}.token.attr-name,.token.class,.token.class-name,.token.function,.token.id,.token.namespace,.token.pseudo-class,.token.pseudo-element,.token.url-reference .token.variable{color:#795da3}.token.entity{cursor:help}.token.title,.token.title .token.punctuation{font-weight:700;color:#1d3e81}.token.list{color:#ed6a43}.token.inserted{background-color:#eaffea;color:#55a532}.token.deleted{background-color:#ffecec;color:#bd2c00}.token.bold{font-weight:700}.token.italic{font-style:italic}.language-json .token.property{color:#183691}.language-markup .token.tag .token.punctuation{color:#333}.language-css .token.function,code.language-css{color:#0086b3}.language-yaml .token.atrule{color:#63a35c}code.language-yaml{color:#183691}.language-ruby .token.function{color:#333}.language-markdown .token.url{color:#795da3}.language-makefile .token.symbol{color:#795da3}.language-makefile .token.variable{color:#183691}.language-makefile .token.builtin{color:#0086b3}.language-bash .token.keyword{color:#0086b3}pre[data-line]{position:relative;padding:1em 0 1em 3em}pre[data-line] .line-highlight-wrapper{position:absolute;top:0;left:0;background-color:transparent;display:block;width:100%}pre[data-line] .line-highlight{position:absolute;left:0;right:0;padding:inherit 0;margin-top:1em;background:hsla(24,20%,50%,.08);background:linear-gradient(to right,hsla(24,20%,50%,.1) 70%,hsla(24,20%,50%,0));pointer-events:none;line-height:inherit;white-space:pre}pre[data-line] .line-highlight:before,pre[data-line] .line-highlight[data-end]:after{content:attr(data-start);position:absolute;top:.4em;left:.6em;min-width:1em;padding:0 .5em;background-color:hsla(24,20%,50%,.4);color:#f4f1ef;font:bold 65%/1.5 sans-serif;text-align:center;vertical-align:.3em;border-radius:999px;text-shadow:none;box-shadow:0 1px #fff}pre[data-line] .line-highlight[data-end]:after{content:attr(data-end);top:auto;bottom:.4em}html body{font-family:'Helvetica Neue',Helvetica,'Segoe UI',Arial,freesans,sans-serif;font-size:16px;line-height:1.6;color:#333;background-color:#fff;overflow:initial;box-sizing:border-box;word-wrap:break-word}html body>:first-child{margin-top:0}html body h1,html body h2,html body h3,html body h4,html body h5,html body h6{line-height:1.2;margin-top:1em;margin-bottom:16px;color:#000}html body h1{font-size:2.25em;font-weight:300;padding-bottom:.3em}html body h2{font-size:1.75em;font-weight:400;padding-bottom:.3em}html body h3{font-size:1.5em;font-weight:500}html body h4{font-size:1.25em;font-weight:600}html body h5{font-size:1.1em;font-weight:600}html body h6{font-size:1em;font-weight:600}html body h1,html body h2,html body h3,html body h4,html body h5{font-weight:600}html body h5{font-size:1em}html body h6{color:#5c5c5c}html body strong{color:#000}html body del{color:#5c5c5c}html body a:not([href]){color:inherit;text-decoration:none}html body a{color:#08c;text-decoration:none}html body a:hover{color:#00a3f5;text-decoration:none}html body img{max-width:100%}html body>p{margin-top:0;margin-bottom:16px;word-wrap:break-word}html body>ol,html body>ul{margin-bottom:16px}html body ol,html body ul{padding-left:2em}html body ol.no-list,html body ul.no-list{padding:0;list-style-type:none}html body ol ol,html body ol ul,html body ul ol,html body ul ul{margin-top:0;margin-bottom:0}html body li{margin-bottom:0}html body li.task-list-item{list-style:none}html body li>p{margin-top:0;margin-bottom:0}html body .task-list-item-checkbox{margin:0 .2em .25em -1.8em;vertical-align:middle}html body .task-list-item-checkbox:hover{cursor:pointer}html body blockquote{margin:16px 0;font-size:inherit;padding:0 15px;color:#5c5c5c;background-color:#f0f0f0;border-left:4px solid #d6d6d6}html body blockquote>:first-child{margin-top:0}html body blockquote>:last-child{margin-bottom:0}html body hr{height:4px;margin:32px 0;background-color:#d6d6d6;border:0 none}html body table{margin:10px 0 15px 0;border-collapse:collapse;border-spacing:0;display:block;width:100%;overflow:auto;word-break:normal;word-break:keep-all}html body table th{font-weight:700;color:#000}html body table td,html body table th{border:1px solid #d6d6d6;padding:6px 13px}html body dl{padding:0}html body dl dt{padding:0;margin-top:16px;font-size:1em;font-style:italic;font-weight:700}html body dl dd{padding:0 16px;margin-bottom:16px}html body code{font-family:Menlo,Monaco,Consolas,'Courier New',monospace;font-size:.85em;color:#000;background-color:#f0f0f0;border-radius:3px;padding:.2em 0}html body code::after,html body code::before{letter-spacing:-.2em;content:'\00a0'}html body pre>code{padding:0;margin:0;word-break:normal;white-space:pre;background:0 0;border:0}html body .highlight{margin-bottom:16px}html body .highlight pre,html body pre{padding:1em;overflow:auto;line-height:1.45;border:#d6d6d6;border-radius:3px}html body .highlight pre{margin-bottom:0;word-break:normal}html body pre code,html body pre tt{display:inline;max-width:initial;padding:0;margin:0;overflow:initial;line-height:inherit;word-wrap:normal;background-color:transparent;border:0}html body pre code:after,html body pre code:before,html body pre tt:after,html body pre tt:before{content:normal}html body blockquote,html body dl,html body ol,html body p,html body pre,html body ul{margin-top:0;margin-bottom:16px}html body kbd{color:#000;border:1px solid #d6d6d6;border-bottom:2px solid #c7c7c7;padding:2px 4px;background-color:#f0f0f0;border-radius:3px}@media print{html body{background-color:#fff}html body h1,html body h2,html body h3,html body h4,html body h5,html body h6{color:#000;page-break-after:avoid}html body blockquote{color:#5c5c5c}html body pre{page-break-inside:avoid}html body table{display:table}html body img{display:block;max-width:100%;max-height:100%}html body code,html body pre{word-wrap:break-word;white-space:pre}}.markdown-preview{width:100%;height:100%;box-sizing:border-box}.markdown-preview ul{list-style:disc}.markdown-preview ul ul{list-style:circle}.markdown-preview ul ul ul{list-style:square}.markdown-preview ol{list-style:decimal}.markdown-preview ol ol,.markdown-preview ul ol{list-style-type:lower-roman}.markdown-preview ol ol ol,.markdown-preview ol ul ol,.markdown-preview ul ol ol,.markdown-preview ul ul ol{list-style-type:lower-alpha}.markdown-preview .newpage,.markdown-preview .pagebreak{page-break-before:always}.markdown-preview pre.line-numbers{position:relative;padding-left:3.8em;counter-reset:linenumber}.markdown-preview pre.line-numbers>code{position:relative}.markdown-preview pre.line-numbers .line-numbers-rows{position:absolute;pointer-events:none;top:1em;font-size:100%;left:0;width:3em;letter-spacing:-1px;border-right:1px solid #999;-webkit-user-select:none;-moz-user-select:none;-ms-user-select:none;user-select:none}.markdown-preview pre.line-numbers .line-numbers-rows>span{pointer-events:none;display:block;counter-increment:linenumber}.markdown-preview pre.line-numbers .line-numbers-rows>span:before{content:counter(linenumber);color:#999;display:block;padding-right:.8em;text-align:right}.markdown-preview .mathjax-exps .MathJax_Display{text-align:center!important}.markdown-preview:not([data-for=preview]) .code-chunk .code-chunk-btn-group{display:none}.markdown-preview:not([data-for=preview]) .code-chunk .status{display:none}.markdown-preview:not([data-for=preview]) .code-chunk .output-div{margin-bottom:16px}.markdown-preview .md-toc{padding:0}.markdown-preview .md-toc .md-toc-details{margin:0;padding:0;border:none}.markdown-preview .md-toc summary.md-toc-link-wrapper{cursor:pointer;list-style-position:outside}.markdown-preview .md-toc summary.md-toc-link-wrapper::marker{font-size:.85em}.markdown-preview .md-toc .md-toc-link-wrapper .md-toc-link{display:inline;padding:.25rem 0}.markdown-preview .md-toc .md-toc-link-wrapper .md-toc-link div,.markdown-preview .md-toc .md-toc-link-wrapper .md-toc-link p{display:inline}.markdown-preview .md-toc .md-toc-link-wrapper.highlighted .md-toc-link{font-weight:800}.markdown-preview .md-toc .md-toc-link-wrapper[data-level='0']{margin-left:12px}.markdown-preview .md-toc .md-toc-link-wrapper[data-level='1']{margin-left:28px}.markdown-preview .md-toc .md-toc-link-wrapper[data-level='2']{margin-left:44px}.markdown-preview .md-toc .md-toc-link-wrapper[data-level='3']{margin-left:60px}.markdown-preview .md-toc .md-toc-link-wrapper[data-level='4']{margin-left:76px}.markdown-preview .md-toc .md-toc-link-wrapper[data-level='5']{margin-left:80px}.scrollbar-style::-webkit-scrollbar{width:8px}.scrollbar-style::-webkit-scrollbar-track{border-radius:10px;background-color:transparent}.scrollbar-style::-webkit-scrollbar-thumb{border-radius:5px;background-color:rgba(150,150,150,.66);border:4px solid rgba(150,150,150,.66);background-clip:content-box}html body[for=html-export]:not([data-presentation-mode]){position:relative;width:100%;height:100%;top:0;left:0;margin:0;padding:0;overflow:auto}html body[for=html-export]:not([data-presentation-mode]) .markdown-preview{position:relative;top:0;min-height:100vh}@media screen and (min-width:914px){html body[for=html-export]:not([data-presentation-mode]) .markdown-preview{padding:2em calc(50% - 457px + 2em)}}@media screen and (max-width:914px){html body[for=html-export]:not([data-presentation-mode]) .markdown-preview{padding:2em}}@media screen and (max-width:450px){html body[for=html-export]:not([data-presentation-mode]) .markdown-preview{font-size:14px!important;padding:1em}}@media print{html body[for=html-export]:not([data-presentation-mode]) #sidebar-toc-btn{display:none}}html body[for=html-export]:not([data-presentation-mode]) #sidebar-toc-btn{position:fixed;bottom:8px;left:8px;font-size:28px;cursor:pointer;color:inherit;z-index:99;width:32px;text-align:center;opacity:.4}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] #sidebar-toc-btn{opacity:1}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc{position:fixed;top:0;left:0;width:300px;height:100%;padding:32px 0 48px 0;font-size:14px;box-shadow:0 0 4px rgba(150,150,150,.33);box-sizing:border-box;overflow:auto;background-color:inherit}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc::-webkit-scrollbar{width:8px}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc::-webkit-scrollbar-track{border-radius:10px;background-color:transparent}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc::-webkit-scrollbar-thumb{border-radius:5px;background-color:rgba(150,150,150,.66);border:4px solid rgba(150,150,150,.66);background-clip:content-box}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc a{text-decoration:none}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc .md-toc{padding:0 16px}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc .md-toc .md-toc-details{margin:0;padding:0;border:none}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc .md-toc .md-toc-link-wrapper .md-toc-link{display:inline;padding:.25rem 0}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc .md-toc .md-toc-link-wrapper .md-toc-link div,html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc .md-toc .md-toc-link-wrapper .md-toc-link p{display:inline}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc .md-toc .md-toc-link-wrapper.highlighted .md-toc-link{font-weight:800}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc .md-toc .md-toc-link-wrapper[data-level='0']{padding-left:0}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc .md-toc .md-toc-link-wrapper[data-level='1']{padding-left:16px}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc .md-toc .md-toc-link-wrapper[data-level='2']{padding-left:32px}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc .md-toc .md-toc-link-wrapper[data-level='3']{padding-left:48px}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc .md-toc .md-toc-link-wrapper[data-level='4']{padding-left:64px}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc .md-toc .md-toc-link-wrapper[data-level='5']{padding-left:80px}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .markdown-preview{left:300px;width:calc(100% - 300px);padding:2em calc(50% - 457px - 300px / 2);margin:0;box-sizing:border-box}@media screen and (max-width:1274px){html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .markdown-preview{padding:2em}}@media screen and (max-width:450px){html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .markdown-preview{width:100%}}html body[for=html-export]:not([data-presentation-mode]):not([html-show-sidebar-toc]) .markdown-preview{left:50%;transform:translateX(-50%)}html body[for=html-export]:not([data-presentation-mode]):not([html-show-sidebar-toc]) .md-sidebar-toc{display:none}
+/* Please visit the URL below for more information: */
+/*   https://shd101wyy.github.io/markdown-preview-enhanced/#/customize-css */
+
+      </style>
+      <script type="text/javascript">
+  document.addEventListener("DOMContentLoaded", function () {
+    // your code here
+  });
+</script>
+    </head>
+    <body for="html-export">
+      <div class="crossnote markdown-preview  ">
+      
+<p># UI/UX Design — Total Application Test Widgets</p>
+<h2 id="mục-tiêu">Mục tiêu </h2>
+<p>Thiết kế một cặp widget ThingsBoard mới cho bài toán <strong>application test tổng hợp</strong>:</p>
+<ol>
+<li><code>total_application_test_control</code></li>
+<li><code>total_application_test_monitor</code></li>
+</ol>
+<p>Widget này dành cho <strong>người dùng test ứng dụng</strong> — không phải công cụ cấu hình hệ thống.<br>
+Không có tab Gateway config. Hệ thống giả định đã được cấu hình sẵn.</p>
+<hr>
+<h2 id="nguyên-tắc-thiết-kế">Nguyên tắc thiết kế </h2>
+<ol>
+<li><strong>Chỉ test, không config hệ thống</strong> — không có FOTA, server, internet settings trong widget này.</li>
+<li><strong>Vai trò rõ ràng</strong> — Control dùng tab theo giao thức; Monitor là mặt phẳng quan sát chung.</li>
+<li><strong>Giữ ngôn ngữ UI hiện có</strong> — header + status pill + dual-panel + console dock giống BLE/Zigbee widget.</li>
+<li><strong>Ưu tiên luồng test thực tế</strong> — thao tác ít bước, feedback ngay lập tức.</li>
+<li><strong>Monitor phân loại thiết bị</strong> — mỗi card phải có cả protocol badge và device type badge.</li>
+</ol>
+<hr>
+<h2 id="kiến-trúc-ux-tổng-thể">Kiến trúc UX tổng thể </h2>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>+---------------------------------------------------------------------+
+|  total_application_test_control                                    |
+|  [icon]  Total Application Test  *  BLE + Zigbee + LoRa P2P       |
+|                                       [Slot v]  * Idle  [i]       |
+|  -----------------------------------------------------------------  |
+|  Tab bar:  [ BLE ]  [ Zigbee ]  [ LoRa P2P ]                       |
+|  -----------------------------------------------------------------  |
+|  Nội dung tab đang chọn — dual-panel layout                         |
+|  Console log dock ---------------------------------------- [Clear] |
++---------------------------------------------------------------------+
+
++---------------------------------------------------------------------+
+|  total_application_test_monitor                                    |
+|  [icon]  Total Application Test Monitor  *  Live Device Overview   |
+|  Filter: [All] [BLE] [Zigbee] [LoRa]  *  [All types] [Sensor]...  |
+|  Card grid động — mỗi card là 1 thiết bị đang quan sát             |
++---------------------------------------------------------------------+
+</code></pre><p><strong>Tab bar gồm 3 tab</strong> (không có Test Flow):</p>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>[ BLE ]   [ Zigbee ]   [ LoRa P2P ]
+</code></pre><hr>
+<h2 id="thiết-kế-chi-tiết--control-widget">Thiết kế chi tiết — Control Widget </h2>
+<h3 id="header">Header </h3>
+<table>
+<thead>
+<tr>
+<th>Thành phần</th>
+<th>Mô tả</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Title</td>
+<td><code>Total Application Test</code></td>
+</tr>
+<tr>
+<td>Subtitle</td>
+<td><code>BLE + Zigbee + LoRa P2P</code></td>
+</tr>
+<tr>
+<td>Slot selector</td>
+<td><code>[Stack 1 v]</code> — dùng chung cho tất cả tabs</td>
+</tr>
+<tr>
+<td>Status pill</td>
+<td><code>Idle / Running / Warning / Error</code></td>
+</tr>
+<tr>
+<td><code>[i]</code></td>
+<td>Query module info</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="tab-1--ble">Tab 1 — BLE </h2>
+<h3 id="tổng-quan">Tổng quan </h3>
+<p>Giống hệt BLE GATT Application Test widget. Dual-panel: trái = scan results, phải = connected + detail.</p>
+<h3 id="bố-cục">Bố cục </h3>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>+--------------------------------------------------------------------+
+|  BLE GATT              Stack [0 v]                * Idle  [Scan]  |
++---------------------+----------------------------------------------+
+|  AVAILABLE DEVICES  |  CONNECTED DEVICES                    [0]   |
+|  [0]                |  +----------+  +----------+  +----------+   |
+|  ----------------   |  | 💡 LED_1 |  | 💡 LED_2 |  | 🌡 SEN_1 |   |
+|  (scan results)     |  | * Online |  | * Online |  | * Online |   |
+|                     |  +----------+  +----------+  +----------+   |
+|  +---------------+  |  +----------+  +----------+                 |
+|  | DA2_LED_1     |  |  | 🌡 SEN_2 |  | 🌡 SEN_3 |                 |
+|  | -45dBm  💡    |  |  | * Online |  | * Stale  |                 |
+|  | [Connect]     |  |  +----------+  +----------+                 |
+|  +---------------+  |  ==========================================  |
+|  | DA2_SENSOR_1  |  |  DEVICE DETAIL PANEL (node đang chọn)      |
+|  | -52dBm  🌡    |  |                                             |
+|  | [Connect]     |  |  (hiển thị LED panel HOẶC Sensor panel)    |
+|  +---------------+  |                                             |
++---------------------+----------------------------------------------+
+</code></pre><h3 id="scan-result-item">Scan result item </h3>
+<p>Mỗi item trong danh sách Available Devices:</p>
+<ul>
+<li>Icon loại (💡 LED nếu tên bắt đầu <code>DA2_LED_</code>, 🌡 Sensor nếu <code>DA2_SENSOR_</code>)</li>
+<li>Tên thiết bị + MAC nhỏ</li>
+<li>Thanh RSSI (màu xanh → đỏ theo cường độ)</li>
+<li>Nút <code>[Connect]</code> → disabled + text <code>Connected ✓</code> nếu đã kết nối</li>
+</ul>
+<h3 id="connected-device-card-grid-3-cột">Connected device card (grid 3 cột) </h3>
+<ul>
+<li>Icon loại (💡 / 🌡)</li>
+<li>Tên thiết bị (truncated)</li>
+<li>Badge <code>* Online</code> (xanh) / <code>* Offline</code> (đỏ)</li>
+<li>Click → mở detail panel bên dưới</li>
+<li>Selected card → viền highlight màu accent</li>
+</ul>
+<hr>
+<h3 id="ble--led-detail-panel">BLE — LED Detail Panel </h3>
+<p><strong>Kích hoạt khi</strong>: chọn card thiết bị loại LED (service <code>0xFFF0</code>, tên <code>DA2_LED_*</code>)</p>
+<p><strong>Protocol</strong>: <code>CFBG:&lt;slot&gt;:WRITE:&lt;idx&gt;:&lt;FFF2_handle&gt;:&lt;hex&gt;</code></p>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>+-----------------------------------------------------+
+|  💡 DA2_LED_1                     [Disconnect ✕]   |
+|  MAC: AA:BB:CC:DD:EE:FF    Handle FFF2: 0x000B     |
+|  Trạng thái: [🟢 BẬT] / [⚫ TẮT]                  |
+|                                                     |
+|  Màu sắc:                                          |
+|  [🔴 Đỏ]  [🟢 Xanh lá]  [🔵 Xanh dương]           |
+|  [🟡 Vàng]  [⚪ Trắng]                              |
+|                                                     |
+|  [ ◉ BẬT ]        [ ○ TẮT ]                        |
++-----------------------------------------------------+
+</code></pre><p><strong>Command mapping (hex payload cho FFF2)</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Nút</th>
+<th>Payload</th>
+<th>Mô tả</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>BẬT</td>
+<td><code>01</code> (1 byte)</td>
+<td>LED bật</td>
+</tr>
+<tr>
+<td>TẮT</td>
+<td><code>00</code> (1 byte)</td>
+<td>LED tắt</td>
+</tr>
+<tr>
+<td>🔴 Đỏ</td>
+<td><code>FF 00 00</code> (3 bytes)</td>
+<td>RGB đỏ</td>
+</tr>
+<tr>
+<td>🟢 Xanh lá</td>
+<td><code>00 FF 00</code></td>
+<td>RGB xanh lá</td>
+</tr>
+<tr>
+<td>🔵 Xanh dương</td>
+<td><code>00 00 FF</code></td>
+<td>RGB xanh dương</td>
+</tr>
+<tr>
+<td>🟡 Vàng</td>
+<td><code>FF FF 00</code></td>
+<td>RGB vàng</td>
+</tr>
+<tr>
+<td>⚪ Trắng</td>
+<td><code>FF FF FF</code></td>
+<td>RGB trắng</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>Ghi chú: Gửi màu tự động bật LED (non-zero). Nút màu và BẬT/TẮT là độc lập.</p>
+</blockquote>
+<hr>
+<h3 id="ble--sensor-detail-panel">BLE — Sensor Detail Panel </h3>
+<p><strong>Kích hoạt khi</strong>: chọn card thiết bị loại Sensor (service <code>0xAA10</code>, tên <code>DA2_SENSOR_*</code>)</p>
+<p><strong>Protocol</strong>: Nhận NOTIFY từ characteristic <code>AA11</code> (4 bytes: <code>temp_i16LE + hum_i16LE</code>, đơn vị 0.01)</p>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>+-----------------------------------------------------+
+|  🌡 DA2_SENSOR_1                  [Disconnect ✕]   |
+|  MAC: 11:22:33:44:55:66    CCCD (AA11): 0x000A     |
+|                                                     |
+|  +-------------------+  +-------------------+      |
+|  |  🌡 Nhiệt độ      |  |  💧 Độ ẩm         |      |
+|  |    25.6 °C        |  |    63.2 %         |      |
+|  +-------------------+  +-------------------+      |
+|                                                     |
+|  Cập nhật lần cuối: 10:35:22   42 samples          |
+|                                                     |
+|  Interval:  [3 ▼] giây   [Apply Interval]          |
++-----------------------------------------------------+
+</code></pre><p><strong>Interaction</strong>:</p>
+<ol>
+<li>Widget tự động enable NOTIFY trên AA11 CCCD sau khi connect + discover</li>
+<li>Nhận NOTIFY liên tục → parse 4 bytes → hiển thị Temp/Hum</li>
+<li><code>[Apply Interval]</code> → ghi 1 byte interval (1–60s) vào characteristic <code>AA12</code>
+<ul>
+<li>Command: <code>CFBG:&lt;slot&gt;:WRITE:&lt;idx&gt;:&lt;AA12_handle&gt;:&lt;hex_interval&gt;</code></li>
+</ul>
+</li>
+</ol>
+<hr>
+<h3 id="ble--interaction-flow">BLE — Interaction flow </h3>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>1. [Scan] → CFBG:0:SCAN:5000
+   RX: CFBG:OK:SCAN_DONE:&lt;N&gt;  +  SCAN_RESULT:&lt;i&gt;,&lt;mac&gt;,&lt;rssi&gt;,&lt;name&gt;
+   → cập nhật Available Devices list
+
+2. [Connect] → CFBG:0:CONNECT:&lt;MAC&gt;
+   RX: CFBG:OK:CONNECTED:&lt;idx&gt;:0x&lt;cid&gt;:&lt;MAC&gt;
+   → thêm vào grid, tự gửi DISC
+
+3. Auto discover → CFBG:0:DISC:&lt;idx&gt;
+   RX: CFBG:OK:DISC_DONE + CHAR:&lt;idx&gt;:0x&lt;uuid&gt;:0x&lt;handle&gt;
+   → nhận dạng: FFF0 = LED, AA10 = Sensor
+   → Sensor: tự enable NOTIFY trên AA11 CCCD
+     CFBG:0:NOTIFY:&lt;idx&gt;:&lt;cccd_handle&gt;:1
+
+4. Click LED card → LED detail panel
+5. Click Sensor card → Sensor detail panel
+   Nhận async: CFBG:OK:NOTIFY:&lt;idx&gt;:0x&lt;handle&gt;:&lt;hex4bytes&gt;
+   → parse int16LE[0]/100 = Temp°C, int16LE[1]/100 = Hum%
+
+6. [Disconnect ✕] → CFBG:0:DISCONNECT:&lt;idx&gt;
+</code></pre><hr>
+<h2 id="tab-2--zigbee">Tab 2 — Zigbee </h2>
+<h3 id="tổng-quan-1">Tổng quan </h3>
+<p><strong>Lưu ý quan trọng</strong>: Firmware sử dụng E180-ZG120B ở chế độ <strong>HEX (binary) mode</strong>, không phải AT text mode.<br>
+Command format: <code>CFML:CFZB:&lt;slot&gt;:&lt;FUNCTION_NAME&gt;[:&lt;params&gt;]</code></p>
+<h3 id="bố-cục-1">Bố cục </h3>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>+--------------------------------------------------------------------+
+|  Zigbee Controller         Stack [1 v]              * OFF         |
++---------------------+----------------------------------------------+
+|  NETWORK &amp; NODES    |                                             |
+|  [OFF]              |  [Zigbee hex icon]                          |
+|  [▶ Start] [■ Stop] |                                             |
+|  [* PJ 180s] [⊙ Find]|        &lt;- Start network &amp;                 |
+|  [O Reset State]    |           select a node                     |
+|  ----------------   |                                             |
+|  NODES       [0]    |                                             |
+|  (bắt đầu NW &amp;      |                                             |
+|   permit join)      |                                             |
++---------------------+----------------------------------------------+
+</code></pre><h3 id="network--nodes-panel-trái">Network &amp; Nodes panel (trái) </h3>
+<ul>
+<li><strong>Network badge</strong>: <code>* OFF</code> (đỏ) / <code>* Active CH:xx PAN:0xXXXX</code> (xanh)</li>
+<li><strong>Action chips</strong>:
+<ul>
+<li><code>[▶ Start]</code> → <code>MODULE_START_NETWORK</code></li>
+<li><code>[■ Stop]</code> → <code>MODULE_STOP_NETWORK</code></li>
+<li><code>[* PJ 180s]</code> → <code>MODULE_SET_PERMIT_JOIN:B4</code> (180s hex = 0xB4)</li>
+<li><code>[⊙ Find]</code> → <code>MODULE_AUTO_FIND_TARGET</code></li>
+</ul>
+</li>
+<li><strong>Reset State button</strong> (đỏ, full width): xóa state + reset coordinator nếu cần</li>
+<li><strong>Node list</strong> scrollable: mỗi node có icon + addr + type badge + trạng thái</li>
+</ul>
+<h3 id="node-list-item">Node list item </h3>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>+- - - - - - - - - - - - - - - - +
+| 💡  bulb_1       0x1234   * Online |   ← click để chọn
+| 🌡  sensor_1     0x5678   * Online |
+| ?   Unknown      0x9ABC   * Stale  |
++- - - - - - - - - - - - - - - - +
+</code></pre><p><strong>Nhận dạng loại node</strong>:</p>
+<ul>
+<li>Model Identifier (ZCL Basic/0x0005) chứa <code>DATN_AUTH_KEY:&lt;name&gt;</code></li>
+<li>Tên chứa <code>bulb</code> → LED/Bulb (💡)</li>
+<li>Tên chứa <code>sensor</code> → Sensor (🌡)</li>
+<li>Chưa đọc được → Unknown (?)</li>
+</ul>
+<hr>
+<h3 id="zigbee--bulb-detail-panel">Zigbee — Bulb Detail Panel </h3>
+<p><strong>Kích hoạt khi</strong>: chọn node loại bulb (endpoint 0x0A, clusters 0006/0008/0300)</p>
+<p><strong>Protocol</strong>: <code>MODULE_ZCL_SEND_CONTROL_CMD:&lt;short&gt;,&lt;ep&gt;,&lt;cluster&gt;,&lt;cmd&gt;[,&lt;params&gt;]</code></p>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>+------------------------------------------------------+
+|  💡 bulb_1                           [Delete ✕]     |
+|  Short: 0x1234   EP: 0x0A                           |
+|  Model: DATN_AUTH_KEY:bulb_1                        |
+|  Trạng thái: [🟢 BẬT] / [⚫ TẮT]                   |
+|                                                      |
+|  On/Off:                                            |
+|  [ ◉ ON ]   [ ○ OFF ]   [ ↺ TOGGLE ]               |
+|                                                      |
+|  Độ sáng:                                           |
+|  [  0%  ][  25%  ][  50%  ][  75%  ][ 100% ]       |
+|                                                      |
+|  Màu (XY):                                          |
+|  [🔴 Đỏ] [🟢 Xanh] [🔵 Xanh dương] [⚪ Trắng]      |
+|                                                      |
+|  [🔄 Read Status]                                   |
++------------------------------------------------------+
+</code></pre><p><strong>Command mapping</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Nút</th>
+<th>Function</th>
+<th>Params</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ON</td>
+<td><code>MODULE_ZCL_SEND_CONTROL_CMD</code></td>
+<td><code>&lt;short&gt;,0A,0006,01</code></td>
+</tr>
+<tr>
+<td>OFF</td>
+<td><code>MODULE_ZCL_SEND_CONTROL_CMD</code></td>
+<td><code>&lt;short&gt;,0A,0006,00</code></td>
+</tr>
+<tr>
+<td>TOGGLE</td>
+<td><code>MODULE_ZCL_SEND_CONTROL_CMD</code></td>
+<td><code>&lt;short&gt;,0A,0006,02</code></td>
+</tr>
+<tr>
+<td>25%</td>
+<td><code>MODULE_ZCL_SEND_CONTROL_CMD</code></td>
+<td><code>&lt;short&gt;,0A,0008,04,3F,00,01,00</code></td>
+</tr>
+<tr>
+<td>50%</td>
+<td><code>MODULE_ZCL_SEND_CONTROL_CMD</code></td>
+<td><code>&lt;short&gt;,0A,0008,04,7F,00,01,00</code></td>
+</tr>
+<tr>
+<td>75%</td>
+<td><code>MODULE_ZCL_SEND_CONTROL_CMD</code></td>
+<td><code>&lt;short&gt;,0A,0008,04,BF,00,01,00</code></td>
+</tr>
+<tr>
+<td>100%</td>
+<td><code>MODULE_ZCL_SEND_CONTROL_CMD</code></td>
+<td><code>&lt;short&gt;,0A,0008,04,FE,00,01,00</code></td>
+</tr>
+<tr>
+<td>🔴 Đỏ</td>
+<td><code>MODULE_ZCL_SEND_CONTROL_CMD</code></td>
+<td><code>&lt;short&gt;,0A,0300,07,B3,74,32,78,0A,00</code></td>
+</tr>
+<tr>
+<td>🟢 Xanh</td>
+<td><code>MODULE_ZCL_SEND_CONTROL_CMD</code></td>
+<td><code>&lt;short&gt;,0A,0300,07,30,2B,7A,C0,0A,00</code></td>
+</tr>
+<tr>
+<td>🔵 Blue</td>
+<td><code>MODULE_ZCL_SEND_CONTROL_CMD</code></td>
+<td><code>&lt;short&gt;,0A,0300,07,14,CC,0A,55,0A,00</code></td>
+</tr>
+<tr>
+<td>⚪ Trắng</td>
+<td><code>MODULE_ZCL_SEND_CONTROL_CMD</code></td>
+<td><code>&lt;short&gt;,0A,0300,07,4C,2F,51,29,0A,00</code></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>XY Color values lấy từ Arduino code <code>ESP32C6_Zigbee_Sensor.ino</code> — đây là native IEEE XY của E180.</p>
+</blockquote>
+<p><strong>Read Status</strong>: <code>MODULE_ZCL_READ_ATTR:&lt;short&gt;,0A,0006,0000</code> → đọc OnOff attribute</p>
+<hr>
+<h3 id="zigbee--sensor-detail-panel">Zigbee — Sensor Detail Panel </h3>
+<p><strong>Kích hoạt khi</strong>: chọn node loại sensor (endpoint 0x0B, clusters 0402/0405)</p>
+<p><strong>Lưu ý</strong>: Node khởi động SILENT (không gửi report tự động). Widget phải gửi <strong>Configure Reporting</strong> để kích hoạt push telemetry.</p>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>+------------------------------------------------------+
+|  🌡 sensor_1                         [Delete ✕]     |
+|  Short: 0x5678   EP: 0x0B                           |
+|  Model: DATN_AUTH_KEY:sensor_1                      |
+|                                                      |
+|  +------------------+  +------------------+         |
+|  |  🌡 Nhiệt độ     |  |  💧 Độ ẩm        |         |
+|  |    25.6 °C       |  |    63.2 %        |         |
+|  +------------------+  +------------------+         |
+|                                                      |
+|  Cập nhật: 10:35:22    42 reports                   |
+|                                                      |
+|  Reporting:                                         |
+|  Min [5 v]s  Max [60 v]s   [Configure Report]       |
+|                                                      |
+|  [🔄 Read Temp]   [🔄 Read Humidity]                 |
++------------------------------------------------------+
+</code></pre><p><strong>Interaction flow</strong>:</p>
+<ol>
+<li>Widget tự động đọc Model Identifier sau khi node join:<br>
+<code>MODULE_ZCL_READ_ATTR:&lt;short&gt;,0B,0000,0005</code><br>
+→ verify <code>DATN_AUTH_KEY</code> → đánh dấu node verified</li>
+<li>Sau verify, widget gửi Configure Reporting để bật push:
+<ul>
+<li>Temp: <code>MODULE_CONFIGURE_REPORT:&lt;short&gt;,0B,0402,0000,29,&lt;min_s&gt;,&lt;max_s&gt;,0064</code></li>
+<li>Hum:  <code>MODULE_CONFIGURE_REPORT:&lt;short&gt;,0B,0405,0000,21,&lt;min_s&gt;,&lt;max_s&gt;,0064</code></li>
+</ul>
+</li>
+<li>Nhận async ZCL attribute report → hiển thị Temp/Hum</li>
+<li><code>[Read Temp]</code>: <code>MODULE_ZCL_READ_ATTR:&lt;short&gt;,0B,0402,0000</code></li>
+<li><code>[Read Humidity]</code>: <code>MODULE_ZCL_READ_ATTR:&lt;short&gt;,0B,0405,0000</code></li>
+<li><code>[Configure Report]</code>: áp dụng min/max interval đang chọn</li>
+</ol>
+<hr>
+<h3 id="zigbee--interaction-flow">Zigbee — Interaction flow </h3>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>1. [Start] → MODULE_START_NETWORK
+   Async EVT: 0x80/0x02 NET_OPEN → badge chuyển Active
+
+2. [PJ 180s] → MODULE_SET_PERMIT_JOIN:B4
+   Async EVT: 0x80/0x03 NODE_JOIN(&lt;mac&gt;,&lt;short&gt;,&lt;ep&gt;)
+   → thêm node vào list (Unknown)
+
+3. Widget tự đọc Basic/0x0005 của node mới:
+   MODULE_ZCL_READ_ATTR:&lt;short&gt;,&lt;ep&gt;,0000,0005
+   → parse "DATN_AUTH_KEY:&lt;name&gt;" → nhận dạng loại node
+   → Sensor: gửi Configure Reporting tự động
+   → Bulb: không cần gì thêm, chờ user chọn
+
+4. [Find] → MODULE_AUTO_FIND_TARGET
+   → async 0x80/0x10 NOTIFY_FIND_BIND: short + ep + cluster
+   → bind endpoint
+
+5. User click node trong list → mở detail panel phải
+</code></pre><hr>
+<h2 id="tab-3--lora-p2p">Tab 3 — LoRa P2P </h2>
+<h3 id="quan-trọng--đây-là-p2p-test-mode-không-phải-lorawan">Quan trọng — Đây là P2P TEST mode, không phải LoRaWAN </h3>
+<p>Arduino node (<code>esp32c3_wioe5_p2p_node.ino</code>) sử dụng:</p>
+<ul>
+<li><code>AT+MODE=TEST</code> — P2P test mode của Wio-E5</li>
+<li><code>AT+TEST=TXLRPKT,"hex"</code> — gửi packet P2P</li>
+<li><code>AT+TEST=RXLRPKT</code> — bật RX mode</li>
+</ul>
+<p>Node có <strong>2 chức năng</strong>:</p>
+<ol>
+<li><strong>Sensor</strong>: gửi SENSOR_DATA (temp + hum) lên gateway sau mỗi cycle</li>
+<li><strong>Actuator</strong>: nhận LED ON/OFF command từ gateway, bật/tắt LED onboard</li>
+</ol>
+<h3 id="packet-protocol-p2p-binary">Packet protocol (P2P binary) </h3>
+<table>
+<thead>
+<tr>
+<th>Loại packet</th>
+<th>Byte[0]</th>
+<th>Payload</th>
+<th>Chiều</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>JOIN_REQUEST</td>
+<td><code>0xFF</code></td>
+<td><code>[0xFF, nodeId, seq]</code> (3B)</td>
+<td>node → gateway</td>
+</tr>
+<tr>
+<td>JOIN_ACCEPT</td>
+<td><code>0xFE</code></td>
+<td><code>[0xFE, nodeId]</code> (2B)</td>
+<td>gateway → node</td>
+</tr>
+<tr>
+<td>SENSOR_DATA</td>
+<td><code>0x01</code></td>
+<td><code>[0x01, nodeId, seq, tHi, tLo, hHi, hLo]</code> (7B)</td>
+<td>node → gateway</td>
+</tr>
+<tr>
+<td>LED_ON</td>
+<td><code>0x10</code></td>
+<td><code>[0x10]</code> (1B)</td>
+<td>gateway → node</td>
+</tr>
+<tr>
+<td>LED_OFF</td>
+<td><code>0x11</code></td>
+<td><code>[0x11]</code> (1B)</td>
+<td>gateway → node</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Sensor data decode</strong>:</p>
+<ul>
+<li><code>tHi, tLo</code> → <code>int16 = (tHi &lt;&lt; 8) | tLo</code> → <code>/100.0</code> = °C</li>
+<li><code>hHi, hLo</code> → <code>int16 = (hHi &lt;&lt; 8) | hLo</code> → <code>/100.0</code> = %</li>
+</ul>
+<h3 id="rf-parameters-phải-match-với-arduino-node">RF parameters phải match với Arduino node </h3>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>#define P2P_FREQ   868    // MHz
+#define P2P_SF     "SF7"
+#define P2P_BW     125    // kHz
+#define P2P_TXPR   12
+#define P2P_RXPR   15
+#define P2P_POW    14     // dBm
+</code></pre><h3 id="bố-cục-tab-lora-p2p">Bố cục Tab LoRa P2P </h3>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>+--------------------------------------------------------------------+
+|  LoRa P2P                   Stack [1 v]        * Not in TEST mode  |
++----------------------------+---------------------------------------+
+|  P2P CONFIGURATION         |  SENSOR NODE                        |
+|  -----------------------   |  -----------------------------------  |
+|  Frequency:  [868] MHz     |  Node ID: --     Status: * Waiting  |
+|  SF:         [SF7 v]       |  Seq: --         Last uplink: --     |
+|  BW:         [125 v] kHz   |                                     |
+|  TX Power:   [14] dBm      |  +----------------+  +-----------+  |
+|  TX Preamble:[12]          |  | 🌡 Temperature  |  | 💧 Hum    |  |
+|  RX Preamble:[15]          |  |   25.6 °C      |  |  63.2 %   |  |
+|                            |  +----------------+  +-----------+  |
+|  [⚡ Enter TEST Mode]       |                                     |
+|  [📡 Apply RF Config]      |  -----------------------------------  |
+|                            |  LED CONTROL (Node GPIO 8)          |
+|  -----------------------   |                                     |
+|  RX WINDOW                 |  [💡 LED ON]     [⚫ LED OFF]        |
+|  [▶ Start RX]  [■ Stop]    |                                     |
+|                            |  Last TX: --                        |
+|  -----------------------   |  Last RX: --                        |
+|  MODULE INFO               |                                     |
+|  Firmware: --              |                                     |
+|  Mode: --                  |                                     |
+|  RF: --                    |                                     |
+|  [v Read Info]             |                                     |
++----------------------------+---------------------------------------+
+</code></pre><h3 id="left-panel--p2p-configuration">Left panel — P2P Configuration </h3>
+<p><strong>RF Config inputs</strong> (pre-filled với giá trị mặc định từ Arduino code):</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Default</th>
+<th>Mô tả</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Frequency (MHz)</td>
+<td><code>868</code></td>
+<td>Phải match Arduino <code>P2P_FREQ</code></td>
+</tr>
+<tr>
+<td>SF</td>
+<td><code>SF7</code> dropdown</td>
+<td>Phải match Arduino <code>P2P_SF</code></td>
+</tr>
+<tr>
+<td>BW (kHz)</td>
+<td><code>125</code> dropdown</td>
+<td>Phải match Arduino <code>P2P_BW</code></td>
+</tr>
+<tr>
+<td>TX Power (dBm)</td>
+<td><code>14</code></td>
+<td>Phải match Arduino <code>P2P_POW</code></td>
+</tr>
+<tr>
+<td>TX Preamble</td>
+<td><code>12</code></td>
+<td>Phải match Arduino <code>P2P_TXPR</code></td>
+</tr>
+<tr>
+<td>RX Preamble</td>
+<td><code>15</code></td>
+<td>Phải match Arduino <code>P2P_RXPR</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Action buttons</strong>:</p>
+<ul>
+<li><code>[Enter TEST Mode]</code> → <code>CFML:CFLR:&lt;slot&gt;:MODULE_ENTER_P2P_MODE</code> — bắt buộc trước mọi P2P operation</li>
+<li><code>[Apply RF Config]</code> → <code>CFML:CFLR:&lt;slot&gt;:MODULE_SET_P2P_CONFIG:&lt;freq&gt;,&lt;sf&gt;,&lt;bw&gt;,&lt;txpr&gt;,&lt;rxpr&gt;,&lt;pow&gt;,8,0</code> → status pill chuyển <code>* TEST Mode</code></li>
+</ul>
+<p><strong>RX Window</strong>:</p>
+<ul>
+<li><code>[Start RX]</code> → <code>CFML:CFLR:&lt;slot&gt;:MODULE_ENTER_P2P_RX</code> — bật RX mode, chờ packet từ node</li>
+<li><code>[Stop RX]</code> → <code>CFML:CFLR:&lt;slot&gt;:MODULE_GET_INFO</code> — bất kỳ AT command nào sẽ thoát RX mode</li>
+<li>RX active badge nhấp nháy khi đang listen</li>
+</ul>
+<p><strong>Module Info</strong> (compact):</p>
+<ul>
+<li>Firmware, Mode, RF summary (chỉ đọc)</li>
+<li><code>[Read Info]</code> → <code>CFML:CFLR:&lt;slot&gt;:MODULE_GET_INFO</code></li>
+</ul>
+<hr>
+<h3 id="right-panel--sensor-node">Right panel — Sensor Node </h3>
+<p><strong>Node Status card</strong>:</p>
+<ul>
+<li><code>Node ID</code>: hiển thị nodeId nhận được từ JOIN_REQUEST</li>
+<li><code>Status</code>: <code>* Waiting</code> / <code>* Joined</code> / <code>* Active</code></li>
+<li><code>Seq</code>: sequence number packet cuối</li>
+<li><code>Last uplink</code>: timestamp packet cuối</li>
+</ul>
+<p><strong>Sensor data</strong> (decode từ SENSOR_DATA packet <code>0x01</code>):</p>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>+----------------------------+  +----------------------------+
+|  🌡 Temperature             |  |  💧 Humidity               |
+|    25.6 °C                 |  |    63.2 %                  |
+|  Parse: tHi:tLo / 100      |  |  Parse: hHi:hLo / 100     |
++----------------------------+  +----------------------------+
+</code></pre><p>Decode logic:</p>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>byte[0] = 0x01 (SENSOR_DATA)
+byte[1] = nodeId
+byte[2] = seq
+byte[3] = tHi, byte[4] = tLo → temp = ((tHi &lt;&lt; 8) | tLo) / 100.0
+byte[5] = hHi, byte[6] = hLo → hum  = ((hHi &lt;&lt; 8) | hLo) / 100.0
+</code></pre><p><strong>LED Control</strong>:</p>
+<ul>
+<li><code>[💡 LED ON]</code>  → <code>CFML:CFLR:&lt;slot&gt;:MODULE_SEND_P2P_PKT:"10"</code> (hex byte 0x10 = LED_ON)</li>
+<li><code>[⚫ LED OFF]</code> → <code>CFML:CFLR:&lt;slot&gt;:MODULE_SEND_P2P_PKT:"11"</code> (hex byte 0x11 = LED_OFF)</li>
+<li>Buttons disabled khi node chưa Joined</li>
+</ul>
+<blockquote>
+<p>Note: Widget tự quản lý TX/RX flow: <code>MODULE_GET_INFO</code> (thoát RX) → <code>MODULE_SEND_P2P_PKT</code> → <code>MODULE_ENTER_P2P_RX</code> (vào lại RX).</p>
+</blockquote>
+<h3 id="lora-p2p--interaction-flow-đầy-đủ">LoRa P2P — Interaction flow đầy đủ </h3>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>1. [Enter TEST Mode] → CFML:CFLR:&lt;slot&gt;:MODULE_ENTER_P2P_MODE
+   RX: CFLR:&lt;slot&gt;:OK:+MODE: TEST
+   → status pill: * TEST Mode
+
+2. [Apply RF Config] → CFML:CFLR:&lt;slot&gt;:MODULE_SET_P2P_CONFIG:868,SF7,125,12,15,14,8,0
+   RX: CFLR:&lt;slot&gt;:OK:+TEST: RFCFG ...
+   → status pill: * Ready
+
+3. [Start RX] → CFML:CFLR:&lt;slot&gt;:MODULE_ENTER_P2P_RX
+   → widget enters RX listen mode
+   → RX badge nhấp nháy
+
+4. Node gửi JOIN_REQUEST [FF, 01, seq]:
+   Async: CFLR:&lt;slot&gt;:EVT:+TEST: RXLRPKT &lt;len&gt;, &lt;rssi&gt;, &lt;snr&gt;, "FF0100"
+   → Widget detect byte[0]=0xFF → JOIN_REQUEST
+   → Widget gửi JOIN_ACCEPT [FE, nodeId]:
+     CFML:CFLR:&lt;slot&gt;:MODULE_GET_INFO (thoát RX)
+     CFML:CFLR:&lt;slot&gt;:MODULE_SEND_P2P_PKT:"FE01"
+     CFML:CFLR:&lt;slot&gt;:MODULE_ENTER_P2P_RX (vào lại RX)
+   → Status: * Joined  Node ID: 01
+
+5. Node gửi SENSOR_DATA [01, nodeId, seq, tHi, tLo, hHi, hLo]:
+   Async: CFLR:&lt;slot&gt;:EVT:+TEST: RXLRPKT &lt;len&gt;, &lt;rssi&gt;, &lt;snr&gt;, "01010001140003E8"
+   → Widget decode → Temp = 0x0114/100 = 2.76°C... (tuỳ giá trị)
+   → Cập nhật sensor cards
+
+6. [LED ON]:
+     CFML:CFLR:&lt;slot&gt;:MODULE_GET_INFO (thoát RX)
+     CFML:CFLR:&lt;slot&gt;:MODULE_SEND_P2P_PKT:"10"
+     CFML:CFLR:&lt;slot&gt;:MODULE_ENTER_P2P_RX (vào lại RX)
+   [LED OFF]:
+     CFML:CFLR:&lt;slot&gt;:MODULE_GET_INFO (thoát RX)
+     CFML:CFLR:&lt;slot&gt;:MODULE_SEND_P2P_PKT:"11"
+     CFML:CFLR:&lt;slot&gt;:MODULE_ENTER_P2P_RX (vào lại RX)
+   → Node nhận, toggle LED GPIO8
+
+7. Console log mọi TX/RX/EVT với timestamp
+</code></pre><hr>
+<h2 id="console-chung">Console chung </h2>
+<p>Dock cố định ở đáy, luôn hiển thị khi ở bất kỳ tab nào.</p>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>* * *  CONSOLE                                              [Clear]
+[19:59:07] i  Widget ready
+[20:00:01] TX  CFML:CFBG:0:SCAN:5000
+[20:00:05] RX  CFBL:0:OK:SCAN_RESULT:0 AA:BB:CC:DD:EE:FF -45 DA2_LED_1
+[20:01:10] TX  CFML:CFLR:1:MODULE_ENTER_P2P_MODE
+[20:01:11] RX  CFLR:1:OK:+MODE: TEST
+[20:01:12] TX  CFML:CFLR:1:MODULE_SET_P2P_CONFIG:868,SF7,125,12,15,14,8,0
+[20:01:13] RX  CFLR:1:OK:+TEST: RFCFG ...
+[20:01:14] TX  CFML:CFLR:1:MODULE_ENTER_P2P_RX
+[20:01:20] EVT CFLR:1:EVT:+TEST: RXLRPKT 7, -45, 8, "FF010A"
+[20:01:21] TX  CFML:CFLR:1:MODULE_GET_INFO
+[20:01:21] TX  CFML:CFLR:1:MODULE_SEND_P2P_PKT:"FE01"
+[20:01:22] TX  CFML:CFLR:1:MODULE_ENTER_P2P_RX
+</code></pre><table>
+<thead>
+<tr>
+<th>Prefix</th>
+<th>Màu</th>
+<th>Ý nghĩa</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>TX</code></td>
+<td>trắng</td>
+<td>Command gửi đi</td>
+</tr>
+<tr>
+<td><code>RX</code></td>
+<td>xanh lá nhạt</td>
+<td>Response nhận về</td>
+</tr>
+<tr>
+<td><code>EVT</code></td>
+<td>xanh dương nhạt</td>
+<td>Async event (NOTIFY, SENSOR, RX)</td>
+</tr>
+<tr>
+<td><code>i</code></td>
+<td>xám</td>
+<td>Trạng thái nội bộ</td>
+</tr>
+<tr>
+<td><code>!</code></td>
+<td>vàng</td>
+<td>Cảnh báo</td>
+</tr>
+<tr>
+<td><code>✕</code></td>
+<td>đỏ</td>
+<td>Lỗi / timeout</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="thiết-kế--monitor-widget">Thiết kế — Monitor Widget </h2>
+<p>Monitor không có tab. Dùng filter chips để lọc.</p>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>+---------------------------------------------------------------------+
+|  Total Application Test Monitor                            * Live  |
+|  Shared monitor — BLE + Zigbee + LoRa P2P                         |
+|  Proto: [All] [BLE] [Zigbee] [LoRa]                               |
+|  Type:  [All types] [Sensor] [LED/Light] [P2P Node] [Unknown]     |
+|  State: [All] [Live] [Stale] [Error]                               |
++---------------------------------------------------------------------+
+|  [card]  [card]  [card]  [card]  ...                               |
++---------------------------------------------------------------------+
+|  0 reports / 3 devices active                      10:35:22  Clear |
++---------------------------------------------------------------------+
+</code></pre><h3 id="sensor-card-ble--zigbee">Sensor card (BLE / Zigbee) </h3>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>+----------------------------------------------------+
+|  BLE   🌡 Sensor   DA2_SENSOR_1             Live   |
+|  MAC: AA:BB:CC:DD:EE:FF          Last: 10:35:22   |
+|  --------------------------------------------------  |
+|  Temperature        Humidity                       |
+|    25.6 °C            63.2 %                       |
+|  --------------------------------------------------  |
+|  42 samples                                        |
++----------------------------------------------------+
+</code></pre><h3 id="actuator-card-ble-led--zigbee-bulb">Actuator card (BLE LED / Zigbee Bulb) </h3>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>+----------------------------------------------------+
+|  Zigbee   💡 Bulb   bulb_1                  Live   |
+|  0x1234 / EP:0A               Last: 10:34:10      |
+|  --------------------------------------------------  |
+|  State:   ON                                       |
+|  Color:   Red (XY: B374,3278)                      |
+|  Last cmd: Set Color Red                           |
++----------------------------------------------------+
+</code></pre><h3 id="lora-p2p-node-card">LoRa P2P Node card </h3>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>+----------------------------------------------------+
+|  LoRa P2P   📡 Sensor+LED   Node 0x01       Live   |
+|  Slot: 1   RSSI: -45dBm    Last: 10:35:22         |
+|  --------------------------------------------------  |
+|  Temperature        Humidity                       |
+|    25.6 °C            63.2 %                       |
+|  --------------------------------------------------  |
+|  LED State:   OFF                                  |
+|  Seq: 42   Last join: 10:30:00                    |
++----------------------------------------------------+
+</code></pre><p><strong>Lưu ý LoRa P2P card</strong>: Node này là HYBRID (cả Sensor lẫn Actuator) nên card hiển thị cả sensor data và LED state.</p>
+<h3 id="stale-state">Stale state </h3>
+<ul>
+<li>Card không biến mất — viền vàng + badge <code>Stale</code>.</li>
+<li>Timestamp giữ nguyên.</li>
+</ul>
+<hr>
+<h2 id="arduino-compatibility-analysis">Arduino Compatibility Analysis </h2>
+<h3 id="ble--esp32-s3-gatt-peripheral-led-esp32s3_led_ble_gattino">BLE — ESP32-S3 GATT Peripheral LED (<code>esp32s3_led_ble_gatt.ino</code>) </h3>
+<table>
+<thead>
+<tr>
+<th>Yêu cầu widget</th>
+<th>Code Arduino</th>
+<th>Kết quả</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Device name <code>DA2_LED_*</code></td>
+<td><code>DEVICE_NAME "DA2_LED_GATT_2"</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Service UUID <code>0xFFF0</code></td>
+<td><code>SERVICE_UUID 0xFFF0</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>FFF2 WRITE 1 byte ON/OFF</td>
+<td><code>if (len == 1): applyLedOn/Off()</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>FFF2 WRITE 3 bytes RGB</td>
+<td><code>else if (len &gt;= 3): applyColor(R,G,B)</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>NOTIFY echo qua FFF1</td>
+<td><code>pendingLedNotify = true</code> → notify từ loop()</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>RSSI trong scan result</td>
+<td>Handled by gateway firmware BLE scan</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Kết luận BLE LED</strong>: ✅ Hoàn toàn tương thích.</p>
+<hr>
+<h3 id="ble--esp32-s3-gatt-sensor-esp32s3_ble_gatt_sensorino">BLE — ESP32-S3 GATT Sensor (<code>esp32s3_ble_gatt_sensor.ino</code>) </h3>
+<table>
+<thead>
+<tr>
+<th>Yêu cầu widget</th>
+<th>Code Arduino</th>
+<th>Kết quả</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Device name <code>DA2_SENSOR_*</code></td>
+<td><code>snprintf(deviceName, ..., "DA2_SENSOR_%d", DEVICE_INDEX)</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Service UUID <code>0xAA10</code></td>
+<td><code>SERVICE_UUID 0xAA10</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>AA11 NOTIFY 4 bytes temp+hum</td>
+<td><code>temp*100 + hum*100</code> → i16LE pairs</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>AA12 WRITE interval 1-60s</td>
+<td><code>CfgWriteCallback: notifyInterval = data[0]</code> (validate 1-60)</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Data unit: 0.01</td>
+<td><code>d.temp = (int16_t)(temp * 100.0f)</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Temperature range</td>
+<td>20-35°C sinusoidal + noise</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Humidity range</td>
+<td>40-80% sinusoidal + noise</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Kết luận BLE Sensor</strong>: ✅ Hoàn toàn tương thích.</p>
+<hr>
+<h3 id="zigbee--esp32-c6-bulb-e180_zg120b_testino--zigbeecolorbulb">Zigbee — ESP32-C6 Bulb (<code>E180_ZG120B_Test.ino</code> = ZigbeeColorBulb) </h3>
+<table>
+<thead>
+<tr>
+<th>Yêu cầu widget</th>
+<th>Code Arduino / E180</th>
+<th>Kết quả</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Endpoint 0x0A</td>
+<td><code>ZIGBEE_ENDPOINT 10</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>On/Off cluster 0x0006</td>
+<td><code>ZigbeeColorDimmableLight</code> = includes 0x0006</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Level cluster 0x0008</td>
+<td>Included in ColorDimmableLight</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Color XY cluster 0x0300</td>
+<td><code>setLightColorCapabilities(HUE_SAT + XY)</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>XY values (Red, Green, Blue, White)</td>
+<td>Documented trong sketch comment</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Model ID Auth Key</td>
+<td><code>"DATN_AUTH_KEY:bulb_1"</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>HEX mode commands</td>
+<td><code>MODULE_ZCL_SEND_CONTROL_CMD</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Rejoin watchdog</td>
+<td><code>REJOIN_TIMEOUT_MS 10000</code> → factoryReset</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Kết luận Zigbee Bulb</strong>: ✅ Hoàn toàn tương thích. Widget phải dùng XY color values từ sketch.</p>
+<hr>
+<h3 id="zigbee--esp32-c6-sensor-esp32c6_zigbee_sensorino">Zigbee — ESP32-C6 Sensor (<code>ESP32C6_Zigbee_Sensor.ino</code>) </h3>
+<table>
+<thead>
+<tr>
+<th>Yêu cầu widget</th>
+<th>Code Arduino</th>
+<th>Kết quả</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Endpoint 0x0B</td>
+<td><code>ZIGBEE_EP_TEMP 11</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Temp cluster 0x0402</td>
+<td><code>ZigbeeTempSensor</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Humidity cluster 0x0405</td>
+<td><code>zbTempSensor.addHumiditySensor()</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Model ID Auth Key</td>
+<td><code>"DATN_AUTH_KEY:sensor_1"</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Silent by default</td>
+<td><code>DELTA_IMPOSSIBLE</code> prevents auto-reports</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Widget phải gửi Configure Reporting</td>
+<td>Explicitly documented trong sketch</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Rejoin watchdog</td>
+<td><code>REJOIN_TIMEOUT_MS 10000</code> → factoryReset</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Kết luận Zigbee Sensor</strong>: ✅ Tương thích. <strong>Lưu ý quan trọng</strong>: Widget PHẢI gửi Configure Reporting sau khi verify auth key, vì node không tự gửi report.</p>
+<hr>
+<h3 id="lora-p2p--esp32-c3-wio-e5-node-esp32c3_wioe5_p2p_nodeino">LoRa P2P — ESP32-C3 Wio-E5 Node (<code>esp32c3_wioe5_p2p_node.ino</code>) </h3>
+<table>
+<thead>
+<tr>
+<th>Yêu cầu widget</th>
+<th>Code Arduino</th>
+<th>Kết quả</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P2P mode (không phải LoRaWAN)</td>
+<td><code>AT+MODE=TEST</code> + <code>AT+TEST=TXLRPKT</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>RF: 868MHz, SF7, 125kHz, 14dBm</td>
+<td><code>P2P_FREQ 868, SF7, BW 125, POW 14</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Preamble: TX 12 / RX 15</td>
+<td><code>P2P_TXPR 12, P2P_RXPR 15</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>JOIN_REQUEST 0xFF [nodeId, seq]</td>
+<td><code>PKT_JOIN_REQ 0xFF</code>, 3B payload</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>JOIN_ACCEPT 0xFE [nodeId]</td>
+<td><code>PKT_JOIN_ACK 0xFE</code>, expects 2B</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>SENSOR_DATA 0x01 [nodeId,seq,tHi,tLo,hHi,hLo]</td>
+<td><code>PKT_SENSOR 0x01</code>, 7B</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>LED_ON 0x10 / LED_OFF 0x11</td>
+<td><code>PKT_LED_ON 0x10, PKT_LED_OFF 0x11</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>LED onboard GPIO8 active LOW</td>
+<td><code>LED_PIN 8, LED_ON() = LOW</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>RX window sau mỗi TX</td>
+<td><code>p2pRxWindow(RX_WINDOW_MS=2000)</code></td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Lưu ý critical</strong>: Widget phải quản lý TX/RX flow:</p>
+<ul>
+<li>Muốn TX → phải thoát RX mode trước (gửi <code>AT</code>)</li>
+<li>Sau TX → phải restart RX: <code>AT+TEST=RXLRPKT</code></li>
+<li>Nếu không, node sẽ không nhận được LED command</li>
+</ul>
+<p><strong>Kết luận LoRa P2P</strong>: ✅ Tương thích. <strong>Đây là P2P mode</strong> — không phải LoRaWAN. Widget cũ (OTAA/ABP keys) không dùng được ở đây.</p>
+<hr>
+<h2 id="hard-constraints">Hard Constraints </h2>
+<ol>
+<li><strong>Không</strong> có tab Gateway, form FOTA, server config.</li>
+<li><strong>Không</strong> có tab Test Flow — 3 tab protocol là đủ.</li>
+<li><strong>Không</strong> hiển thị OTAA/ABP keys trong LoRa tab — node dùng P2P TEST mode.</li>
+<li><strong>Không</strong> ẩn console — dock cố định ở đáy.</li>
+<li><strong>Không</strong> lấy total widget cũ làm base code.</li>
+<li>LoRa tab phải quản lý TX/RX mode tự động — user không thấy flow này.</li>
+</ol>
+<hr>
+<h2 id="implementation-plan">Implementation Plan </h2>
+<p><strong>Thứ tự triển khai code khi sẵn sàng</strong>:</p>
+<ol>
+<li>HTML layout: header + tabbar (3 tabs) + tab panels + console dock</li>
+<li>CSS: dark theme, dual-panel, card grid, console</li>
+<li>BLE tab: dựa trên <code>ble_gatt_multi_widget.*</code>, wrap trong tab</li>
+<li>Zigbee tab: dựa trên <code>zigbee_control_widget_v2.*</code>, wrap trong tab, đổi sang HEX mode commands</li>
+<li>LoRa P2P tab: <strong>dựng mới hoàn toàn</strong> theo thiết kế P2P này</li>
+<li>Monitor widget: header + filter + dynamic card grid (kế thừa pattern từ <code>zbm-*</code> và <code>mon-*</code>)</li>
+</ol>
+<p><strong>Files</strong>:</p>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>total_application_test_control.html / .css / .js
+total_application_test_monitor.html / .css / .js
+</code></pre>
+      </div>
+      
+      
+    
+    
+    
+    
+    
+    
+  
+    </body></html>

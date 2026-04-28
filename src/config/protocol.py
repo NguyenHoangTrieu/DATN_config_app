@@ -73,6 +73,8 @@ class GatewayInfo:
     """Read-only gateway information"""
     model: str = ""
     firmware: str = ""
+    wan_fw: str = ""
+    lan_fw: str = ""
     hardware: str = ""
     serial: str = ""
     internet_status: str = ""

@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import Callable, Optional, List, Tuple
 
 
+CURRENT_FW_VERSION = "2.1.1"
+
+
 class FirmwareTab(ttk.Frame):
     """Firmware update tab"""
     
@@ -42,7 +45,7 @@ class FirmwareTab(ttk.Frame):
         ttk.Label(url_frame, text="Firmware URL:", width=14).pack(side=tk.LEFT)
         self.url_var = tk.StringVar(value=(
             "http://192.168.1.100:8080/api/v1/TOKEN/firmware"
-            "?title=DA2_esp_LAN&version=1.1.2"
+            f"?title=DA2_esp_LAN&version={CURRENT_FW_VERSION}"
         ))
         url_entry = ttk.Entry(url_frame, textvariable=self.url_var, width=60)
         url_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
@@ -73,7 +76,7 @@ class FirmwareTab(ttk.Frame):
         ttk.Label(wan_url_frame, text="Firmware URL:", width=14).pack(side=tk.LEFT)
         self.wan_url_var = tk.StringVar(value=(
             "http://192.168.1.100:8080/api/v1/TOKEN/firmware"
-            "?title=DA2_esp&version=1.1.2"
+            f"?title=DA2_esp&version={CURRENT_FW_VERSION}"
         ))
         wan_url_entry = ttk.Entry(wan_url_frame, textvariable=self.wan_url_var, width=60)
         wan_url_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)

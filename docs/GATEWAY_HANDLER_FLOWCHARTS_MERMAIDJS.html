@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gateway Handler Diagrams - Mermaid.js</title>
+  <style>
+    :root {
+      --bg: #f4f6fb;
+      --card: #ffffff;
+      --text: #101218;
+      --border: #d8deea;
+      --accent: #7b61ff;
+    }
+
+    body {
+      margin: 0;
+      padding: 24px;
+      background: radial-gradient(circle at top right, #eef1ff 0%, var(--bg) 50%, #eef3ff 100%);
+      color: var(--text);
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+
+    .container {
+      max-width: 2200px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      margin: 0 0 16px;
+      font-size: 32px;
+      font-weight: 900;
+      letter-spacing: 0.2px;
+    }
+
+    .hint {
+      margin: 0 0 24px;
+      font-size: 14px;
+      color: #4c566a;
+    }
+
+    .diagram-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 8px 24px rgba(25, 40, 80, 0.06);
+      padding: 16px;
+      margin-bottom: 18px;
+      overflow-x: auto;
+    }
+
+    .diagram-title {
+      margin: 0 0 10px;
+      font-size: 24px;
+      font-weight: 900;
+    }
+
+    .mermaid {
+      min-width: 1450px;
+    }
+
+    .diagram-card {
+      --diagram-font-size: 24px;
+      --diagram-font-weight: 700;
+    }
+
+    #fig-1,
+    #fig-2,
+    #fig-4,
+    #fig-5,
+    #fig-9 {
+      --diagram-font-size: 18px;
+      --diagram-font-weight: 700;
+    }
+
+    #fig-3 {
+      --diagram-font-size: 16px;
+      --diagram-font-weight: 700;
+    }
+
+    #fig-6,
+    #fig-7,
+    #fig-8,
+    #fig-10 {
+      --diagram-font-size: 15px;
+      --diagram-font-weight: 700;
+    }
+
+    .diagram-card .mermaid svg text,
+    .diagram-card .mermaid svg tspan,
+    .diagram-card .mermaid .label,
+    .diagram-card .mermaid .nodeLabel,
+    .diagram-card .mermaid .edgeLabel,
+    .diagram-card .mermaid .messageText,
+    .diagram-card .mermaid .noteText,
+    .diagram-card .mermaid .loopText,
+    .diagram-card .mermaid .taskText,
+    .diagram-card .mermaid .sectionTitle {
+      font-size: var(--diagram-font-size) !important;
+      font-weight: var(--diagram-font-weight) !important;
+      font-family: "Segoe UI", Arial, sans-serif !important;
+      fill: #111 !important;
+      color: #111 !important;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Gateway Handler Diagrams - Mermaid.js Renderer</h1>
+    <p class="hint">Rendered directly with Mermaid.js for sharper exports. For the clearest results, export as SVG or print to PDF before converting to PNG.</p>
+
+    <section id="fig-1" class="diagram-card">
+      <h2 class="diagram-title">Figure 1: End-to-End Uplink</h2>
+      <pre class="mermaid">sequenceDiagram
+    participant Sensor
+    participant LAN_MCU as LAN MCU
+    participant WAN_MCU as WAN MCU
+    participant Cloud
+
+    Sensor->>LAN_MCU: Data
+    LAN_MCU->>WAN_MCU: SPI DATA (seq, crc, payload)
+
+    alt SPI bad (CRC Error)
+        WAN_MCU-->>LAN_MCU: NACK (seq)
+    else SPI ok
+        WAN_MCU-->>LAN_MCU: ACK (seq)
+        WAN_MCU->>Cloud: MQTT Publish
+    end</pre>
+    </section>
+
+    <section id="fig-2" class="diagram-card">
+      <h2 class="diagram-title">Figure 2: End-to-End Downlink</h2>
+      <pre class="mermaid">sequenceDiagram
+    participant Cloud
+    participant WAN_MCU as WAN MCU
+    participant LAN_MCU as LAN MCU
+    participant Sensor
+
+    Cloud->>WAN_MCU: Command (MQTT Downlink)
+    WAN_MCU->>LAN_MCU: SPI CMD (seq, crc, payload)
+
+    alt SPI bad (CRC Error)
+        LAN_MCU-->>WAN_MCU: NACK (retry)
+    else SPI ok
+        LAN_MCU-->>WAN_MCU: ACK
+        LAN_MCU->>Sensor: Forward command (UART/I2C/GPIO)
+    end</pre>
+    </section>
+
+    <section id="fig-3" class="diagram-card">
+      <h2 class="diagram-title">Figure 3: LAN-MCU <-> WAN-MCU SPI Handshake</h2>
+      <pre class="mermaid">sequenceDiagram
+    participant LAN_MCU as LAN-MCU (SPI Master)
+    participant WAN_MCU as WAN-MCU (SPI Slave)
+
+    Note over LAN_MCU, WAN_MCU: Uplink Data Flow (LAN -> WAN)
+    LAN_MCU->>WAN_MCU: DATA (seq, crc, payload)
+    alt CRC bad
+        WAN_MCU-->>LAN_MCU: NACK (seq)
+        LAN_MCU->>WAN_MCU: DATA retransmit
+    else CRC ok
+        WAN_MCU-->>LAN_MCU: ACK (seq)
+    end
+
+    Note over LAN_MCU, WAN_MCU: Downlink Data Flow (WAN -> LAN via GPIO Interrupt)
+    WAN_MCU->>LAN_MCU: Assert GPIO Handshake (Interrupt: data available)
+    Note right of LAN_MCU: LAN-MCU handles interrupt
+    LAN_MCU->>WAN_MCU: SPI Clocking (Read data)
+    WAN_MCU-->>LAN_MCU: CMD (seq, crc, payload)
+    WAN_MCU->>LAN_MCU: De-assert GPIO Handshake
+
+    alt CRC bad
+        LAN_MCU-->>WAN_MCU: NACK (seq)
+    else CRC ok
+        LAN_MCU-->>WAN_MCU: ACK (seq)
+    end</pre>
+    </section>
+
+    <section id="fig-4" class="diagram-card">
+      <h2 class="diagram-title">Figure 4: Update Configuration from PC App</h2>
+      <pre class="mermaid">sequenceDiagram
+    participant PC as App PC (Python)
+    participant WAN_MCU as WAN-MCU
+    participant LAN_MCU as LAN-MCU
+
+    Note over PC, WAN_MCU: Stage 1: Connect and Identify
+    PC->>WAN_MCU: Scan and Connect
+    WAN_MCU-->>PC: Return Device Info / Current Config
+
+    Note over PC, LAN_MCU: Stage 2: Update Configuration
+    PC->>WAN_MCU: Send command "CF..." (USB/UART)
+    WAN_MCU-->>PC: OK CMD_QUEUED
+
+    WAN_MCU->>WAN_MCU: Parse + Determine Target (WAN/LAN)
+
+    alt Target = WAN
+        WAN_MCU->>WAN_MCU: Validate + Save NVS + Apply
+    else Target = LAN
+        WAN_MCU->>LAN_MCU: Forward config (SPI)
+        LAN_MCU->>LAN_MCU: Validate + Save NVS + Apply
+        LAN_MCU-->>WAN_MCU: ACK (OK/FAIL)
+    end
+
+    WAN_MCU-->>PC: Reply Result (OK/FAIL)</pre>
+    </section>
+
+    <section id="fig-5" class="diagram-card">
+      <h2 class="diagram-title">Figure 5: Update Configuration from Web Portal</h2>
+      <pre class="mermaid">sequenceDiagram
+    participant Browser as Browser (HTTP)
+    participant WAN_MCU as WAN MCU (DA2_esp)
+    participant LAN_MCU as LAN MCU (DA2_esp_LAN)
+
+    Note over Browser, LAN_MCU: WAN configuration (WiFi, LTE, MQTT, ...)
+    Browser->>WAN_MCU: POST /api/config {"wifi":{"ssid":"MyNetwork"}}
+    WAN_MCU->>WAN_MCU: Parse JSON -> Build CFWF command<br/>Push into config_handler_queue
+    WAN_MCU->>WAN_MCU: config_handler_task apply<br/>NVS save + esp_wifi_set_config()
+    WAN_MCU-->>Browser: HTTP 200 OK
+
+    Note over Browser, LAN_MCU: LAN configuration (BLE, LoRa, Zigbee)
+    Browser->>WAN_MCU: POST /api/lan_config {"type":"BLE", "config":{...}}
+    WAN_MCU->>WAN_MCU: Parse JSON -> Build CFBL:JSON<br/>Push into config_handler_queue
+    WAN_MCU->>LAN_MCU: SPI Master: [HEADER][CFBL:JSON][CHECKSUM]
+    LAN_MCU->>LAN_MCU: SPI Slave receive complete<br/>Parse CFBL prefix
+    LAN_MCU->>LAN_MCU: JSON Parser -> NVS save<br/>Module Monitor: Stop -> Reinit bus -> Start BLE handler
+    LAN_MCU-->>WAN_MCU: SPI Uplink: ML:CFBL:0:OK
+    WAN_MCU-->>Browser: HTTP 200 OK</pre>
+    </section>
+
+    <section id="fig-6" class="diagram-card">
+      <h2 class="diagram-title">Figure 6: Data Communication Handler</h2>
+      <pre class="mermaid">flowchart TD
+    A[PC sends command] --> B[WAN parses command]
+    B --> C{Scan/Read?}
+
+    C -- Yes --> D[Read config from NVS/RAM]
+    D --> E[Reply config to PC]
+
+    C -- No --> F[Queue + validate config]
+    F --> G{Target MCU?}
+
+    G -- WAN --> H[Save to NVS + Apply]
+    G -- LAN --> I[Forward to LAN<br/>via SPI]
+
+    I --> J{LAN ACK?}
+    J -- OK --> K[LAN: Save + Apply<br/>WAN: Record OK]
+    J -- FAIL --> L[LAN: Keep old config<br/>WAN: Record error]
+
+    H --> M[Reply OK/FAIL to PC]
+    K --> M
+    L --> M</pre>
+    </section>
+
+    <section id="fig-7" class="diagram-card">
+      <h2 class="diagram-title">Figure 7: FOTA Dual-MCU</h2>
+      <pre class="mermaid">flowchart TD
+    A[Server sends OTA command] --> B[Gateway receives command<br/>WAN sets OTA mode]
+    B --> C[WAN starts<br/>WiFi AP mode]
+    C --> D[LAN connects to WAN<br/>WiFi AP<br/>and gets IP]
+    D --> E[LAN downloads firmware<br/>and starts update]
+
+    E --> F{LAN Update OK?}
+    F -- No --> G[Fallback to previous version]
+    F -- Yes --> H[LAN sends handshake complete<br/>signal to WAN]
+
+    H --> I[WAN performs OTA update]
+    I --> J{WAN Update OK?}
+    J -- No --> G
+    J -- Yes --> K[Report OK and new version<br/>to server]</pre>
+    </section>
+
+    <section id="fig-8" class="diagram-card">
+      <h2 class="diagram-title">Figure 8: Module Base Setting (JSON)</h2>
+      <pre class="mermaid">flowchart TD
+    A[Receive JSON config<br/>on LAN MCU] --> B[LAN MCU parses JSON]
+    B --> C[Initialize hardware<br/>UART, SPI, I2C, GPIO]
+    C --> D[Start handler task<br/>Wait for control commands]
+
+    D --> E[Receive execution command<br/>e.g. MODULE_BLE_SCAN:5000 / MODULE_HW_RESET]
+    E --> F{Function found in JSON?}
+
+    F -- Prefix match --> G[Extract GPIO and timeout<br/>from JSON<br/>Send command via UART to module]
+    F -- Exact match / GPIO-only --> H[Execute GPIO toggle sequence<br/>No UART communication]
+    F -- Mismatch --> I[Return command not found]
+
+    G --> J([Return result])
+    H --> J
+    I --> J</pre>
+    </section>
+
+    <section id="fig-9" class="diagram-card">
+      <h2 class="diagram-title">Figure 9: ThingsBoard to BLE Device Control</h2>
+      <pre class="mermaid">sequenceDiagram
+    participant TB as ThingsBoard Dashboard
+    participant WAN as WAN MCU (DA2_esp)
+    participant LAN as LAN MCU (DA2_esp_LAN)
+    participant BLE as STM32WB55 (BLE Central)
+    participant LED as ESP32 LED Bulb
+
+    Note over TB, LED: Stage 1 - Load BLE module config (one-time)
+
+    TB->>WAN: MQTT: CFBL:JSON:{module_id, baudrate, functions[]}
+    WAN->>LAN: SPI forward
+    LAN->>LAN: Parse JSON -> Init UART 115200 -> Start BLE handler
+    LAN-->>WAN: ACK: OK
+    WAN-->>TB: MQTT: config_saved
+
+    Note over TB, LED: Stage 2 - Control LED device
+
+    TB->>WAN: MQTT RPC: CFBL:0:MODULE_BLE_CONNECT:AA:BB:CC:DD:EE:FF
+    WAN->>LAN: SPI forward
+    LAN->>BLE: UART: AT+CONNECT=AA:BB:CC:DD:EE:FF\r\n
+    BLE->>LED: BLE GATT Connect
+    BLE-->>LAN: +CONNECTED:0
+    LAN-->>WAN: SPI uplink: OK
+    WAN-->>TB: MQTT: connected
+
+    TB->>WAN: MQTT RPC: CFBL:0:MODULE_BLE_WRITE=0,0x000F,01 (Turn ON)
+    WAN->>LAN: SPI forward
+    LAN->>BLE: UART: AT+WRITE=...
+    BLE->>LED: BLE GATT Write Characteristic
+    LED-->>BLE: BLE Notify: ACK
+    BLE-->>LAN: +NOTIFY:...
+    LAN-->>WAN: SPI uplink: OK
+    WAN-->>TB: MQTT: lamp_on</pre>
+    </section>
+
+    <section id="fig-10" class="diagram-card">
+      <h2 class="diagram-title">Figure 10: Web Config Request Processing Flow</h2>
+      <pre class="mermaid">flowchart TD
+    A[Web Browser<br/>POST /api/config] --> B[WAN MCU<br/>api_config.c]
+    B --> C[Parse JSON]
+    C --> D[Build internal command]
+    D --> E[Push to config queue]
+    E --> F{Target?}
+
+    F -- WAN --> G[Validate + Save NVS + Apply]
+    F -- LAN --> H[Forward via SPI]
+    H --> I[LAN MCU<br/>Validate + Save + Apply]
+
+    G --> J[Return OK or FAIL]
+    I --> J</pre>
+    </section>
+  </div>
+
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "base",
+      securityLevel: "loose",
+      flowchart: {
+        useMaxWidth: false,
+        htmlLabels: true,
+        curve: "linear",
+        wrappingWidth: 260,
+        nodeSpacing: 84,
+        rankSpacing: 44,
+        padding: 14
+      },
+      sequence: {
+        useMaxWidth: false,
+        wrap: true,
+        diagramMarginX: 56,
+        diagramMarginY: 12,
+        actorMargin: 112,
+        messageMargin: 28,
+        noteMargin: 14,
+        actorFontSize: 22,
+        messageFontSize: 22,
+        noteFontSize: 20
+      },
+      themeVariables: {
+        fontSize: "22px",
+        fontWeight: "800",
+        fontFamily: "Segoe UI, Arial, sans-serif",
+        primaryColor: "#f1f3ff",
+        secondaryColor: "#f6f7ff",
+        tertiaryColor: "#fff9d6",
+        noteBkgColor: "#fff9d6",
+        noteBorderColor: "#c9b96a",
+        lineColor: "#111",
+        primaryBorderColor: "#111",
+        secondaryBorderColor: "#111",
+        tertiaryBorderColor: "#111",
+        textColor: "#000",
+        primaryTextColor: "#000"
+      },
+      themeCSS: `
+        .messageLine0, .messageLine1, .messageLine2, .signal, .edgePath path, .flowchart-link, .actor-line {
+          stroke-width: 2.2px !important;
+          stroke: #111 !important;
+        }
+        rect, circle, polygon, path {
+          stroke-width: 1.8px !important;
+          stroke: #111 !important;
+        }
+      `
+    });
+  </script>
+</body>
+</html>

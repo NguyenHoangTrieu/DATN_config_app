@@ -1,0 +1,276 @@
+<!-- =====================================================================
+  DA2 Total Application Test Control — ThingsBoard Control Widget
+     Type    : Control widget (requires controlApi / target device)
+     Protocol: CFML:CFBG / CFML:CFZB / CFML:CFLR  (hex-encoded via RPC)
+
+  Gateway config actions: Internet / Server / Firmware FOTA
+  Sensor test actions   : BLE / Zigbee / LoRa orchestration
+  Poll Scheduler        : sequential round-robin BLE → ZB → LoRa
+  Measures RTT from request-sent to telemetry-received.
+
+     Paste: HTML → "HTML" tab | CSS → "CSS" tab | JS → "JavaScript" tab
+     ThingsBoard v4.x
+     ===================================================================== -->
+
+<div id="tc-root" class="tc-root">
+
+  <!-- ── Header ── -->
+  <div class="tc-header">
+    <div class="tc-hdr-left">
+      <div class="tc-logo">
+        <svg viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="3" fill="currentColor"/>
+          <path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"
+                stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </div>
+        <div>
+        <div class="tc-title">total_application_test_control</div>
+        <div class="tc-sub">Gateway config + BLE + Zigbee + LoRa application test</div>
+      </div>
+    </div>
+    <div class="tc-hdr-right">
+      <div id="tc-pill" class="tc-pill" data-state="idle">
+        <span class="tc-dot"></span>
+        <span id="tc-pill-txt">Idle</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Body ── -->
+  <div class="tc-body">
+
+    <!-- ── Gateway Panel ── -->
+    <div class="tc-tech-card tc-gw-card" id="tc-gw-card" data-enabled="true">
+      <div class="tc-card-hdr">
+        <div class="tc-tech-badge gw">GW</div>
+        <span class="tc-card-title">Gateway Configuration</span>
+      </div>
+      <div class="tc-card-body tc-gw-body">
+        <div class="tc-gw-grid">
+          <div class="tc-gw-section">
+            <div class="tc-section-title">Internet</div>
+            <div class="tc-row">
+              <label class="tc-lbl">Type</label>
+              <select id="tc-gw-inet-type" class="tc-select tc-select-wide">
+                <option value="WiFi">WiFi</option>
+                <option value="LTE">LTE</option>
+                <option value="Ethernet">Ethernet</option>
+              </select>
+              <label class="tc-inline-check">
+                <input type="checkbox" id="tc-gw-inet-fallback">
+                <span>Fallback</span>
+              </label>
+            </div>
+            <div id="tc-gw-wifi-box" class="tc-stack-block">
+              <div class="tc-row">
+                <input id="tc-gw-wifi-ssid" class="tc-input-flex" type="text" placeholder="WiFi SSID">
+                <input id="tc-gw-wifi-pwd" class="tc-input-flex" type="password" placeholder="Password">
+              </div>
+              <div class="tc-row">
+                <select id="tc-gw-wifi-auth" class="tc-select tc-select-wide">
+                  <option value="PERSONAL">PERSONAL</option>
+                  <option value="ENTERPRISE">ENTERPRISE</option>
+                </select>
+                <input id="tc-gw-wifi-user" class="tc-input-flex hidden" type="text" placeholder="Enterprise username">
+              </div>
+            </div>
+            <div id="tc-gw-lte-box" class="tc-stack-block hidden">
+              <div class="tc-row">
+                <input id="tc-gw-lte-apn" class="tc-input-flex" type="text" placeholder="APN" value="m-wap">
+                <input id="tc-gw-lte-user" class="tc-input-flex" type="text" placeholder="Username">
+                <input id="tc-gw-lte-pwd" class="tc-input-flex" type="password" placeholder="Password">
+              </div>
+            </div>
+            <div id="tc-gw-eth-box" class="tc-note hidden">Ethernet mode uses CFIN only. No extra parameter is required.</div>
+            <div class="tc-row">
+              <button class="tc-btn" id="tc-gw-set-internet">Apply Internet</button>
+            </div>
+          </div>
+
+          <div class="tc-gw-section">
+            <div class="tc-section-title">Server</div>
+            <div class="tc-row">
+              <label class="tc-lbl">Type</label>
+              <select id="tc-gw-server-type" class="tc-select tc-select-wide">
+                <option value="MQTT">MQTT</option>
+                <option value="HTTP/HTTPS">HTTP/HTTPS</option>
+                <option value="CoAP">CoAP</option>
+              </select>
+            </div>
+            <div id="tc-gw-mqtt-box" class="tc-stack-block">
+              <div class="tc-row">
+                <input id="tc-gw-mq-broker" class="tc-input-flex" type="text" value="mqtt.thingsboard.cloud" placeholder="Broker">
+                <input id="tc-gw-mq-token" class="tc-input-flex" type="password" placeholder="Device token">
+              </div>
+            </div>
+            <div id="tc-gw-http-box" class="tc-stack-block hidden">
+              <div class="tc-row">
+                <input id="tc-gw-hp-url" class="tc-input-flex" type="text" value="http://server:8080/api/v1/{token}/telemetry" placeholder="Server URL">
+                <input id="tc-gw-hp-token" class="tc-input-flex" type="text" placeholder="Auth token">
+              </div>
+              <label class="tc-inline-check">
+                <input type="checkbox" id="tc-gw-hp-tls">
+                <span>Use TLS</span>
+              </label>
+            </div>
+            <div id="tc-gw-coap-box" class="tc-stack-block hidden">
+              <div class="tc-row">
+                <input id="tc-gw-cp-host" class="tc-input-flex" type="text" value="demo.thingsboard.io" placeholder="Host">
+                <input id="tc-gw-cp-resource" class="tc-input-flex" type="text" value="/api/v1/{token}/telemetry" placeholder="Resource path">
+                <input id="tc-gw-cp-token" class="tc-input-flex" type="text" placeholder="Device token">
+              </div>
+            </div>
+            <div class="tc-row">
+              <button class="tc-btn" id="tc-gw-set-server">Apply Server</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="tc-gw-fw-grid">
+          <div class="tc-gw-section">
+            <div class="tc-section-title">Firmware</div>
+            <div class="tc-row tc-row-stretch">
+              <input id="tc-gw-lan-url" class="tc-input-flex" type="text" placeholder="LAN firmware URL">
+              <button class="tc-btn-sm" id="tc-gw-save-lan-url">Save LAN URL</button>
+            </div>
+            <div class="tc-row tc-row-stretch">
+              <input id="tc-gw-wan-url" class="tc-input-flex" type="text" placeholder="WAN firmware URL">
+              <button class="tc-btn-sm" id="tc-gw-save-wan-url">Save WAN URL</button>
+            </div>
+            <div class="tc-row">
+              <button class="tc-btn tc-btn-danger" id="tc-gw-fota">Trigger LAN FOTA</button>
+            </div>
+          </div>
+          <div id="tc-gw-status" class="tc-status-row">Gateway config ready</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── BLE Panel ── -->
+    <div class="tc-tech-card" id="tc-ble-card">
+      <div class="tc-card-hdr">
+        <div class="tc-tech-badge ble">BLE</div>
+        <span class="tc-card-title">BLE Sensor Node</span>
+        <label class="tc-switch">
+          <input type="checkbox" id="tc-ble-en">
+          <span class="tc-slider"></span>
+        </label>
+      </div>
+      <div class="tc-card-body">
+        <div class="tc-row">
+          <button class="tc-btn" id="tc-ble-scan">🔍 Scan</button>
+          <select id="tc-ble-dev" class="tc-select">
+            <option value="">— scan first —</option>
+          </select>
+          <button class="tc-btn" id="tc-ble-conn-btn">Connect</button>
+        </div>
+        <div class="tc-row">
+          <label class="tc-lbl">Notify interval (ms)</label>
+          <input id="tc-ble-interval" class="tc-input-num" type="number" value="500" min="100" max="60000" step="100">
+          <button class="tc-btn-sm" id="tc-ble-set-interval">Set</button>
+        </div>
+        <div id="tc-ble-status" class="tc-status-row">Not connected</div>
+      </div>
+    </div>
+
+    <!-- ── Zigbee Panel ── -->
+    <div class="tc-tech-card" id="tc-zb-card">
+      <div class="tc-card-hdr">
+        <div class="tc-tech-badge zb">ZB</div>
+        <span class="tc-card-title">Zigbee Sensor Node</span>
+        <label class="tc-stack-label" for="tc-zb-slot">Stack</label>
+        <select id="tc-zb-slot" class="tc-stack-select">
+          <option value="0">0</option>
+          <option value="1">1</option>
+        </select>
+        <label class="tc-switch">
+          <input type="checkbox" id="tc-zb-en">
+          <span class="tc-slider"></span>
+        </label>
+      </div>
+      <div class="tc-card-body">
+        <div class="tc-row">
+          <button class="tc-btn" id="tc-zb-net-start">▶ Net Start</button>
+          <button class="tc-btn" id="tc-zb-permit-join">🔓 Permit Join</button>
+          <button class="tc-btn" id="tc-zb-verify">✓ Verify Node</button>
+        </div>
+        <div class="tc-row">
+          <label class="tc-lbl">Short addr (hex)</label>
+          <input id="tc-zb-addr" class="tc-input-txt" type="text" placeholder="e.g. 1234" maxlength="4">
+          <label class="tc-lbl" style="margin-left:8px">EP</label>
+          <input id="tc-zb-ep" class="tc-input-sm" type="text" value="0B" maxlength="2">
+        </div>
+        <div class="tc-row">
+          <label class="tc-lbl">Send interval (ms)</label>
+          <input id="tc-zb-interval" class="tc-input-num" type="number" value="1000" min="100" max="60000" step="100">
+          <button class="tc-btn-sm" id="tc-zb-setup-push">Setup Push</button>
+        </div>
+        <div id="tc-zb-status" class="tc-status-row">Network not started</div>
+      </div>
+    </div>
+
+    <!-- ── LoRa Panel ── -->
+    <div class="tc-tech-card" id="tc-lr-card">
+      <div class="tc-card-hdr">
+        <div class="tc-tech-badge lr">LoRa</div>
+        <span class="tc-card-title">LoRa P2P Node</span>
+        <label class="tc-stack-label" for="tc-lr-slot">Stack</label>
+        <select id="tc-lr-slot" class="tc-stack-select">
+          <option value="0">0</option>
+          <option value="1">1</option>
+        </select>
+        <label class="tc-switch">
+          <input type="checkbox" id="tc-lr-en">
+          <span class="tc-slider"></span>
+        </label>
+      </div>
+      <div class="tc-card-body">
+        <div class="tc-row">
+          <button class="tc-btn" id="tc-lr-setup">⚙ Setup P2P</button>
+        </div>
+        <div class="tc-row">
+          <label class="tc-lbl">Poll interval (ms)</label>
+          <input id="tc-lr-interval" class="tc-input-num" type="number" value="2000" min="100" max="60000" step="100">
+          <label class="tc-lbl" style="margin-left:8px">RTT TO</label>
+          <input id="tc-lr-rtt-to" class="tc-input-num" type="number" value="5000" min="500" max="30000" step="500">
+        </div>
+        <div id="tc-lr-status" class="tc-status-row">Not configured</div>
+      </div>
+    </div>
+
+    <!-- ── Scheduler Controls ── -->
+    <div class="tc-sched-card">
+      <div class="tc-sched-head">
+        <div>
+          <div class="tc-sched-title">Global Poll Scheduler</div>
+          <div class="tc-sched-sub">Controls polling for BLE and LoRa. Zigbee runs in gated push mode.</div>
+        </div>
+      </div>
+      <div class="tc-sched-bar">
+        <button class="tc-btn-start" id="tc-btn-start">▶ Start Polling</button>
+        <button class="tc-btn-stop"  id="tc-btn-stop" disabled>■ Stop</button>
+        <span class="tc-sched-info" id="tc-sched-info">Ready</span>
+      </div>
+    </div>
+
+  </div><!-- /tc-body -->
+
+  <!-- ── Console ── -->
+  <div class="tc-console-wrap">
+    <div class="tc-console-bar">
+      <div class="tc-console-dots">
+        <span style="background:#ff5f57"></span>
+        <span style="background:#ffbd2e"></span>
+        <span style="background:#28c840"></span>
+      </div>
+      <span class="tc-console-title">Console</span>
+      <button class="tc-btn-clear" id="tc-btn-clear">Clear</button>
+    </div>
+    <div id="tc-console" class="tc-console"></div>
+  </div>
+
+  <div id="tc-toast" class="tc-toast hidden"></div>
+
+</div>
