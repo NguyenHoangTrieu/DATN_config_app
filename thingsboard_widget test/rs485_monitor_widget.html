@@ -1,0 +1,70 @@
+<!--
+  DA2 RS485 Monitor Widget
+  Type: Latest Values widget (datasource key: data)
+  Purpose:
+    - Show live AIN0..AIN3 values from MODBUS responses.
+    - Keep activity log of received telemetry.
+    - Bridge latest telemetry value to RS485 Control widget.
+-->
+
+<div id="rs485-monitor-root" class="rs485-monitor-root">
+  <div class="rm-header">
+    <div class="rm-title-wrap">
+      <div class="rm-title">RS485 Monitor</div>
+      <div class="rm-subtitle">Live AIN view + telemetry bridge to control widget</div>
+    </div>
+    <div id="rm-pill" class="rm-pill" data-state="idle">Waiting</div>
+  </div>
+
+  <div class="rm-top-grid">
+    <div class="rm-card">
+      <div class="rm-card-head">
+        <span>Last Frame</span>
+        <span id="rm-last-ts" class="rm-chip">-</span>
+      </div>
+      <div id="rm-last-frame" class="rm-mono rm-frame">-</div>
+    </div>
+
+    <div class="rm-card">
+      <div class="rm-card-head">
+        <span>Bridge</span>
+        <span id="rm-bridge-state" class="rm-chip">active</span>
+      </div>
+      <div class="rm-note">Publishing last telemetry to control via <b>da2_rs485_last_data</b> and localStorage key <b>da2_rs485_last_data_v1</b>.</div>
+    </div>
+  </div>
+
+  <div class="rm-analog-grid">
+    <div class="rm-card rm-channel">
+      <div class="rm-channel-head"><span>AIN0</span><span class="rm-chip">0x0000</span></div>
+      <div id="rm-ain0" class="rm-value">--.-- V</div>
+      <div id="rm-ain0-meta" class="rm-meta">No sample</div>
+    </div>
+
+    <div class="rm-card rm-channel">
+      <div class="rm-channel-head"><span>AIN1</span><span class="rm-chip">0x0002</span></div>
+      <div id="rm-ain1" class="rm-value">--.-- V</div>
+      <div id="rm-ain1-meta" class="rm-meta">No sample</div>
+    </div>
+
+    <div class="rm-card rm-channel">
+      <div class="rm-channel-head"><span>AIN2</span><span class="rm-chip">0x0004</span></div>
+      <div id="rm-ain2" class="rm-value">--.-- V</div>
+      <div id="rm-ain2-meta" class="rm-meta">No sample</div>
+    </div>
+
+    <div class="rm-card rm-channel">
+      <div class="rm-channel-head"><span>AIN3</span><span class="rm-chip">0x0006</span></div>
+      <div id="rm-ain3" class="rm-value">--.-- V</div>
+      <div id="rm-ain3-meta" class="rm-meta">No sample</div>
+    </div>
+  </div>
+
+  <details class="rm-log-wrap" open>
+    <summary class="rm-log-head">
+      <span>Activity Log</span>
+      <button id="rm-clear" type="button" class="rm-btn">Clear</button>
+    </summary>
+    <div id="rm-log" class="rm-log"></div>
+  </details>
+</div>

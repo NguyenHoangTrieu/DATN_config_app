@@ -1,0 +1,239 @@
+<!--
+  DA2 RS485 Sensor Reader Widget
+  Target sensor: 4-channel 16-bit analog reader via MODBUS RTU 485.
+
+  Transport chain:
+    Widget -> sendCommand RPC -> CFML:CFRS:<slot>:DATA:<hex_frame>
+    Gateway ACK -> RPC response (CFRS:DATA:OK / FAIL)
+    Raw MODBUS response -> telemetry key "data" as hex-encoded bytes
+
+  Paste into ThingsBoard Control Widget:
+    HTML -> this file
+    CSS  -> rs485_sensor_reader_widget.css
+    JS   -> rs485_sensor_reader_widget.js
+-->
+
+<div id="rs485-sensor-root" class="rs485-sensor-root">
+  <div class="sr-header">
+    <div class="sr-header-left">
+      <div class="sr-logo">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M4 8H20" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+          <path d="M4 12H20" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+          <path d="M4 16H20" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+          <circle cx="7" cy="8" r="1.3" fill="currentColor"/>
+          <circle cx="12" cy="12" r="1.3" fill="currentColor"/>
+          <circle cx="17" cy="16" r="1.3" fill="currentColor"/>
+        </svg>
+      </div>
+      <div>
+        <div class="sr-title">RS485 Sensor Reader</div>
+        <div class="sr-subtitle">Simple control panel for a single MODBUS RTU sensor</div>
+      </div>
+    </div>
+    <div class="sr-header-right">
+      <div id="sr-status-pill" class="sr-status-pill" data-state="idle">
+        <span class="sr-status-dot"></span>
+        <span id="sr-status-text">Idle</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="sr-main">
+    <div class="sr-sidebar">
+      <div class="sr-section sr-section-primary">
+        <div class="sr-section-head">
+          <span class="sr-section-label">Connection</span>
+          <span id="sr-ready-badge" class="sr-mini-badge" data-state="off">OFF</span>
+        </div>
+
+        <div class="sr-control-grid">
+          <label class="sr-field sr-field-tight">
+            <span>RS485 Slot</span>
+            <select id="sr-slot-select" class="sr-input"></select>
+          </label>
+
+          <label class="sr-field sr-field-tight">
+            <span>Gateway Baud</span>
+            <select id="sr-gateway-baud" class="sr-input"></select>
+          </label>
+
+          <label class="sr-field sr-field-tight">
+            <span>Slave</span>
+            <select id="sr-slave-select" class="sr-input"></select>
+          </label>
+        </div>
+
+        <div class="sr-btn-stack">
+          <button id="sr-btn-prepare" type="button" class="sr-btn sr-btn-primary">Prepare Gateway</button>
+          <div class="sr-btn-row">
+            <button id="sr-btn-refresh" type="button" class="sr-btn sr-btn-primary">Refresh All</button>
+            <button id="sr-btn-json-only" type="button" class="sr-btn sr-btn-ghost">GPIO Only</button>
+          </div>
+          <div class="sr-btn-row">
+            <button id="sr-btn-read-analog" type="button" class="sr-btn sr-btn-amber">Read Analog</button>
+            <button id="sr-btn-read-config" type="button" class="sr-btn sr-btn-muted">Read Config</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="sr-section">
+        <div class="sr-section-head">
+          <span class="sr-section-label">Polling</span>
+          <span class="sr-mini-badge" id="sr-slave-chip">0x1F</span>
+        </div>
+
+        <label class="sr-field">
+          <span>Polling Interval</span>
+          <select id="sr-poll-ms" class="sr-input"></select>
+        </label>
+
+        <div class="sr-btn-row">
+          <button id="sr-poll-toggle" type="button" class="sr-btn sr-btn-muted">Start Polling</button>
+          <button id="sr-btn-clear-log" type="button" class="sr-btn sr-btn-ghost">Clear Log</button>
+        </div>
+        <div id="sr-poll-note" class="sr-inline-note">Polling is stopped.</div>
+      </div>
+
+      <details class="sr-collapsible">
+        <summary class="sr-collapsible-summary">
+          <span class="sr-section-label">Sensor Settings</span>
+          <span class="sr-chip">Optional</span>
+        </summary>
+
+        <div class="sr-collapsible-body">
+          <label class="sr-field">
+            <span>Sensor Baud</span>
+            <select id="sr-sensor-baud" class="sr-input"></select>
+          </label>
+          <button id="sr-btn-write-baud" type="button" class="sr-btn sr-btn-primary sr-btn-full">Apply Baud</button>
+
+          <div class="sr-two-col">
+            <label class="sr-field sr-field-inline sr-field-tight">
+              <span>Sleep Enable</span>
+              <input id="sr-sleep-enable" type="checkbox" class="sr-check" />
+            </label>
+            <label class="sr-field sr-field-tight">
+              <span>Sleep Wait</span>
+              <select id="sr-sleep-wait" class="sr-input"></select>
+            </label>
+          </div>
+
+          <button id="sr-btn-write-sleep" type="button" class="sr-btn sr-btn-primary sr-btn-full">Apply Sleep</button>
+          <button id="sr-btn-reset" type="button" class="sr-btn sr-btn-danger sr-btn-full">Factory Reset</button>
+        </div>
+      </details>
+
+      <details class="sr-collapsible sr-collapsible-advanced">
+        <summary class="sr-collapsible-summary">
+          <span class="sr-section-label">Advanced MODBUS</span>
+          <span class="sr-chip">Debug</span>
+        </summary>
+
+        <div class="sr-collapsible-body">
+          <div class="sr-lab-grid">
+            <div class="sr-lab-block">
+              <div class="sr-lab-title">Read Range</div>
+              <div class="sr-inline-fields">
+                <label class="sr-field sr-field-tight">
+                  <span>Start</span>
+                  <input id="sr-custom-read-start" class="sr-input sr-mono" type="text" value="0000" />
+                </label>
+                <label class="sr-field sr-field-tight">
+                  <span>Count</span>
+                  <input id="sr-custom-read-count" class="sr-input sr-mono" type="text" value="0008" />
+                </label>
+              </div>
+              <button id="sr-btn-custom-read" type="button" class="sr-btn sr-btn-primary sr-btn-full">Send Read</button>
+            </div>
+
+            <div class="sr-lab-block">
+              <div class="sr-lab-title">Write Register</div>
+              <div class="sr-inline-fields">
+                <label class="sr-field sr-field-tight">
+                  <span>Register</span>
+                  <input id="sr-custom-write-reg" class="sr-input sr-mono" type="text" value="0009" />
+                </label>
+                <label class="sr-field sr-field-tight">
+                  <span>Value</span>
+                  <input id="sr-custom-write-value" class="sr-input sr-mono" type="text" value="0002" />
+                </label>
+              </div>
+              <button id="sr-btn-custom-write" type="button" class="sr-btn sr-btn-primary sr-btn-full">Send Write</button>
+            </div>
+
+            <div class="sr-lab-block sr-lab-block-wide">
+              <div class="sr-lab-title">Raw Frame</div>
+              <label class="sr-field">
+                <span>Frame Hex</span>
+                <input id="sr-raw-frame" class="sr-input sr-mono" type="text" value="1F0300000008" />
+              </label>
+              <div class="sr-btn-row">
+                <button id="sr-btn-send-raw" type="button" class="sr-btn sr-btn-primary">Send Raw</button>
+                <button id="sr-btn-raw-template" type="button" class="sr-btn sr-btn-muted">Load Template</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </details>
+    </div>
+
+    <div class="sr-content">
+      <div class="sr-hero">
+        <div class="sr-hero-main">
+          <div class="sr-hero-title" id="sr-hero-title">Slave 0x1F · Waiting for data</div>
+          <div class="sr-hero-sub" id="sr-hero-sub">Prepare gateway or refresh the sensor.</div>
+          <div class="sr-hero-tip" id="sr-hero-tip">Press Prepare Gateway, then Refresh All.</div>
+        </div>
+        <div class="sr-hero-meta">
+          <div class="sr-meta-box">
+            <span class="sr-meta-label">Last ACK</span>
+            <span class="sr-meta-value" id="sr-last-ack">-</span>
+          </div>
+          <div class="sr-meta-box">
+            <span class="sr-meta-label">Last Frame</span>
+            <span class="sr-meta-value sr-mono" id="sr-last-frame">-</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sr-card sr-bridge-card">
+        <div class="sr-card-head">
+          <span class="sr-card-title">Last Data Value</span>
+          <span class="sr-chip">from monitor</span>
+        </div>
+        <div class="sr-kv-list">
+          <div class="sr-kv-row"><span>Timestamp</span><span id="sr-bridge-ts">-</span></div>
+          <div class="sr-kv-row"><span>Source</span><span id="sr-bridge-source">-</span></div>
+          <div class="sr-kv-row"><span>Raw</span><span id="sr-bridge-raw" class="sr-mono">-</span></div>
+        </div>
+        <div class="sr-inline-note">AIN0..AIN3 moved to RS485 Monitor widget.</div>
+      </div>
+
+      <div class="sr-card sr-config-card">
+        <div class="sr-card-head">
+          <span class="sr-card-title">Sensor Status</span>
+          <span class="sr-chip">0x0008-0x000A</span>
+        </div>
+        <div class="sr-kv-list">
+          <div class="sr-kv-row"><span>Slave ID</span><span id="sr-device-id" class="sr-mono">-</span></div>
+          <div class="sr-kv-row"><span>Baud</span><span id="sr-device-baud">-</span></div>
+          <div class="sr-kv-row"><span>Sleep</span><span id="sr-device-sleep">-</span></div>
+        </div>
+        <div class="sr-inline-note" id="sr-config-note">Read Config to load live device status.</div>
+      </div>
+
+      <details class="sr-console-wrap">
+        <summary class="sr-collapsible-summary">
+          <span class="sr-section-label">Activity Log</span>
+          <span class="sr-chip">Debug</span>
+        </summary>
+        <div class="sr-console">
+          <div id="sr-console-log" class="sr-console-log"></div>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <div id="sr-toast" class="sr-toast hidden"></div>
+</div>
