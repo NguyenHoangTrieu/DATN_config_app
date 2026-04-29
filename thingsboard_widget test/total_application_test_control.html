@@ -1,276 +1,406 @@
 <!-- =====================================================================
-  DA2 Total Application Test Control — ThingsBoard Control Widget
-     Type    : Control widget (requires controlApi / target device)
-     Protocol: CFML:CFBG / CFML:CFZB / CFML:CFLR  (hex-encoded via RPC)
+  DA2 Total Application Test Control - ThingsBoard Control Widget
+  Type    : Control widget (requires controlApi / target device)
+  Tabs    : BLE GATT | Zigbee | LoRa P2P
+  Protocol: CFML:CFBG / CFML:CFZB / CFML:CFLR  (hex-encoded RPC)
 
-  Gateway config actions: Internet / Server / Firmware FOTA
-  Sensor test actions   : BLE / Zigbee / LoRa orchestration
-  Poll Scheduler        : sequential round-robin BLE → ZB → LoRa
-  Measures RTT from request-sent to telemetry-received.
+  Paste: HTML -> "HTML" tab | CSS -> "CSS" tab | JS -> "JavaScript" tab
+  ThingsBoard v4.x - Control widget
+  ===================================================================== -->
 
-     Paste: HTML → "HTML" tab | CSS → "CSS" tab | JS → "JavaScript" tab
-     ThingsBoard v4.x
-     ===================================================================== -->
+<div id="tat-root" class="tat-root">
 
-<div id="tc-root" class="tc-root">
-
-  <!-- ── Header ── -->
-  <div class="tc-header">
-    <div class="tc-hdr-left">
-      <div class="tc-logo">
+  <!-- -- Header -- -->
+  <div class="tat-header">
+    <div class="tat-hdr-left">
+      <div class="tat-logo">
         <svg viewBox="0 0 24 24" fill="none">
           <circle cx="12" cy="12" r="3" fill="currentColor"/>
-          <path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-          <path d="M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"
-                stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M12 3v2M12 19v2M3 12h2M19 12h2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 2"/>
+          <path d="M7 7l2 2M15 15l2 2M17 7l-2 2M9 15l-2 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
         </svg>
       </div>
-        <div>
-        <div class="tc-title">total_application_test_control</div>
-        <div class="tc-sub">Gateway config + BLE + Zigbee + LoRa application test</div>
+      <div>
+        <div class="tat-title">Total Application Test</div>
+        <div class="tat-sub">BLE + Zigbee + LoRa P2P</div>
       </div>
     </div>
-    <div class="tc-hdr-right">
-      <div id="tc-pill" class="tc-pill" data-state="idle">
-        <span class="tc-dot"></span>
-        <span id="tc-pill-txt">Idle</span>
+    <div class="tat-hdr-right">
+      <label class="tat-slot-lbl">Stack</label>
+      <select id="tat-slot" class="tat-slot-sel" onchange="tatSetSlot(this.value)">
+        <option value="0">0</option>
+        <option value="1">1</option>
+      </select>
+      <div id="tat-pill" class="tat-pill" data-state="idle">
+        <span class="tat-dot"></span>
+        <span id="tat-pill-txt">Idle</span>
+      </div>
+      <button class="tat-btn-info" data-action="queryInfo" title="Query module info">?</button>
+    </div>
+  </div>
+
+  <!-- -- Tab bar -- -->
+  <div class="tat-tabbar">
+    <button id="tat-tab-ble"  class="tat-tab tat-tab-active">
+      <span class="tat-inline-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M10 3l7 6-5 3 5 3-7 6V3zM10 12 6 8m4 4-4 4"/></svg></span>
+      BLE
+    </button>
+    <button id="tat-tab-zb"   class="tat-tab">
+      <span class="tat-inline-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="1.7" fill="currentColor" stroke="none"/><circle cx="18" cy="8" r="1.7" fill="currentColor" stroke="none"/><circle cx="10" cy="18" r="1.7" fill="currentColor" stroke="none"/><path d="M7.5 7.3 16.4 8.4M7.3 7.6l2 8.2m7-6.2-5 6"/></svg></span>
+      Zigbee
+    </button>
+    <button id="tat-tab-lora" class="tat-tab">
+      <span class="tat-inline-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="8" cy="12" r="1.7" fill="currentColor" stroke="none"/><path d="M11 12h2m2.5-3.5a5 5 0 0 1 0 7m3-10.5a9 9 0 0 1 0 14"/></svg></span>
+      LoRa P2P
+    </button>
+  </div>
+
+  <!-- -----------------------------------------------------------
+       BLE TAB
+       ----------------------------------------------------------- -->
+  <div id="tat-content-ble" class="tat-content">
+    <div class="tat-dual">
+
+      <!-- LEFT: Available Devices -->
+      <div class="tat-col-l">
+        <div class="tat-sec-hdr">
+          <span class="tat-sec-title"><span class="tat-inline-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="5"/><path d="M14 14l6 6"/></svg></span>Available Devices</span>
+          <span id="tat-ble-scan-cnt" class="tat-count">0</span>
+          <button id="tat-btn-scan" class="tat-btn-accent tat-btn-sm" data-action="scan">Scan</button>
+        </div>
+        <div id="tat-ble-scan-list" class="tat-list">
+          <div class="tat-empty-hint">Press Scan to discover devices</div>
+        </div>
+      </div>
+
+      <div class="tat-col-div"></div>
+
+      <!-- RIGHT: Connected + Detail -->
+      <div class="tat-col-r">
+        <div class="tat-sec-hdr">
+          <span class="tat-sec-title"><span class="tat-inline-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 4v5m6-5v5M8 9h8v3a4 4 0 0 1-4 4 4 4 0 0 1-4-4V9zm4 7v4"/></svg></span>Connected Devices</span>
+          <span id="tat-ble-conn-cnt" class="tat-count">0</span>
+        </div>
+        <div id="tat-ble-grid" class="tat-device-grid">
+          <div class="tat-empty-hint">No connected devices yet</div>
+        </div>
+        <div class="tat-detail-sep"></div>
+        <div id="tat-ble-detail" class="tat-detail-panel">
+          <!-- Placeholder -->
+          <div id="tat-ble-hint" class="tat-empty-hint">Select a connected device to control</div>
+
+          <!-- LED Detail Panel -->
+          <div id="tat-ble-led" class="tat-sub-panel" style="display:none">
+            <div class="tat-dev-hdr">
+              <span class="tat-dev-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 18h6m-5 3h4"/><path d="M12 3a6 6 0 0 0-3.8 10.6c.9.8 1.4 1.8 1.6 2.9h4.4c.2-1.1.7-2.1 1.6-2.9A6 6 0 0 0 12 3z"/></svg></span>
+              <span id="tat-led-title" class="tat-dev-name">--</span>
+              <button class="tat-btn-disc" data-action="bleDisconnect">Disconnect</button>
+            </div>
+            <div class="tat-dev-meta">
+              <span id="tat-led-mac" class="tat-mono">--</span>
+              <span id="tat-led-handle" class="tat-meta-sm"></span>
+            </div>
+            <div class="tat-state-row">
+              State: <span id="tat-led-state" class="tat-state-badge tat-state-off">--</span>
+            </div>
+            <div class="tat-label-sm">Colour:</div>
+            <div class="tat-color-row">
+              <button class="tat-color-btn" style="background:#f44336" data-action="bleSendColor" data-param="FF0000" data-color="red" title="Red" aria-label="Red"><span class="tat-color-core"></span></button>
+              <button class="tat-color-btn" style="background:#4caf50" data-action="bleSendColor" data-param="00FF00" data-color="green" title="Green" aria-label="Green"><span class="tat-color-core"></span></button>
+              <button class="tat-color-btn" style="background:#2196f3" data-action="bleSendColor" data-param="0000FF" data-color="blue" title="Blue" aria-label="Blue"><span class="tat-color-core"></span></button>
+              <button class="tat-color-btn" style="background:#ffc107" data-action="bleSendColor" data-param="FFFF00" data-color="yellow" title="Yellow" aria-label="Yellow"><span class="tat-color-core"></span></button>
+              <button class="tat-color-btn" style="background:#9e9e9e" data-action="bleSendColor" data-param="FFFFFF" data-color="white" title="White" aria-label="White"><span class="tat-color-core"></span></button>
+            </div>
+            <div class="tat-onoff-row">
+              <button class="tat-btn-on" data-action="bleLedOn">ON</button>
+              <button class="tat-btn-off" data-action="bleLedOff">OFF</button>
+            </div>
+          </div>
+
+          <!-- Sensor Detail Panel -->
+          <div id="tat-ble-sensor" class="tat-sub-panel" style="display:none">
+            <div class="tat-dev-hdr">
+              <span class="tat-dev-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M10 14.5V6a2 2 0 1 1 4 0v8.5a4 4 0 1 1-4 0z"/><circle cx="12" cy="18" r="1.3" fill="currentColor" stroke="none"/></svg></span>
+              <span id="tat-sen-title" class="tat-dev-name">--</span>
+              <button class="tat-btn-disc" data-action="bleDisconnect">Disconnect</button>
+            </div>
+            <div class="tat-dev-meta">
+              <span id="tat-sen-mac" class="tat-mono">--</span>
+              <span id="tat-sen-cccd" class="tat-meta-sm"></span>
+            </div>
+            <div class="tat-sensor-cards">
+              <div class="tat-data-card">
+                <div class="tat-data-lbl">Temperature</div>
+                <div id="tat-sen-temp" class="tat-data-val">--</div>
+              </div>
+              <div class="tat-data-card">
+                <div class="tat-data-lbl">Humidity</div>
+                <div id="tat-sen-hum" class="tat-data-val">--</div>
+              </div>
+            </div>
+            <div class="tat-sensor-footer">
+              Last: <span id="tat-sen-last">--</span>&nbsp;
+              <span id="tat-sen-cnt">0</span> samples
+            </div>
+            <div class="tat-interval-row">
+              Interval:
+              <input id="tat-sen-interval" class="tat-input-sm" type="number" min="1" max="60" value="3" style="width:52px">s
+              <button class="tat-btn-sm" data-action="bleApplyInterval">Apply Interval</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- ── Body ── -->
-  <div class="tc-body">
+  <!-- -----------------------------------------------------------
+       ZIGBEE TAB
+       ----------------------------------------------------------- -->
+  <div id="tat-content-zb" class="tat-content" style="display:none">
+    <div class="tat-dual">
 
-    <!-- ── Gateway Panel ── -->
-    <div class="tc-tech-card tc-gw-card" id="tc-gw-card" data-enabled="true">
-      <div class="tc-card-hdr">
-        <div class="tc-tech-badge gw">GW</div>
-        <span class="tc-card-title">Gateway Configuration</span>
+      <!-- LEFT: Network & Nodes -->
+      <div class="tat-col-l">
+        <div class="tat-sec-hdr">
+          <span class="tat-sec-title"><span class="tat-inline-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="1.7" fill="currentColor" stroke="none"/><circle cx="18" cy="8" r="1.7" fill="currentColor" stroke="none"/><circle cx="10" cy="18" r="1.7" fill="currentColor" stroke="none"/><path d="M7.5 7.3 16.4 8.4M7.3 7.6l2 8.2m7-6.2-5 6"/></svg></span>Network</span>
+          <div id="tat-zb-net-badge" class="tat-net-badge" data-state="off">OFF</div>
+        </div>
+        <div class="tat-action-grid">
+          <button class="tat-chip chip-start" data-action="zbStart">Start</button>
+          <button class="tat-chip chip-stop"  data-action="zbStop">Stop</button>
+          <button class="tat-chip chip-join"  data-action="zbPermitJoin">Permit Join 180s</button>
+          <button class="tat-chip chip-find"  data-action="zbFind">Find</button>
+        </div>
+        <button class="tat-btn-reset" data-action="zbResetState">Reset State</button>
+        <div id="tat-zb-net-info" class="tat-net-info-bar">--</div>
+        <div class="tat-node-list-hdr">
+          NODES <span id="tat-zb-node-cnt" class="tat-count">0</span>
+        </div>
+        <div id="tat-zb-node-list" class="tat-list">
+          <div class="tat-empty-hint">Start network &amp; permit join to see nodes</div>
+        </div>
       </div>
-      <div class="tc-card-body tc-gw-body">
-        <div class="tc-gw-grid">
-          <div class="tc-gw-section">
-            <div class="tc-section-title">Internet</div>
-            <div class="tc-row">
-              <label class="tc-lbl">Type</label>
-              <select id="tc-gw-inet-type" class="tc-select tc-select-wide">
-                <option value="WiFi">WiFi</option>
-                <option value="LTE">LTE</option>
-                <option value="Ethernet">Ethernet</option>
-              </select>
-              <label class="tc-inline-check">
-                <input type="checkbox" id="tc-gw-inet-fallback">
-                <span>Fallback</span>
-              </label>
+
+      <div class="tat-col-div"></div>
+
+      <!-- RIGHT: ZCL Control -->
+      <div class="tat-col-r" style="position:relative">
+
+        <!-- Overlay: no node selected -->
+        <div id="tat-zb-overlay" class="tat-overlay">
+          <div class="tat-overlay-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.7 9a2.6 2.6 0 1 1 4.5 1.8c-.8.8-1.7 1.3-1.7 2.7"/><circle cx="12" cy="17.2" r="1" fill="currentColor" stroke="none"/></svg></div>
+          <div class="tat-overlay-msg">Start network &amp; select a node to control</div>
+        </div>
+
+        <!-- Bulb Control Panel -->
+        <div id="tat-zb-bulb" class="tat-sub-panel" style="display:none">
+          <div class="tat-dev-hdr">
+            <span class="tat-dev-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 18h6m-5 3h4"/><path d="M12 3a6 6 0 0 0-3.8 10.6c.9.8 1.4 1.8 1.6 2.9h4.4c.2-1.1.7-2.1 1.6-2.9A6 6 0 0 0 12 3z"/></svg></span>
+            <span id="tat-bulb-title" class="tat-dev-name">--</span>
+            <button class="tat-btn-disc" data-action="zbDeleteNode">Delete</button>
+          </div>
+          <div class="tat-dev-meta">
+            <span id="tat-bulb-short" class="tat-mono">--</span>
+            <span id="tat-bulb-ep" class="tat-meta-sm"></span>
+          </div>
+          <div class="tat-state-row">
+            State: <span id="tat-bulb-state" class="tat-state-badge tat-state-off">--</span>
+          </div>
+          <div class="tat-label-sm">On/Off:</div>
+          <div class="tat-onoff-row">
+            <button class="tat-btn-on"  data-action="zbBulbOn">ON</button>
+            <button class="tat-btn-off" data-action="zbBulbOff">OFF</button>
+            <button class="tat-btn-sm"  data-action="zbBulbToggle">Toggle</button>
+          </div>
+          <div class="tat-label-sm">Brightness:</div>
+          <div class="tat-level-row">
+            <button class="tat-btn-sm" data-action="zbBulbLevel" data-param="0">0%</button>
+            <button class="tat-btn-sm" data-action="zbBulbLevel" data-param="25">25%</button>
+            <button class="tat-btn-sm" data-action="zbBulbLevel" data-param="50">50%</button>
+            <button class="tat-btn-sm" data-action="zbBulbLevel" data-param="75">75%</button>
+            <button class="tat-btn-sm" data-action="zbBulbLevel" data-param="100">100%</button>
+          </div>
+          <div class="tat-label-sm">Color (XY):</div>
+          <div class="tat-color-row">
+            <button class="tat-color-btn" style="background:#f44336" data-action="zbBulbColor" data-param="red" data-color="red" title="Red" aria-label="Red"><span class="tat-color-core"></span></button>
+            <button class="tat-color-btn" style="background:#4caf50" data-action="zbBulbColor" data-param="green" data-color="green" title="Green" aria-label="Green"><span class="tat-color-core"></span></button>
+            <button class="tat-color-btn" style="background:#2196f3" data-action="zbBulbColor" data-param="blue" data-color="blue" title="Blue" aria-label="Blue"><span class="tat-color-core"></span></button>
+            <button class="tat-color-btn" style="background:#e0e0e0" data-action="zbBulbColor" data-param="white" data-color="white" title="White" aria-label="White"><span class="tat-color-core"></span></button>
+          </div>
+          <button class="tat-btn-sm" style="margin-top:6px" data-action="zbReadBulbStatus">Read Status</button>
+        </div>
+
+        <!-- ZB Sensor Control Panel -->
+        <div id="tat-zb-sensor" class="tat-sub-panel" style="display:none">
+          <div class="tat-dev-hdr">
+            <span class="tat-dev-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M10 14.5V6a2 2 0 1 1 4 0v8.5a4 4 0 1 1-4 0z"/><circle cx="12" cy="18" r="1.3" fill="currentColor" stroke="none"/></svg></span>
+            <span id="tat-zbsen-title" class="tat-dev-name">--</span>
+            <button class="tat-btn-disc" data-action="zbDeleteNode">Delete</button>
+          </div>
+          <div class="tat-dev-meta">
+            <span id="tat-zbsen-short" class="tat-mono">--</span>
+            <span id="tat-zbsen-ep" class="tat-meta-sm"></span>
+          </div>
+          <div class="tat-sensor-cards">
+            <div class="tat-data-card">
+              <div class="tat-data-lbl">Temperature</div>
+              <div id="tat-zbsen-temp" class="tat-data-val">--</div>
             </div>
-            <div id="tc-gw-wifi-box" class="tc-stack-block">
-              <div class="tc-row">
-                <input id="tc-gw-wifi-ssid" class="tc-input-flex" type="text" placeholder="WiFi SSID">
-                <input id="tc-gw-wifi-pwd" class="tc-input-flex" type="password" placeholder="Password">
-              </div>
-              <div class="tc-row">
-                <select id="tc-gw-wifi-auth" class="tc-select tc-select-wide">
-                  <option value="PERSONAL">PERSONAL</option>
-                  <option value="ENTERPRISE">ENTERPRISE</option>
-                </select>
-                <input id="tc-gw-wifi-user" class="tc-input-flex hidden" type="text" placeholder="Enterprise username">
-              </div>
-            </div>
-            <div id="tc-gw-lte-box" class="tc-stack-block hidden">
-              <div class="tc-row">
-                <input id="tc-gw-lte-apn" class="tc-input-flex" type="text" placeholder="APN" value="m-wap">
-                <input id="tc-gw-lte-user" class="tc-input-flex" type="text" placeholder="Username">
-                <input id="tc-gw-lte-pwd" class="tc-input-flex" type="password" placeholder="Password">
-              </div>
-            </div>
-            <div id="tc-gw-eth-box" class="tc-note hidden">Ethernet mode uses CFIN only. No extra parameter is required.</div>
-            <div class="tc-row">
-              <button class="tc-btn" id="tc-gw-set-internet">Apply Internet</button>
+            <div class="tat-data-card">
+              <div class="tat-data-lbl">Humidity</div>
+              <div id="tat-zbsen-hum" class="tat-data-val">--</div>
             </div>
           </div>
+          <div class="tat-sensor-footer">
+            Last: <span id="tat-zbsen-last">--</span>&nbsp;
+            <span id="tat-zbsen-cnt">0</span> reports
+          </div>
+          <div class="tat-label-sm">Configure Reporting:</div>
+          <div class="tat-report-row">
+            Min <input id="tat-zbsen-min" class="tat-input-sm" type="number" value="5"  min="1" max="3600" style="width:48px">s
+            Max <input id="tat-zbsen-max" class="tat-input-sm" type="number" value="60" min="1" max="3600" style="width:52px">s
+            <button class="tat-btn-sm" data-action="zbConfigReport">Configure</button>
+          </div>
+          <div class="tat-row-btns">
+            <button class="tat-btn-sm" data-action="zbReadTemp">Read Temp</button>
+            <button class="tat-btn-sm" data-action="zbReadHum">Read Humidity</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
-          <div class="tc-gw-section">
-            <div class="tc-section-title">Server</div>
-            <div class="tc-row">
-              <label class="tc-lbl">Type</label>
-              <select id="tc-gw-server-type" class="tc-select tc-select-wide">
-                <option value="MQTT">MQTT</option>
-                <option value="HTTP/HTTPS">HTTP/HTTPS</option>
-                <option value="CoAP">CoAP</option>
-              </select>
-            </div>
-            <div id="tc-gw-mqtt-box" class="tc-stack-block">
-              <div class="tc-row">
-                <input id="tc-gw-mq-broker" class="tc-input-flex" type="text" value="mqtt.thingsboard.cloud" placeholder="Broker">
-                <input id="tc-gw-mq-token" class="tc-input-flex" type="password" placeholder="Device token">
-              </div>
-            </div>
-            <div id="tc-gw-http-box" class="tc-stack-block hidden">
-              <div class="tc-row">
-                <input id="tc-gw-hp-url" class="tc-input-flex" type="text" value="http://server:8080/api/v1/{token}/telemetry" placeholder="Server URL">
-                <input id="tc-gw-hp-token" class="tc-input-flex" type="text" placeholder="Auth token">
-              </div>
-              <label class="tc-inline-check">
-                <input type="checkbox" id="tc-gw-hp-tls">
-                <span>Use TLS</span>
-              </label>
-            </div>
-            <div id="tc-gw-coap-box" class="tc-stack-block hidden">
-              <div class="tc-row">
-                <input id="tc-gw-cp-host" class="tc-input-flex" type="text" value="demo.thingsboard.io" placeholder="Host">
-                <input id="tc-gw-cp-resource" class="tc-input-flex" type="text" value="/api/v1/{token}/telemetry" placeholder="Resource path">
-                <input id="tc-gw-cp-token" class="tc-input-flex" type="text" placeholder="Device token">
-              </div>
-            </div>
-            <div class="tc-row">
-              <button class="tc-btn" id="tc-gw-set-server">Apply Server</button>
-            </div>
+  <!-- -----------------------------------------------------------
+       LORA P2P TAB
+       ----------------------------------------------------------- -->
+  <div id="tat-content-lora" class="tat-content" style="display:none">
+    <div class="tat-dual">
+
+      <!-- LEFT: P2P Configuration -->
+      <div class="tat-col-l">
+        <div class="tat-sec-hdr"><span class="tat-sec-title"><span class="tat-inline-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="8" cy="12" r="1.7" fill="currentColor" stroke="none"/><path d="M11 12h2m2.5-3.5a5 5 0 0 1 0 7m3-10.5a9 9 0 0 1 0 14"/></svg></span>P2P Configuration</span></div>
+        <div class="tat-cfg-grid">
+          <div class="tat-cfg-item">
+            <label class="tat-cfg-lbl">Frequency (MHz)</label>
+            <input id="tat-lr-freq" class="tat-input" type="number" value="868" min="100" max="960">
+          </div>
+          <div class="tat-cfg-item">
+            <label class="tat-cfg-lbl">SF</label>
+            <select id="tat-lr-sf" class="tat-select">
+              <option value="SF7"  selected>SF7</option>
+              <option value="SF8">SF8</option>
+              <option value="SF9">SF9</option>
+              <option value="SF10">SF10</option>
+              <option value="SF11">SF11</option>
+              <option value="SF12">SF12</option>
+            </select>
+          </div>
+          <div class="tat-cfg-item">
+            <label class="tat-cfg-lbl">BW (kHz)</label>
+            <select id="tat-lr-bw" class="tat-select">
+              <option value="125" selected>125</option>
+              <option value="250">250</option>
+              <option value="500">500</option>
+            </select>
+          </div>
+          <div class="tat-cfg-item">
+            <label class="tat-cfg-lbl">TX Power (dBm)</label>
+            <input id="tat-lr-pow" class="tat-input" type="number" value="14" min="1" max="22">
+          </div>
+          <div class="tat-cfg-item">
+            <label class="tat-cfg-lbl">TX Preamble</label>
+            <input id="tat-lr-txpr" class="tat-input" type="number" value="12" min="2" max="65535">
+          </div>
+          <div class="tat-cfg-item">
+            <label class="tat-cfg-lbl">RX Preamble</label>
+            <input id="tat-lr-rxpr" class="tat-input" type="number" value="15" min="2" max="65535">
+          </div>
+        </div>
+        <div class="tat-row-btns" style="margin-top:8px">
+          <button class="tat-btn-accent tat-btn-sm" data-action="lrEnterTestMode">Enter TEST Mode</button>
+          <button class="tat-btn-sm" data-action="lrApplyRf">Apply RF Config</button>
+        </div>
+
+        <div class="tat-sec-hdr" style="margin-top:10px">RX WINDOW</div>
+        <div class="tat-row-btns">
+          <button id="tat-btn-rx-start" class="tat-btn-sm" data-action="lrStartRx">Start RX</button>
+          <button id="tat-btn-rx-stop"  class="tat-btn-sm" data-action="lrStopRx">Stop RX</button>
+          <div id="tat-lr-rx-badge" class="tat-rx-badge" data-active="false">RX</div>
+        </div>
+
+        <div class="tat-sec-hdr" style="margin-top:10px">MODULE INFO</div>
+        <div class="tat-info-panel">
+          <div class="tat-info-row"><span class="tat-info-lbl">Firmware</span><span id="tat-lr-fw">--</span></div>
+          <div class="tat-info-row"><span class="tat-info-lbl">Mode</span><span id="tat-lr-mode">--</span></div>
+          <div class="tat-info-row"><span class="tat-info-lbl">RF</span><span id="tat-lr-rf-info">--</span></div>
+        </div>
+        <button class="tat-btn-sm" style="margin-top:4px" data-action="lrReadInfo">Read Info</button>
+      </div>
+
+      <div class="tat-col-div"></div>
+
+      <!-- RIGHT: Sensor Node -->
+      <div class="tat-col-r">
+        <div class="tat-sec-hdr">
+          <span class="tat-sec-title"><span class="tat-inline-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M10 14.5V6a2 2 0 1 1 4 0v8.5a4 4 0 1 1-4 0z"/><circle cx="12" cy="18" r="1.3" fill="currentColor" stroke="none"/></svg></span>Sensor Node</span>
+          <div id="tat-lr-pill" class="tat-lr-pill" data-state="waiting">
+            <span class="tat-lr-dot"></span>
+            <span id="tat-lr-pill-txt">Waiting</span>
+          </div>
+        </div>
+        <div class="tat-info-panel">
+          <div class="tat-info-row"><span class="tat-info-lbl">Node ID</span><span id="tat-lr-node-id">--</span></div>
+          <div class="tat-info-row"><span class="tat-info-lbl">Status</span><span id="tat-lr-node-status">Waiting</span></div>
+          <div class="tat-info-row"><span class="tat-info-lbl">Seq</span><span id="tat-lr-seq">--</span></div>
+          <div class="tat-info-row"><span class="tat-info-lbl">Last join</span><span id="tat-lr-last-join">--</span></div>
+          <div class="tat-info-row"><span class="tat-info-lbl">Last uplink</span><span id="tat-lr-last-up">--</span></div>
+        </div>
+        <div class="tat-sensor-cards" style="margin-top:8px">
+          <div class="tat-data-card">
+            <div class="tat-data-lbl">Temperature</div>
+            <div id="tat-lr-temp" class="tat-data-val">--</div>
+          </div>
+          <div class="tat-data-card">
+            <div class="tat-data-lbl">Humidity</div>
+            <div id="tat-lr-hum" class="tat-data-val">--</div>
           </div>
         </div>
 
-        <div class="tc-gw-fw-grid">
-          <div class="tc-gw-section">
-            <div class="tc-section-title">Firmware</div>
-            <div class="tc-row tc-row-stretch">
-              <input id="tc-gw-lan-url" class="tc-input-flex" type="text" placeholder="LAN firmware URL">
-              <button class="tc-btn-sm" id="tc-gw-save-lan-url">Save LAN URL</button>
-            </div>
-            <div class="tc-row tc-row-stretch">
-              <input id="tc-gw-wan-url" class="tc-input-flex" type="text" placeholder="WAN firmware URL">
-              <button class="tc-btn-sm" id="tc-gw-save-wan-url">Save WAN URL</button>
-            </div>
-            <div class="tc-row">
-              <button class="tc-btn tc-btn-danger" id="tc-gw-fota">Trigger LAN FOTA</button>
-            </div>
-          </div>
-          <div id="tc-gw-status" class="tc-status-row">Gateway config ready</div>
+        <div class="tat-sec-hdr" style="margin-top:10px">LED CONTROL (Node GPIO 8)</div>
+        <div class="tat-onoff-row">
+          <button id="tat-btn-led-on"  class="tat-btn-on"  data-action="lrLedOn"  disabled>LED ON</button>
+          <button id="tat-btn-led-off" class="tat-btn-off" data-action="lrLedOff" disabled>LED OFF</button>
+        </div>
+
+        <div class="tat-info-panel" style="margin-top:8px">
+          <div class="tat-info-row"><span class="tat-info-lbl">Last TX</span><span id="tat-lr-last-tx">--</span></div>
+          <div class="tat-info-row"><span class="tat-info-lbl">Last RX</span><span id="tat-lr-last-rx">--</span></div>
+          <div class="tat-info-row"><span class="tat-info-lbl">RSSI</span><span id="tat-lr-rssi">--</span></div>
+          <div class="tat-info-row"><span class="tat-info-lbl">SNR</span><span id="tat-lr-snr">--</span></div>
         </div>
       </div>
     </div>
+  </div>
 
-    <!-- ── BLE Panel ── -->
-    <div class="tc-tech-card" id="tc-ble-card">
-      <div class="tc-card-hdr">
-        <div class="tc-tech-badge ble">BLE</div>
-        <span class="tc-card-title">BLE Sensor Node</span>
-        <label class="tc-switch">
-          <input type="checkbox" id="tc-ble-en">
-          <span class="tc-slider"></span>
-        </label>
-      </div>
-      <div class="tc-card-body">
-        <div class="tc-row">
-          <button class="tc-btn" id="tc-ble-scan">🔍 Scan</button>
-          <select id="tc-ble-dev" class="tc-select">
-            <option value="">— scan first —</option>
-          </select>
-          <button class="tc-btn" id="tc-ble-conn-btn">Connect</button>
-        </div>
-        <div class="tc-row">
-          <label class="tc-lbl">Notify interval (ms)</label>
-          <input id="tc-ble-interval" class="tc-input-num" type="number" value="500" min="100" max="60000" step="100">
-          <button class="tc-btn-sm" id="tc-ble-set-interval">Set</button>
-        </div>
-        <div id="tc-ble-status" class="tc-status-row">Not connected</div>
-      </div>
-    </div>
-
-    <!-- ── Zigbee Panel ── -->
-    <div class="tc-tech-card" id="tc-zb-card">
-      <div class="tc-card-hdr">
-        <div class="tc-tech-badge zb">ZB</div>
-        <span class="tc-card-title">Zigbee Sensor Node</span>
-        <label class="tc-stack-label" for="tc-zb-slot">Stack</label>
-        <select id="tc-zb-slot" class="tc-stack-select">
-          <option value="0">0</option>
-          <option value="1">1</option>
-        </select>
-        <label class="tc-switch">
-          <input type="checkbox" id="tc-zb-en">
-          <span class="tc-slider"></span>
-        </label>
-      </div>
-      <div class="tc-card-body">
-        <div class="tc-row">
-          <button class="tc-btn" id="tc-zb-net-start">▶ Net Start</button>
-          <button class="tc-btn" id="tc-zb-permit-join">🔓 Permit Join</button>
-          <button class="tc-btn" id="tc-zb-verify">✓ Verify Node</button>
-        </div>
-        <div class="tc-row">
-          <label class="tc-lbl">Short addr (hex)</label>
-          <input id="tc-zb-addr" class="tc-input-txt" type="text" placeholder="e.g. 1234" maxlength="4">
-          <label class="tc-lbl" style="margin-left:8px">EP</label>
-          <input id="tc-zb-ep" class="tc-input-sm" type="text" value="0B" maxlength="2">
-        </div>
-        <div class="tc-row">
-          <label class="tc-lbl">Send interval (ms)</label>
-          <input id="tc-zb-interval" class="tc-input-num" type="number" value="1000" min="100" max="60000" step="100">
-          <button class="tc-btn-sm" id="tc-zb-setup-push">Setup Push</button>
-        </div>
-        <div id="tc-zb-status" class="tc-status-row">Network not started</div>
-      </div>
-    </div>
-
-    <!-- ── LoRa Panel ── -->
-    <div class="tc-tech-card" id="tc-lr-card">
-      <div class="tc-card-hdr">
-        <div class="tc-tech-badge lr">LoRa</div>
-        <span class="tc-card-title">LoRa P2P Node</span>
-        <label class="tc-stack-label" for="tc-lr-slot">Stack</label>
-        <select id="tc-lr-slot" class="tc-stack-select">
-          <option value="0">0</option>
-          <option value="1">1</option>
-        </select>
-        <label class="tc-switch">
-          <input type="checkbox" id="tc-lr-en">
-          <span class="tc-slider"></span>
-        </label>
-      </div>
-      <div class="tc-card-body">
-        <div class="tc-row">
-          <button class="tc-btn" id="tc-lr-setup">⚙ Setup P2P</button>
-        </div>
-        <div class="tc-row">
-          <label class="tc-lbl">Poll interval (ms)</label>
-          <input id="tc-lr-interval" class="tc-input-num" type="number" value="2000" min="100" max="60000" step="100">
-          <label class="tc-lbl" style="margin-left:8px">RTT TO</label>
-          <input id="tc-lr-rtt-to" class="tc-input-num" type="number" value="5000" min="500" max="30000" step="500">
-        </div>
-        <div id="tc-lr-status" class="tc-status-row">Not configured</div>
-      </div>
-    </div>
-
-    <!-- ── Scheduler Controls ── -->
-    <div class="tc-sched-card">
-      <div class="tc-sched-head">
-        <div>
-          <div class="tc-sched-title">Global Poll Scheduler</div>
-          <div class="tc-sched-sub">Controls polling for BLE and LoRa. Zigbee runs in gated push mode.</div>
-        </div>
-      </div>
-      <div class="tc-sched-bar">
-        <button class="tc-btn-start" id="tc-btn-start">▶ Start Polling</button>
-        <button class="tc-btn-stop"  id="tc-btn-stop" disabled>■ Stop</button>
-        <span class="tc-sched-info" id="tc-sched-info">Ready</span>
-      </div>
-    </div>
-
-  </div><!-- /tc-body -->
-
-  <!-- ── Console ── -->
-  <div class="tc-console-wrap">
-    <div class="tc-console-bar">
-      <div class="tc-console-dots">
-        <span style="background:#ff5f57"></span>
+  <!-- -- Console Dock -- -->
+  <div class="tat-console-wrap">
+    <div class="tat-console-bar">
+      <div class="tat-console-dots">
+        <span style="background:#ff5f56"></span>
         <span style="background:#ffbd2e"></span>
-        <span style="background:#28c840"></span>
+        <span style="background:#27c93f"></span>
       </div>
-      <span class="tc-console-title">Console</span>
-      <button class="tc-btn-clear" id="tc-btn-clear">Clear</button>
+      <span class="tat-console-title">CONSOLE</span>
+      <button class="tat-btn-clear" data-action="tatClearLog">Clear</button>
     </div>
-    <div id="tc-console" class="tc-console"></div>
+    <div id="tat-console" class="tat-console-log"></div>
   </div>
 
-  <div id="tc-toast" class="tc-toast hidden"></div>
+  <!-- Toast -->
+  <div id="tat-toast" class="tat-toast" style="display:none"></div>
 
-</div>
+</div><!-- /tat-root -->
+
+
+

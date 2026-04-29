@@ -265,6 +265,13 @@
   gap: 12px;
 }
 
+.sr-poll-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
 .sr-field-inline > span {
   margin-bottom: 0;
   flex: 1;
@@ -399,7 +406,7 @@
   padding: 18px;
   margin-bottom: 16px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   background:
     linear-gradient(135deg, rgba(255, 155, 84, 0.1), rgba(86, 215, 200, 0.05)),

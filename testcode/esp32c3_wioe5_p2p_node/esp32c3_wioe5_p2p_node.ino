@@ -9,7 +9,7 @@
  *              switch to RX, wait up to RX_WINDOW_MS for JOIN_ACCEPT [0xFE, nodeId]
  *              cycle repeats until JOIN_ACCEPT received
  *
- *  DATA     →  TX SENSOR_DATA   [0x01, nodeId, seq, tHi, tLo, hHi, hLo]  (7 B)
+ *  DATA     →  TX SENSOR_DATA   [0x01, nodeId, seq, tHi, tLo, hHi, hLo, led]  (8 B)
  *              switch to RX, wait up to RX_WINDOW_MS
  *              if [0x10] received → LED ON   (GPIO LED_PIN)
  *              if [0x11] received → LED OFF
@@ -18,7 +18,7 @@
  * Packet types (first byte)
  *   0xFF  JOIN_REQUEST   node → gateway
  *   0xFE  JOIN_ACCEPT    gateway → node
- *   0x01  SENSOR_DATA    node → gateway
+ *   0x01  SENSOR_DATA    node → gateway (last byte = LED state 0/1)
  *   0x10  LED_ON         gateway → node
  *   0x11  LED_OFF        gateway → node
  *
@@ -246,7 +246,9 @@ void loop()
         Serial.print(" payload=");
         Serial.println(hexStr);
 
-        p2pTx(hexStr);   /* AT+TEST=TXLRPKT,"FF01xx" */
+        if (!p2pTx(hexStr)) {
+            Serial.println("[JOIN] TX JOIN_REQUEST failed");
+        }
 
         /* Listen for JOIN_ACCEPT [0xFE, nodeId] */
         String rxHex = "";
@@ -283,12 +285,13 @@ void loop()
         int16_t  tempI = (int16_t)(tempC  * 100.0f);
         uint16_t humI  = (uint16_t)(humPct * 100.0f);
 
-        /* Build SENSOR_DATA: [0x01, nodeId, seq, tHi, tLo, hHi, hLo] (7 B) */
-        char hexStr[15];
-        snprintf(hexStr, sizeof(hexStr), "%02X%02X%02X%02X%02X%02X%02X",
+        /* Build SENSOR_DATA: [0x01, nodeId, seq, tHi, tLo, hHi, hLo, led] (8 B) */
+        char hexStr[17];
+        snprintf(hexStr, sizeof(hexStr), "%02X%02X%02X%02X%02X%02X%02X%02X",
                  PKT_SENSOR, NODE_ID, g_seq++,
                  (uint8_t)((tempI >> 8) & 0xFF), (uint8_t)(tempI & 0xFF),
-                 (uint8_t)((humI  >> 8) & 0xFF), (uint8_t)(humI  & 0xFF));
+             (uint8_t)((humI  >> 8) & 0xFF), (uint8_t)(humI  & 0xFF),
+             g_ledOn ? 0x01 : 0x00);
 
         Serial.print("[DATA] TX seq=");
         Serial.print(g_seq - 1);
@@ -299,7 +302,9 @@ void loop()
         Serial.print("% payload=");
         Serial.println(hexStr);
 
-        p2pTx(hexStr);
+        if (!p2pTx(hexStr)) {
+            Serial.println("[DATA] TX SENSOR_DATA failed");
+        }
 
         /* RX window: listen for LED command */
         String rxHex = "";

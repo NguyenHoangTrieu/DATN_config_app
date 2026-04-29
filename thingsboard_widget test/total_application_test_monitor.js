@@ -1,64 +1,126 @@
-/* =====================================================================
-   total_application_test_monitor — JavaScript
+﻿/* =====================================================================
+   DA2 Total Application Test Monitor Widget — JavaScript
+   Type    : Latest Values widget (no controlApi)
+   Datasource: Gateway device → key "data" (Latest Telemetry)
+
+   Data sources:
+     1. window event 'da2_tat_event'    — structured device data from control widget
+     2. window event 'da2_tat_raw_line' — raw telemetry line from control widget
+     3. self.onDataUpdated              — datasource-driven Latest Telemetry "data" key
+
+   State schema:
+     tatmState.devices[key] = {
+       proto, type, name, addr, slot, data:{temp,hum,on,color,seq,rssi,snr,ledState},
+       lastTs, updateCount
+     }
+     key = proto + ':' + id  e.g. 'ble:1', 'zb:1234', 'lora:01'
    ===================================================================== */
 
-var TAM_EVENT_NAME = 'da2_total_app_event';
-var TAM_DATA_KEY = 'da2_total_app_data';
-var TAM_RAW_KEY = 'da2_total_app_raw_bridge';
-var TAM_RAW_EVENT_NAME = 'da2_total_app_raw_line';
-var TAM_RTT_HISTORY = 10;
-var TAM_DEBUG_MAX = 14;
+/* ═══════════════════════════════════════════════════════════════════
+   Constants
+   ═══════════════════════════════════════════════════════════════════ */
+var TATM_STALE_MS      = 120000;   /* 2 minutes */
+var TATM_STALE_CHECK   = 30000;    /* poll every 30s */
+var TATM_LS_KEY        = 'da2_tatm_state';
+var TATM_MAX_DEVICES   = 64;
 
-var tamState = {
-  filter: 'all',
-  devices: {},
-  gateway: null,
-  totalRx: 0,
-  lastTs: 0,
-  zbPending: {},
-  lastDataStamp: { ble: 0, zb: 0, lr: 0, gw: 0 },
-  lastRawStamp: 0,
-  lastTelemetryTs: 0,
-  debug: []
+/* ═══════════════════════════════════════════════════════════════════
+   State
+   ═══════════════════════════════════════════════════════════════════ */
+var tatmState = {
+  devices:      {},
+  filterProto:  'all',
+  filterType:   'all',
+  filterState:  'all',
+  totalRx:      0,
+  lastTs:       0,
+  staleTimer:   null
 };
 
-var _tamBridgeHandler = null;
-var _tamStaleTimer = null;
-var _tamLsTimer = null;
+/* Listeners */
+var _tatmBridgeHandler  = null;
+var _tatmRawLineHandler = null;
+var _tatmLastRawTs      = 0;
 
+/* ═══════════════════════════════════════════════════════════════════
+   ThingsBoard Lifecycle
+   ═══════════════════════════════════════════════════════════════════ */
 self.onInit = function () {
-  tamBindFilters();
-  tamRender();
-  tamSetPill('idle', 'Waiting');
-  tamDebug('parse', 'Monitor ready');
+  try {
+    /* Clean up any stale listeners */
+    if (_tatmBridgeHandler)  { window.removeEventListener('da2_tat_event', _tatmBridgeHandler);    _tatmBridgeHandler  = null; }
+    if (_tatmRawLineHandler) { window.removeEventListener('da2_tat_raw_line', _tatmRawLineHandler); _tatmRawLineHandler = null; }
+    if (tatmState.staleTimer) { clearInterval(tatmState.staleTimer); tatmState.staleTimer = null; }
 
-  _tamBridgeHandler = function (e) {
-    var detail = e && e.detail;
-    if (!detail || !detail.tech || !detail.payload) return;
-    tamHandleBridgeEvent(detail.tech, detail.payload);
-  };
-  window.addEventListener(TAM_EVENT_NAME, _tamBridgeHandler);
+    /* Restore persisted state */
+    tatmRestoreState();
 
-  _tamStaleTimer = setInterval(tamRender, 5000);
-  _tamLsTimer = setInterval(tamPollLocalStorage, 1200);
-  tamPollLocalStorage();
+    /* ══════ EVENT DELEGATION FOR FILTER BUTTONS & CLEAR ══════ */
+    var root = document.getElementById('tatm-root');
+    if (root) {
+      root.addEventListener('click', function(evt) {
+        var el = evt.target;
+        /* Filter chip buttons */
+        if (el.className && el.className.indexOf('tatm-chip') >= 0) {
+          var dim = el.getAttribute('data-dim');
+          var val = el.getAttribute('data-val');
+          if (dim && val) {
+            tatmSetFilter(dim, val, el);
+          }
+          evt.preventDefault();
+          return;
+        }
+        /* Clear button */
+        if (el.className && el.className.indexOf('tatm-btn-clear') >= 0) {
+          tatmClearState();
+          evt.preventDefault();
+          return;
+        }
+      });
+    }
+
+    /* Bridge event from control widget */
+    _tatmBridgeHandler = function (evt) {
+      try {
+        var d = evt && evt.detail;
+        if (!d || !d.proto) return;
+        tatmHandleDeviceEvent(d);
+      } catch (e) {}
+    };
+    window.addEventListener('da2_tat_event', _tatmBridgeHandler);
+
+    /* Raw line events from control widget */
+    _tatmRawLineHandler = function (evt) {
+      try {
+        var d = evt && evt.detail;
+        if (!d || !d.line) return;
+        tatmHandleRawLine(d.line);
+      } catch (e) {}
+    };
+    window.addEventListener('da2_tat_raw_line', _tatmRawLineHandler);
+
+    /* Stale-check periodic timer */
+    tatmState.staleTimer = setInterval(tatmStaleCheck, TATM_STALE_CHECK);
+
+    /* Initial render */
+    tatmRenderCards();
+    tatmUpdateFooter();
+    tatmSetPill('idle', 'Waiting');
+
+  } catch (e) {
+    console.error('[TATM] onInit error:', e);
+  }
 };
 
 self.onDestroy = function () {
-  if (_tamBridgeHandler) {
-    window.removeEventListener(TAM_EVENT_NAME, _tamBridgeHandler);
-    _tamBridgeHandler = null;
-  }
-  if (_tamStaleTimer) {
-    clearInterval(_tamStaleTimer);
-    _tamStaleTimer = null;
-  }
-  if (_tamLsTimer) {
-    clearInterval(_tamLsTimer);
-    _tamLsTimer = null;
-  }
+  try {
+    if (_tatmBridgeHandler)  { window.removeEventListener('da2_tat_event', _tatmBridgeHandler);    _tatmBridgeHandler  = null; }
+    if (_tatmRawLineHandler) { window.removeEventListener('da2_tat_raw_line', _tatmRawLineHandler); _tatmRawLineHandler = null; }
+    if (tatmState.staleTimer) { clearInterval(tatmState.staleTimer); tatmState.staleTimer = null; }
+  } catch (e) {}
 };
 
+/* Datasource-driven fallback */
 self.onDataUpdated = function () {
   try {
     var data = self.ctx && self.ctx.data;
@@ -68,502 +130,452 @@ self.onDataUpdated = function () {
       if (!kd || !kd.data || !kd.data.length) continue;
       for (var di = 0; di < kd.data.length; di++) {
         var entry = kd.data[di];
-        if (!entry || entry.length < 2) continue;
-        var ts = entry[0];
-        var raw = entry[1];
-        if (ts <= tamState.lastTelemetryTs) continue;
-        tamState.lastTelemetryTs = ts;
-        tamProcessRawPayload(raw, ts);
+        var ts    = entry[0];
+        var raw   = entry[1];
+        if (ts <= _tatmLastRawTs) continue;
+        _tatmLastRawTs = ts;
+        var decoded = tatmDecodeVal(raw);
+        var lines   = decoded.split(/\x1e|\n/).map(function(x){ return x.trim(); }).filter(Boolean);
+        lines.forEach(tatmHandleRawLine);
       }
     }
-  } catch (e) {
-    tamDebug('warn', 'onDataUpdated: ' + e);
-  }
+  } catch (e) {}
 };
 
-function tamHandleBridgeEvent(tech, payload) {
-  if (tech === 'gw') {
-    tamUpdateGateway(payload);
-    return;
-  }
-  tamUpsertSample(tech, payload, true);
-}
-
-function tamPollLocalStorage() {
-  try {
-    var raw = localStorage.getItem(TAM_DATA_KEY);
-    if (raw) {
-      var obj = JSON.parse(raw);
-      var keys = ['gw', 'ble', 'zb', 'lr'];
-      for (var i = 0; i < keys.length; i++) {
-        var tech = keys[i];
-        var payload = obj[tech];
-        if (!payload || !payload.updatedAt) continue;
-        if (payload.updatedAt <= tamState.lastDataStamp[tech]) continue;
-        tamState.lastDataStamp[tech] = payload.updatedAt;
-        tamHandleBridgeEvent(tech, payload);
-      }
-    }
-  } catch (e0) {
-    tamDebug('warn', 'LS data bridge failed');
-  }
-
-  try {
-    var rawLine = localStorage.getItem(TAM_RAW_KEY);
-    if (!rawLine) return;
-    var lineObj = JSON.parse(rawLine);
-    if (!lineObj || !lineObj.updatedAt || !lineObj.line) return;
-    if (lineObj.updatedAt <= tamState.lastRawStamp) return;
-    tamState.lastRawStamp = lineObj.updatedAt;
-    tamProcessLine(lineObj.line, lineObj.ts || lineObj.updatedAt, true);
-  } catch (e1) {
-    tamDebug('warn', 'LS raw bridge failed');
-  }
-}
-
-function tamProcessRawPayload(raw, ts) {
-  var decoded = tamDecodeHex(raw);
-  var lines = tamSplitLines(decoded);
-  tamDebug('raw', 'WS ' + ts + ': ' + tamShort(decoded));
-  for (var i = 0; i < lines.length; i++) {
-    var stamp = Date.now();
-    try {
-      window.dispatchEvent(new CustomEvent(TAM_RAW_EVENT_NAME, {
-        detail: { ts: ts, line: lines[i] }
-      }));
-    } catch (e0) {}
-    try {
-      localStorage.setItem(TAM_RAW_KEY, JSON.stringify({
-        updatedAt: stamp,
-        ts: ts,
-        line: lines[i]
-      }));
-      tamState.lastRawStamp = stamp;
-    } catch (e1) {}
-    tamProcessLine(lines[i], ts, false);
-  }
-}
-
-function tamProcessLine(line, ts, fromBridge) {
-  var now = ts || Date.now();
-  var text = String(line || '').trim();
-  if (!text) return;
-  tamDebug(fromBridge ? 'parse' : 'raw', tamShort(text));
-
-  var ble = text.match(/CFBG:OK:NOTIFY:(\d+):0x[0-9A-Fa-f]+:([^\s\x1E]+)/i);
-  if (ble) {
-    var hex4 = tamNormalizeBleNotify(ble[2]);
-    if (!hex4) return;
-    var tRaw = parseInt(hex4.substr(2, 2) + hex4.substr(0, 2), 16);
-    var hRaw = parseInt(hex4.substr(6, 2) + hex4.substr(4, 2), 16);
-    if (tRaw & 0x8000) tRaw -= 0x10000;
-    tamUpsertSample('ble', {
-      key: 'ble:' + ble[1],
-      devIdx: parseInt(ble[1], 10),
-      title: 'BLE Sensor #' + ble[1],
-      temp: tRaw * 0.01,
-      hum: hRaw * 0.01,
-      ts: now
-    }, false);
-    return;
-  }
-
-  var zb = text.match(/RPT:([0-9A-Fa-f]{4}),([0-9A-Fa-f]{2}),([0-9A-Fa-f]{4}),([0-9A-Fa-f]{4}),([0-9A-Fa-f]{2}),([0-9A-Fa-f]+)/i);
-  if (zb) {
-    tamHandleZbRpt(zb[1].toUpperCase(), zb[2].toUpperCase(), zb[3].toUpperCase(), zb[4].toUpperCase(), zb[6], now);
-    return;
-  }
-
-  var slotMatch = text.match(/^CFLR:(\d):/i);
-  var lrSlot = slotMatch ? slotMatch[1] : '';
-  var lr = text.match(/\+TEST:\s*RXLRPKT\s+(\d+),\s*(-?\d+),\s*(-?\d+),\s*([0-9A-Fa-f]+)/i);
-  if (lr) {
-    tamHandleLoraHex(lr[4], lrSlot, parseInt(lr[2], 10), parseInt(lr[3], 10), now);
-    return;
-  }
-
-  var lr2 = text.match(/\+TEST:\s*RX\s*"([0-9A-Fa-f]+)"/i);
-  if (lr2) {
-    tamHandleLoraHex(lr2[1], lrSlot, null, null, now);
-    return;
-  }
-
-  if (/CF(IN|WF|LT|SV|MQ|HP|CP|FU|FW)|CFFU|CFFW/i.test(text)) {
-    tamUpdateGateway({
-      title: 'Gateway',
-      status: text,
-      ts: now
-    });
-  }
-}
-
-function tamHandleZbRpt(shortAddr, ep, cluster, attr, valueHex, now) {
-  var key = 'zb:' + shortAddr;
-  if (!tamState.zbPending[key]) tamState.zbPending[key] = {};
-  var raw = parseInt(valueHex, 16);
-  if (cluster === '0402' && attr === '0000') {
-    if (raw & 0x8000) raw -= 0x10000;
-    tamState.zbPending[key].temp = raw * 0.01;
-  }
-  if (cluster === '0405' && attr === '0000') {
-    tamState.zbPending[key].hum = raw * 0.01;
-  }
-  tamUpsertSample('zb', {
-    key: key,
-    shortAddr: shortAddr,
-    ep: ep,
-    title: 'Zigbee 0x' + shortAddr,
-    temp: tamState.zbPending[key].temp,
-    hum: tamState.zbPending[key].hum,
-    ts: now
-  }, false);
-}
-
-function tamHandleLoraHex(hex, slot, rssi, snr, now) {
-  if (!hex || hex.length < 12) return;
-  var nodeId = parseInt(hex.substr(0, 2), 16);
-  var t16 = parseInt(hex.substr(4, 4), 16);
-  var h16 = parseInt(hex.substr(8, 4), 16);
-  if (t16 & 0x8000) t16 -= 0x10000;
-  tamUpsertSample('lr', {
-    key: 'lr:' + (slot || '0') + ':' + nodeId,
-    slot: slot || '0',
-    nodeId: nodeId,
-    title: 'LoRa Node ' + nodeId,
-    temp: t16 * 0.01,
-    hum: h16 * 0.01,
-    rssi: rssi,
-    snr: snr,
-    ts: now
-  }, false);
-}
-
-function tamUpsertSample(tech, payload, preferBridge) {
-  if (!payload) return;
-  var key = payload.key || tamFallbackKey(tech, payload);
-  var entry = tamState.devices[key];
-  if (!entry) {
-    entry = {
-      key: key,
-      tech: tech,
-      title: payload.title || tamDefaultTitle(tech, payload),
-      temp: null,
-      hum: null,
-      rtt: null,
-      rxCnt: 0,
-      lastTs: 0,
-      rttHistory: [],
-      meta: {}
+/* ═══════════════════════════════════════════════════════════════════
+   Device event handler (from control widget bridge)
+   ═══════════════════════════════════════════════════════════════════ */
+function tatmHandleDeviceEvent(d) {
+  /* d = {proto, type, id, name, addr, slot, data:{…}} */
+  var key = d.proto + ':' + String(d.id).toUpperCase();
+  if (!tatmState.devices[key]) {
+    /* Check cap */
+    if (Object.keys(tatmState.devices).length >= TATM_MAX_DEVICES) return;
+    tatmState.devices[key] = {
+      proto: d.proto, type: d.type || 'unknown', name: d.name, addr: d.addr,
+      slot: d.slot || '?', data: {}, lastTs: Date.now(), updateCount: 0
     };
-    tamState.devices[key] = entry;
   }
-
-  var isSameSample = !!(payload.ts && entry.lastTs === payload.ts && entry.temp === payload.temp && entry.hum === payload.hum);
-
-  entry.title = payload.title || entry.title;
-  if (typeof payload.temp === 'number') entry.temp = payload.temp;
-  if (typeof payload.hum === 'number') entry.hum = payload.hum;
-  if (payload.rtt !== null && payload.rtt !== undefined && !isNaN(payload.rtt)) {
-    entry.rtt = payload.rtt;
-    entry.rttHistory.push(payload.rtt);
-    if (entry.rttHistory.length > TAM_RTT_HISTORY) entry.rttHistory.shift();
+  var dev = tatmState.devices[key];
+  dev.proto        = d.proto || dev.proto;
+  dev.type         = d.type || dev.type || 'unknown';
+  dev.name         = d.name || dev.name;
+  dev.addr         = d.addr || dev.addr;
+  dev.slot         = d.slot || dev.slot;
+  dev.lastTs       = Date.now();
+  dev.updateCount  = (dev.updateCount || 0) + 1;
+  if (d.data && d.data.error !== undefined) dev.error = !!d.data.error;
+  /* Merge data fields */
+  var keys = d.data ? Object.keys(d.data) : [];
+  for (var ki = 0; ki < keys.length; ki++) {
+    if (d.data[keys[ki]] !== undefined && d.data[keys[ki]] !== null) {
+      dev.data[keys[ki]] = d.data[keys[ki]];
+    }
   }
-  if (payload.rssi !== undefined) entry.meta.rssi = payload.rssi;
-  if (payload.snr !== undefined) entry.meta.snr = payload.snr;
-  if (payload.devIdx !== undefined) entry.meta.devIdx = payload.devIdx;
-  if (payload.shortAddr) entry.meta.shortAddr = payload.shortAddr;
-  if (payload.ep) entry.meta.ep = payload.ep;
-  if (payload.slot !== undefined) entry.meta.slot = payload.slot;
-  if (payload.nodeId !== undefined) entry.meta.nodeId = payload.nodeId;
-  if (payload.ts || !entry.lastTs) entry.lastTs = payload.ts || Date.now();
-  if (!isSameSample) {
-    entry.rxCnt += 1;
-    tamState.totalRx += 1;
-  }
-  tamState.lastTs = entry.lastTs;
-  if (preferBridge) {
-    tamDebug('parse', 'Bridge ' + tech.toUpperCase() + ': ' + entry.title);
-  }
-  tamRender();
+  tatmState.totalRx++;
+  tatmState.lastTs = dev.lastTs;
+  tatmSetPill('active', 'Live');
+  tatmPersistState();
+  tatmRenderCards();
+  tatmUpdateFooter();
 }
 
-function tamUpdateGateway(payload) {
-  tamState.gateway = {
-    title: payload.title || 'Gateway',
-    status: payload.status || 'Gateway event',
-    action: payload.action || '',
-    internetType: payload.internetType || (tamState.gateway && tamState.gateway.internetType) || '—',
-    serverType: payload.serverType || (tamState.gateway && tamState.gateway.serverType) || '—',
-    lanUrl: payload.lanUrl || (tamState.gateway && tamState.gateway.lanUrl) || '',
-    wanUrl: payload.wanUrl || (tamState.gateway && tamState.gateway.wanUrl) || '',
-    lastTs: payload.ts || Date.now(),
-    rxCnt: (tamState.gateway ? tamState.gateway.rxCnt : 0) + 1
-  };
-  tamState.lastTs = tamState.gateway.lastTs;
-  tamRender();
-}
-
-function tamRender() {
-  var grid = document.getElementById('tam-grid');
-  var hint = document.getElementById('tam-hint');
-  if (!grid) return;
-
-  var cards = tamCollectCards();
-  grid.innerHTML = cards.map(tamRenderCard).join('');
-  if (hint) {
-    if (cards.length) hint.classList.add('hidden');
-    else hint.classList.remove('hidden');
+/* ═══════════════════════════════════════════════════════════════════
+   Raw telemetry line parser (fallback — no control widget running)
+   ═══════════════════════════════════════════════════════════════════ */
+function tatmHandleRawLine(line) {
+  if (!line) return;
+  /* BLE NOTIFY → sensor: CFBG:OK:NOTIFY:<idx>:0x<handle>:<hexdata> */
+  var m = line.match(/CFBG:OK:NOTIFY:(\d+):0x([0-9A-Fa-f]+):([0-9A-Fa-f]{8,})/i);
+  if (m) {
+    var idx  = m[1];
+    var hex4 = m[3];
+    var t = parseInt(hex4.substr(0,2), 16) | (parseInt(hex4.substr(2,2), 16) << 8);
+    if (t > 32767) t -= 65536;
+    var h = parseInt(hex4.substr(4,2), 16) | (parseInt(hex4.substr(6,2), 16) << 8);
+    if (h > 32767) h -= 65536;
+    tatmHandleDeviceEvent({
+      proto: 'ble', type: 'sensor', id: idx,
+      name:  'BLE Sensor ' + idx,
+      addr:  '—', slot: '?',
+      data:  { temp: (t/100.0).toFixed(1), hum: (h/100.0).toFixed(1) }
+    });
+    return;
   }
 
-  tamSetText('tam-total-rx', tamState.totalRx + ' samples');
-  tamSetText('tam-tech-count', cards.length + ' cards');
-  tamSetText('tam-last-ts', tamState.lastTs ? ('Last: ' + tamTime(tamState.lastTs)) : '—');
-  tamSetText('tam-toolbar-meta', cards.length ? ('Showing ' + cards.length + ' cards') : 'No samples yet');
-  tamSetPill(cards.length ? tamPillState(cards) : 'idle', cards.length ? 'Active' : 'Waiting');
-  tamRenderDebug();
-}
-
-function tamCollectCards() {
-  var out = [];
-  if ((tamState.filter === 'all' || tamState.filter === 'gw') && tamState.gateway) {
-    out.push({ tech: 'gw', gateway: true, data: tamState.gateway });
+  /* Zigbee attr report: RPT:<short4>,<ep>,<cluster>,<attr>,<type>,<value> */
+  m = line.match(/RPT:([0-9A-Fa-f]{4}),([0-9A-Fa-f]{2}),([0-9A-Fa-f]{4}),([0-9A-Fa-f]{4}),([0-9A-Fa-f]{2}),([0-9A-Fa-f]+)/i);
+  if (m) {
+    var short   = m[1].toUpperCase();
+    var cluster = m[3].toUpperCase();
+    var attr    = m[4].toUpperCase();
+    var val     = parseInt(m[6], 16);
+    var dkey    = 'zb:' + short;
+    var dev2    = tatmState.devices[dkey];
+    var data2   = {};
+    if (cluster === '0402' && attr === '0000') { data2.temp = (val / 100.0).toFixed(1); }
+    if (cluster === '0405' && attr === '0000') { data2.hum  = (val / 100.0).toFixed(1); }
+    if (cluster === '0006' && attr === '0000') { data2.on = val !== 0; }
+    if (cluster === '0008' && attr === '0000') { data2.level = Math.round(val / 2.54); }
+    tatmHandleDeviceEvent({
+      proto: 'zb', type: (cluster === '0006' || cluster === '0008') ? 'led' : ((dev2 && dev2.type) || 'sensor'), id: short,
+      name:  (dev2 && dev2.name) || ('ZB 0x' + short),
+      addr:  '0x' + short, slot: '?', data: data2
+    });
+    return;
   }
 
-  var keys = Object.keys(tamState.devices);
-  keys.sort();
+  /* LoRa P2P sensor packet: parsed from RXLRPKT */
+  m = line.match(/\+TEST:\s*RXLRPKT\s+\d+,\s*(-?\d+),\s*(-?\d+),\s*"([0-9A-Fa-f]+)"/i);
+  if (m) {
+    var rssi2 = m[1]; var snr2 = m[2]; var hex2 = m[3].toUpperCase();
+    if (hex2.length >= 14 && hex2.substr(0,2) === '01') {
+      var nodeId  = parseInt(hex2.substr(2,2), 16);
+      var seq2    = parseInt(hex2.substr(4,2), 16);
+      var tRaw    = (parseInt(hex2.substr(6,2),16) << 8) | parseInt(hex2.substr(8,2),16);
+      var hRaw    = (parseInt(hex2.substr(10,2),16) << 8) | parseInt(hex2.substr(12,2),16);
+      var ledState2 = hex2.length >= 16 ? (parseInt(hex2.substr(14,2),16) ? 'ON' : 'OFF') : '—';
+      tatmHandleDeviceEvent({
+        proto: 'lora', type: 'lora_node',
+        id:    nodeId.toString(16).toUpperCase(),
+        name:  'LoRa Node 0x' + ('00' + nodeId.toString(16).toUpperCase()).slice(-2),
+        addr:  '', slot: '?',
+        data:  {
+          temp: (tRaw/100.0).toFixed(1), hum: (hRaw/100.0).toFixed(1),
+          seq:  seq2, rssi: rssi2 + ' dBm', snr: snr2 + ' dB', ledState: ledState2
+        }
+      });
+    }
+    return;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Stale check
+   ═══════════════════════════════════════════════════════════════════ */
+function tatmStaleCheck() {
+  var now   = Date.now();
+  var keys  = Object.keys(tatmState.devices);
+  var dirty = false;
   for (var i = 0; i < keys.length; i++) {
-    var device = tamState.devices[keys[i]];
-    if (tamState.filter !== 'all' && tamState.filter !== device.tech) continue;
-    out.push({ tech: device.tech, gateway: false, data: device });
+    var dev = tatmState.devices[keys[i]];
+    var stale = tatmDeviceState(dev, now) === 'stale';
+    if (stale !== !!dev._stale) { dev._stale = stale; dirty = true; }
   }
-  return out;
+  if (dirty) {
+    tatmRenderCards();
+    /* Update header pill */
+    var anyError = keys.length > 0 && keys.some(function(k){ return tatmDeviceState(tatmState.devices[k], now) === 'error'; });
+    var allStale = keys.length > 0 && keys.every(function(k){ return tatmDeviceState(tatmState.devices[k], now) === 'stale'; });
+    if (anyError) tatmSetPill('error', 'Error');
+    else if (allStale) tatmSetPill('stale', 'Stale');
+    else if (keys.length > 0) tatmSetPill('active', 'Live');
+    else tatmSetPill('idle', 'Waiting');
+  }
 }
 
-function tamRenderCard(card) {
-  if (card.gateway) return tamRenderGatewayCard(card.data);
-  var d = card.data;
-  var stale = tamIsStale(d.tech, d.lastTs);
-  var rttCls = tamRttClass(d.rtt);
-  var rttText = d.rtt != null ? (Math.round(d.rtt) + ' ms') : '—';
-  var avgRtt = d.rttHistory.length ? Math.round(tamAverage(d.rttHistory)) + ' ms avg' : '—';
-  return '' +
-    '<div class="tam-card" data-tech="' + d.tech + '" data-stale="' + (stale ? 'true' : 'false') + '">' +
-      '<div class="tam-card-hdr">' +
-        '<span class="tam-badge ' + d.tech + '">' + tamTechLabel(d.tech) + '</span>' +
-        '<span class="tam-card-title">' + tamEsc(d.title) + '</span>' +
-        '<span class="tam-rtt ' + rttCls + '">' + tamEsc(rttText) + '</span>' +
-      '</div>' +
-      '<div class="tam-card-body">' +
-        '<div class="tam-values">' +
-          tamValueBox('Temp', tamFormatNumber(d.temp), '°C') +
-          tamValueBox('Humidity', tamFormatNumber(d.hum), '%') +
-        '</div>' +
-        '<div class="tam-meta-grid">' +
-          tamMetaItem('Last', tamTime(d.lastTs)) +
-          tamMetaItem('Samples', String(d.rxCnt)) +
-          tamMetaItem('RTT avg', avgRtt) +
-          tamMetaItem('Target', tamTargetText(d)) +
-          (d.meta.rssi != null ? tamMetaItem('RSSI', String(d.meta.rssi)) : '') +
-          (d.meta.snr != null ? tamMetaItem('SNR', String(d.meta.snr)) : '') +
-        '</div>' +
-      '</div>' +
-      '<div class="tam-card-footer">' +
-        '<span>' + tamEsc(tamStatusText(stale)) + '</span>' +
-        '<span>' + tamEsc(tamTechLabel(d.tech)) + '</span>' +
-      '</div>' +
-    '</div>';
+/* ═══════════════════════════════════════════════════════════════════
+   Filter functions
+   ═══════════════════════════════════════════════════════════════════ */
+function tatmSetFilter(dim, val, el) {
+  /* Update active chip in the same filter group */
+  if (el && el.parentNode) {
+    try {
+      var chips = el.parentNode.querySelectorAll('.tatm-chip');
+      for (var i = 0; i < chips.length; i++) chips[i].classList.remove('tatm-chip-active');
+      el.classList.add('tatm-chip-active');
+    } catch (e) {}
+  }
+  if (dim === 'proto') tatmState.filterProto = val;
+  if (dim === 'type')  tatmState.filterType  = val;
+  if (dim === 'state') tatmState.filterState = val;
+  tatmRenderCards();
 }
 
-function tamRenderGatewayCard(gw) {
-  return '' +
-    '<div class="tam-card" data-tech="gw" data-stale="' + (tamIsStale('gw', gw.lastTs) ? 'true' : 'false') + '">' +
-      '<div class="tam-card-hdr">' +
-        '<span class="tam-badge gw">GW</span>' +
-        '<span class="tam-card-title">' + tamEsc(gw.title) + '</span>' +
-        '<span class="tam-rtt">' + tamEsc(gw.action || 'state') + '</span>' +
-      '</div>' +
-      '<div class="tam-card-body">' +
-        '<div class="tam-gw-block"><strong>Status:</strong> ' + tamEsc(gw.status || '—') + '</div>' +
-        '<div class="tam-meta-grid">' +
-          tamMetaItem('Internet', gw.internetType || '—') +
-          tamMetaItem('Server', gw.serverType || '—') +
-          tamMetaItem('LAN URL', gw.lanUrl ? tamShort(gw.lanUrl) : '—') +
-          tamMetaItem('WAN URL', gw.wanUrl ? tamShort(gw.wanUrl) : '—') +
-        '</div>' +
-      '</div>' +
-      '<div class="tam-card-footer">' +
-        '<span>' + tamEsc(tamTime(gw.lastTs)) + '</span>' +
-        '<span>' + tamEsc(String(gw.rxCnt || 0) + ' events') + '</span>' +
-      '</div>' +
-    '</div>';
+function tatmDeviceState(dev, now) {
+  if (dev && (dev.error || (dev.data && dev.data.error))) return 'error';
+  return ((now - dev.lastTs) > TATM_STALE_MS) ? 'stale' : 'live';
 }
 
-function tamBindFilters() {
-  var host = document.getElementById('tam-filter-group');
-  if (!host) return;
-  host.addEventListener('click', function (e) {
-    var btn = e.target && e.target.closest ? e.target.closest('.tam-filter') : null;
-    if (!btn) return;
-    tamState.filter = btn.getAttribute('data-filter') || 'all';
-    var all = host.querySelectorAll('.tam-filter');
-    for (var i = 0; i < all.length; i++) all[i].classList.remove('active');
-    btn.classList.add('active');
-    tamRender();
+function tatmTypeLabel(type) {
+  if (type === 'sensor') return 'Sensor';
+  if (type === 'led') return 'LED/Light';
+  if (type === 'lora_node') return 'Sensor+LED';
+  return 'Unknown';
+}
+
+function tatmTypeClass(type) {
+  if (type === 'sensor') return 'type-sensor';
+  if (type === 'led') return 'type-led';
+  if (type === 'lora_node') return 'type-lora-node';
+  return 'type-unknown';
+}
+
+function tatmStateLabel(state) {
+  if (state === 'error') return 'Error';
+  if (state === 'stale') return 'Stale';
+  return 'Live';
+}
+
+function tatmStateClass(state) {
+  if (state === 'error') return 'state-error';
+  if (state === 'stale') return 'state-stale';
+  return 'state-live';
+}
+
+function tatmNormalizeOnState(data) {
+  if (!data) return null;
+  if (data.on !== undefined) return !!data.on;
+  if (data.onOff !== undefined) return !!data.onOff;
+  if (data.ledState === 'ON') return true;
+  if (data.ledState === 'OFF') return false;
+  return null;
+}
+
+function tatmSampleCount(dev) {
+  if (dev.data.sampleCount !== undefined) return dev.data.sampleCount;
+  if (dev.data.count !== undefined) return dev.data.count;
+  return dev.updateCount || 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Render cards
+   ═══════════════════════════════════════════════════════════════════ */
+function tatmRenderCards() {
+  console.log('[TATM] tatmRenderCards called, filterProto=' + tatmState.filterProto + ', filterType=' + tatmState.filterType + ', filterState=' + tatmState.filterState);
+  var grid = document.getElementById('tatm-grid');
+  if (!grid) { console.log('[TATM] ERROR: tatm-grid not found'); return; }
+  var hint = document.getElementById('tatm-hint');
+  var now  = Date.now();
+  var keys = Object.keys(tatmState.devices);
+  console.log('[TATM] renderCards: ' + keys.length + ' devices total');
+
+  /* Apply filters */
+  var visible = keys.filter(function (k) {
+    var dev   = tatmState.devices[k];
+    var state = tatmDeviceState(dev, now);
+    if (tatmState.filterProto !== 'all' && dev.proto !== tatmState.filterProto) return false;
+    if (tatmState.filterType  !== 'all' && dev.type  !== tatmState.filterType)  return false;
+    if (tatmState.filterState !== 'all' && state !== tatmState.filterState) return false;
+    return true;
   });
-}
 
-function tamNormalizeBleNotify(rawPayload) {
-  var raw = String(rawPayload || '').trim();
-  if (!raw) return '';
-  var hex = raw.replace(/xy/ig, '16').replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
-  return hex.length >= 8 ? hex.substr(0, 8) : '';
-}
+  if (hint) hint.style.display = (visible.length === 0 && keys.length === 0) ? 'block' : 'none';
 
-function tamFallbackKey(tech, payload) {
-  if (tech === 'ble') return 'ble:' + String(payload.devIdx != null ? payload.devIdx : 0);
-  if (tech === 'zb') return 'zb:' + String(payload.shortAddr || '0000');
-  if (tech === 'lr') return 'lr:' + String(payload.slot || '0') + ':' + String(payload.nodeId != null ? payload.nodeId : 0);
-  return tech + ':0';
-}
+  /* Remove old dynamic cards */
+  var oldCards = grid.querySelectorAll('.tatm-card, .tatm-filter-empty');
+  for (var i = 0; i < oldCards.length; i++) grid.removeChild(oldCards[i]);
 
-function tamDefaultTitle(tech, payload) {
-  if (tech === 'ble') return 'BLE Sensor #' + String(payload.devIdx != null ? payload.devIdx : 0);
-  if (tech === 'zb') return 'Zigbee 0x' + String(payload.shortAddr || '0000');
-  if (tech === 'lr') return 'LoRa Node ' + String(payload.nodeId != null ? payload.nodeId : 0);
-  return 'Gateway';
-}
-
-function tamTechLabel(tech) {
-  return tech === 'gw' ? 'GW' : tech === 'ble' ? 'BLE' : tech === 'zb' ? 'ZB' : 'LoRa';
-}
-
-function tamPillState(cards) {
-  for (var i = 0; i < cards.length; i++) {
-    if (!tamIsStale(cards[i].tech, cards[i].data.lastTs)) return 'active';
+  if (visible.length === 0) {
+    if (keys.length > 0) {
+      /* Devices exist but all filtered out */
+      var noMatch = document.createElement('div');
+      noMatch.className = 'tatm-hint tatm-filter-empty';
+      noMatch.innerHTML = '<div class="tatm-hint-icon">🔍</div><div class="tatm-hint-title">No devices match filters</div>';
+      grid.appendChild(noMatch);
+    }
+    return;
   }
-  return 'stale';
+
+  /* Sort: lora first, then ble, then zb, by key alphabetically within each */
+  visible.sort(function(a, b) {
+    var pa = tatmState.devices[a].proto;
+    var pb = tatmState.devices[b].proto;
+    var order = { 'lora': 0, 'ble': 1, 'zb': 2 };
+    var oa = order[pa] !== undefined ? order[pa] : 9;
+    var ob = order[pb] !== undefined ? order[pb] : 9;
+    if (oa !== ob) return oa - ob;
+    return a < b ? -1 : a > b ? 1 : 0;
+  });
+
+  for (var vi = 0; vi < visible.length; vi++) {
+    var card = tatmBuildCard(visible[vi], now);
+    if (card) grid.appendChild(card);
+  }
 }
 
-function tamIsStale(tech, ts) {
-  if (!ts) return false;
-  var now = Date.now();
-  var limit = tech === 'ble' ? 30000 : tech === 'zb' ? 20000 : tech === 'lr' ? 25000 : 60000;
-  return (now - ts) > limit;
-}
+function tatmBuildCard(key, now) {
+  var dev   = tatmState.devices[key];
+  if (!dev) return null;
+  var state = tatmDeviceState(dev, now);
+  var div   = document.createElement('div');
+  div.className  = 'tatm-card';
+  div.setAttribute('data-key', key);
+  div.setAttribute('data-state', state);
 
-function tamRttClass(rtt) {
-  if (rtt == null || isNaN(rtt)) return '';
-  if (rtt < 200) return 'fast';
-  if (rtt < 1000) return 'mid';
-  return 'slow';
-}
+  /* Protocol badge */
+  var protoLabel = { ble: 'BLE', zb: 'Zigbee', lora: 'LoRa P2P' }[dev.proto] || dev.proto.toUpperCase();
+  var protoCls   = { ble: 'proto-ble', zb: 'proto-zb', lora: 'proto-lora' }[dev.proto] || '';
+  var typeLabel = tatmTypeLabel(dev.type);
+  var typeIcon  = { sensor: '🌡', led: '💡', lora_node: '📡', unknown: '❓' }[dev.type] || '❓';
+  var stateTxt  = tatmStateLabel(state);
+  var stateCls  = tatmStateClass(state);
 
-function tamValueBox(label, value, unit) {
-  return '' +
-    '<div class="tam-value-box">' +
-      '<div class="tam-label">' + tamEsc(label) + '</div>' +
-      '<div class="tam-value">' + tamEsc(value) + '</div>' +
-      '<div class="tam-unit">' + tamEsc(unit) + '</div>' +
+  /* Timestamps */
+  var lastTsTxt = dev.lastTs ? tatmFmtTime(new Date(dev.lastTs)) : '—';
+
+  /* Build inner HTML */
+  var html = '';
+
+  /* Header row */
+  html += '<div class="tatm-card-hdr">' +
+    '<span class="tatm-card-proto-badge ' + protoCls + '">' + tatmEsc(protoLabel) + '</span>' +
+    '<span class="tatm-card-type-badge ' + tatmTypeClass(dev.type) + '">' + typeIcon + ' ' + tatmEsc(typeLabel) + '</span>' +
+    '<span class="tatm-card-name" title="' + tatmEsc(dev.name) + '">' + tatmEsc(dev.name) + '</span>' +
+    '<span class="tatm-card-state-badge ' + stateCls + '">' + stateTxt + '</span>' +
+  '</div>';
+
+  /* Meta: addr + timestamp */
+  if (dev.type === 'lora_node') {
+    html += '<div class="tatm-card-meta">' +
+      '<span class="tatm-card-addr">Slot: ' + tatmEsc(String(dev.slot || '?')) + '</span>' +
+      '<span class="tatm-card-addr">RSSI: ' + tatmEsc(String(dev.data.rssi || '—')) + '</span>' +
+      '<span class="tatm-card-ts">Last: ' + lastTsTxt + '</span>' +
     '</div>';
+  } else {
+    html += '<div class="tatm-card-meta">' +
+      '<span class="tatm-card-addr">' + tatmEsc(dev.addr || '—') + '</span>' +
+      '<span class="tatm-card-ts">Last: ' + lastTsTxt + '</span>' +
+    '</div>';
+  }
+
+  html += '<div class="tatm-card-div"></div>';
+
+  /* Data section based on type */
+  if (dev.type === 'sensor' || dev.type === 'lora_node') {
+    var tempVal = (dev.data.temp !== undefined && dev.data.temp !== null) ? dev.data.temp + ' °C' : '—';
+    var humVal  = (dev.data.hum  !== undefined && dev.data.hum  !== null) ? dev.data.hum  + ' %' : '—';
+    html += '<div class="tatm-card-data">' +
+      '<div class="tatm-data-item"><div class="tatm-data-lbl">Temp</div><div class="tatm-data-val">' + tatmEsc(String(tempVal)) + '</div></div>' +
+      '<div class="tatm-data-item"><div class="tatm-data-lbl">Hum</div><div class="tatm-data-val">' + tatmEsc(String(humVal)) + '</div></div>' +
+    '</div>';
+  }
+
+  if (dev.type === 'led') {
+    var onState  = tatmNormalizeOnState(dev.data);
+    var onBadge  = onState === null ? '—' : (onState ? '<span class="badge-on">ON</span>' : '<span class="badge-off">OFF</span>');
+    var colorVal = dev.data.color || '—';
+    var lastCmd  = dev.data.lastCmd || '—';
+    html += '<div class="tatm-card-attr"><span class="tatm-attr-lbl">State</span><span class="tatm-attr-val">' + onBadge + '</span></div>';
+    if (dev.data.level !== undefined) {
+      html += '<div class="tatm-card-attr"><span class="tatm-attr-lbl">Level</span><span class="tatm-attr-val">' + tatmEsc(String(dev.data.level)) + '%</span></div>';
+    }
+    html += '<div class="tatm-card-attr"><span class="tatm-attr-lbl">Color</span><span class="tatm-attr-val">' + tatmEsc(String(colorVal)) + '</span></div>';
+    html += '<div class="tatm-card-attr"><span class="tatm-attr-lbl">Last cmd</span><span class="tatm-attr-val">' + tatmEsc(String(lastCmd)) + '</span></div>';
+  }
+
+  if (dev.type === 'lora_node') {
+    var ledState = dev.data.ledState || '—';
+    var seq      = dev.data.seq      !== undefined ? dev.data.seq : '—';
+    var lastJoin = dev.data.lastJoin || '—';
+    var lastCmd2 = dev.data.lastCmd  || '—';
+    html += '<div class="tatm-card-attr"><span class="tatm-attr-lbl">LED State</span><span class="tatm-attr-val">' + tatmEsc(String(ledState)) + '</span></div>';
+    html += '<div class="tatm-card-attr"><span class="tatm-attr-lbl">Seq</span><span class="tatm-attr-val">' + tatmEsc(String(seq)) + '</span></div>';
+    html += '<div class="tatm-card-attr"><span class="tatm-attr-lbl">Last join</span><span class="tatm-attr-val">' + tatmEsc(String(lastJoin)) + '</span></div>';
+    html += '<div class="tatm-card-attr"><span class="tatm-attr-lbl">Last cmd</span><span class="tatm-attr-val">' + tatmEsc(String(lastCmd2)) + '</span></div>';
+  }
+
+  if (dev.type === 'unknown') {
+    html += '<div class="tatm-card-attr"><span class="tatm-attr-lbl">Status</span><span class="tatm-attr-val">Awaiting auth key</span></div>';
+  }
+
+  if (dev.type === 'sensor') {
+    html += '<div class="tatm-card-div"></div>';
+    html += '<div class="tatm-card-footer"><span>' + tatmEsc(String(tatmSampleCount(dev))) + ' samples</span></div>';
+  }
+
+  div.innerHTML = html;
+  return div;
 }
 
-function tamMetaItem(label, value) {
-  return '<div class="tam-meta-item"><strong>' + tamEsc(label) + ':</strong> ' + tamEsc(value) + '</div>';
+/* ═══════════════════════════════════════════════════════════════════
+   Footer
+   ═══════════════════════════════════════════════════════════════════ */
+function tatmUpdateFooter() {
+  var stats = document.getElementById('tatm-stats');
+  var lastEl = document.getElementById('tatm-last-ts');
+  var cnt = Object.keys(tatmState.devices).length;
+  if (stats) stats.textContent = tatmState.totalRx + ' reports / ' + cnt + ' devices active';
+  if (lastEl) lastEl.textContent = tatmState.lastTs ? 'Last: ' + tatmFmtTime(new Date(tatmState.lastTs)) : '—';
 }
 
-function tamTargetText(device) {
-  if (device.tech === 'ble') return device.meta.devIdx != null ? ('idx ' + device.meta.devIdx) : '—';
-  if (device.tech === 'zb') return device.meta.shortAddr ? ('0x' + device.meta.shortAddr + ' / EP ' + (device.meta.ep || '—')) : '—';
-  if (device.tech === 'lr') return 'slot ' + (device.meta.slot || '0') + ' / node ' + (device.meta.nodeId != null ? device.meta.nodeId : '—');
-  return '—';
+/* ═══════════════════════════════════════════════════════════════════
+   Clear state
+   ═══════════════════════════════════════════════════════════════════ */
+function tatmClearState() {
+  tatmState.devices   = {};
+  tatmState.totalRx   = 0;
+  tatmState.lastTs    = 0;
+  try { localStorage.removeItem(TATM_LS_KEY); } catch (e) {}
+  tatmSetPill('idle', 'Waiting');
+  tatmRenderCards();
+  tatmUpdateFooter();
 }
 
-function tamStatusText(stale) {
-  return stale ? 'stale' : 'live';
+/* ═══════════════════════════════════════════════════════════════════
+   Persistence (localStorage)
+   ═══════════════════════════════════════════════════════════════════ */
+function tatmPersistState() {
+  try {
+    var state = {
+      devices:  tatmState.devices,
+      totalRx:  tatmState.totalRx,
+      lastTs:   tatmState.lastTs
+    };
+    localStorage.setItem(TATM_LS_KEY, JSON.stringify(state));
+  } catch (e) {}
 }
 
-function tamFormatNumber(value) {
-  return typeof value === 'number' && !isNaN(value) ? value.toFixed(1) : '—';
+function tatmRestoreState() {
+  try {
+    var s = localStorage.getItem(TATM_LS_KEY);
+    if (!s) return;
+    var parsed = JSON.parse(s);
+    if (parsed && parsed.devices) {
+      tatmState.devices  = parsed.devices;
+      tatmState.totalRx  = parsed.totalRx  || 0;
+      tatmState.lastTs   = parsed.lastTs   || 0;
+    }
+  } catch (e) {}
 }
 
-function tamAverage(arr) {
-  var sum = 0;
-  for (var i = 0; i < arr.length; i++) sum += arr[i];
-  return arr.length ? (sum / arr.length) : 0;
-}
-
-function tamTime(ts) {
-  if (!ts) return '—';
-  return new Date(ts).toTimeString().substr(0, 8);
-}
-
-function tamSetPill(state, text) {
-  var pill = document.getElementById('tam-pill');
-  var txt = document.getElementById('tam-pill-txt');
-  if (pill) pill.setAttribute('data-state', state);
-  if (txt) txt.textContent = text;
-}
-
-function tamSetText(id, text) {
-  var el = document.getElementById(id);
-  if (el) el.textContent = text;
-}
-
-function tamDebug(kind, text) {
-  var stamp = new Date().toTimeString().substr(0, 8);
-  tamState.debug.push({ kind: kind || 'raw', text: '[' + stamp + '] ' + text });
-  if (tamState.debug.length > TAM_DEBUG_MAX) tamState.debug.shift();
-}
-
-function tamRenderDebug() {
-  var host = document.getElementById('tam-debug-lines');
-  var meta = document.getElementById('tam-debug-meta');
-  if (meta) meta.textContent = tamState.debug.length + ' entries';
-  if (!host) return;
-  host.innerHTML = tamState.debug.map(function (entry) {
-    return '<div class="tam-debug-line" data-kind="' + tamEsc(entry.kind) + '">' + tamEsc(entry.text) + '</div>';
-  }).join('');
-  host.scrollTop = host.scrollHeight;
-}
-
-function tamDecodeHex(val) {
+/* ═══════════════════════════════════════════════════════════════════
+   Utility helpers
+   ═══════════════════════════════════════════════════════════════════ */
+function tatmDecodeVal(val) {
   if (!val) return '';
   if (typeof val === 'object') {
-    val = val.result !== undefined ? val.result
-      : val.data !== undefined ? val.data
-      : JSON.stringify(val);
+    if (val.result   !== undefined) val = val.result;
+    else if (val.data !== undefined) val = val.data;
   }
   var s = String(val);
   if (/^[0-9A-Fa-f]+$/.test(s) && s.length % 2 === 0 && s.length > 0) {
-    var out = '';
+    var str = '';
     for (var i = 0; i < s.length; i += 2) {
       var b = parseInt(s.substr(i, 2), 16);
-      if (!isNaN(b)) out += String.fromCharCode(b);
+      if (!isNaN(b)) str += String.fromCharCode(b);
     }
-    return out;
+    return str;
   }
   return s;
 }
 
-function tamSplitLines(s) {
-  if (!s) return [];
-  return s.split(/\x1e|\n/).map(function (line) {
-    var text = String(line || '').trim();
-    var idx = text.search(/CF(BG|ZB|LR|ML):|RPT:|\+TEST:/);
-    if (idx > 0) text = text.substring(idx);
-    return text;
-  }).filter(Boolean);
+function tatmFmtTime(d) {
+  return ('0' + d.getHours()).slice(-2) + ':' +
+         ('0' + d.getMinutes()).slice(-2) + ':' +
+         ('0' + d.getSeconds()).slice(-2);
 }
 
-function tamShort(value) {
-  var text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
-  return text.length > 120 ? text.substr(0, 117) + '...' : text;
+function tatmEsc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-function tamEsc(s) {
-  return String(s == null ? '' : s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+function tatmSetPill(state, text) {
+  console.log('[TATM] tatmSetPill:', state, text);
+  var el  = document.getElementById('tatm-pill');
+  var txt = document.getElementById('tatm-pill-txt');
+  if (!el) console.log('[TATM] ERROR: tatm-pill not found');
+  if (!txt) console.log('[TATM] ERROR: tatm-pill-txt not found');
+  if (el)  el.setAttribute('data-state', state);
+  if (txt) txt.textContent = text;
 }

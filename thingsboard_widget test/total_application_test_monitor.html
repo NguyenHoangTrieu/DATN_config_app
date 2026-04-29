@@ -1,63 +1,92 @@
-<!-- =====================================================================
-     total_application_test_monitor — ThingsBoard Latest Values Widget
-     Type    : Latest Values (no controlApi — read-only)
+﻿<!-- =====================================================================
+     DA2 Total Application Test Monitor — ThingsBoard Latest Values Widget
+     Type    : Latest Values (no controlApi — read-only / passive monitor)
      Datasource: Entity → Gateway device → telemetry key "data"
 
-     Aggregate monitor for gateway config, BLE, Zigbee, and LoRa flows.
-     Sources:
-       1. ThingsBoard WebSocket telemetry
-       2. window CustomEvent 'da2_total_app_event'
-       3. localStorage keys from the companion control widget
+     Data flow:
+       1. Control widget broadcasts window CustomEvent 'da2_tat_event' with
+          decoded device data.
+       2. Companion datasource key "data" (Latest Telemetry) for direct
+          telemetry parsing (optional but recommended).
+       3. Raw telemetry line bridge 'da2_tat_raw_line' from control widget.
+
+     Displays device cards for:
+       - BLE GATT sensors (DA2_SENSOR_*)  — temp + humidity
+       - BLE GATT LEDs (DA2_LED_*)        — on/off + last command
+       - Zigbee sensors                   — temp + humidity
+       - Zigbee bulbs                     — on/off + brightness
+       - LoRa P2P node                    — sensor + LED state (hybrid)
+
+     Add datasource: Gateway device, key "data" (Latest Telemetry)
      ===================================================================== -->
 
-<div id="tam-root" class="tam-root">
-  <div class="tam-header">
-    <div class="tam-hdr-left">
-      <div class="tam-logo">A</div>
+<div id="tatm-root" class="tatm-root">
+
+  <!-- ── Header ── -->
+  <div class="tatm-header">
+    <div class="tatm-hdr-left">
+      <div class="tatm-logo">
+        <svg viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="3" fill="currentColor"/>
+          <path d="M12 3v2M12 19v2M3 12h2M19 12h2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 2"/>
+        </svg>
+      </div>
       <div>
-        <div class="tam-title">total_application_test_monitor</div>
-        <div class="tam-sub">Gateway + BLE + Zigbee + LoRa live aggregation</div>
+        <div class="tatm-title">Total Application Test Monitor</div>
+        <div class="tatm-sub">BLE + Zigbee + LoRa P2P — Live Device Overview</div>
       </div>
     </div>
-    <div id="tam-pill" class="tam-pill" data-state="idle">
-      <span class="tam-dot"></span>
-      <span id="tam-pill-txt">Waiting</span>
+    <div id="tatm-pill" class="tatm-pill" data-state="idle">
+      <span class="tatm-dot"></span>
+      <span id="tatm-pill-txt">Waiting</span>
     </div>
   </div>
 
-  <div class="tam-toolbar">
-    <div class="tam-filter-group" id="tam-filter-group">
-      <button class="tam-filter active" data-filter="all">All</button>
-      <button class="tam-filter" data-filter="gw">Gateway</button>
-      <button class="tam-filter" data-filter="ble">BLE</button>
-      <button class="tam-filter" data-filter="zb">Zigbee</button>
-      <button class="tam-filter" data-filter="lr">LoRa</button>
+  <!-- ── Filter bar ── -->
+  <div class="tatm-filters">
+    <div class="tatm-filter-group">
+      <span class="tatm-filter-lbl">Proto:</span>
+      <button class="tatm-chip tatm-chip-active" data-dim="proto" data-val="all">All</button>
+      <button class="tatm-chip" data-dim="proto" data-val="ble">📶 BLE</button>
+      <button class="tatm-chip" data-dim="proto" data-val="zb">🔶 Zigbee</button>
+      <button class="tatm-chip" data-dim="proto" data-val="lora">📡 LoRa</button>
     </div>
-    <div class="tam-toolbar-meta" id="tam-toolbar-meta">No samples yet</div>
-  </div>
-
-  <div id="tam-grid" class="tam-grid"></div>
-
-  <div id="tam-hint" class="tam-hint">
-    <div class="tam-hint-icon">📡</div>
-    <div class="tam-hint-title">Waiting for application test traffic…</div>
-    <div class="tam-hint-sub">
-      Bind datasource to gateway telemetry key <code>data</code> and place the companion
-      control widget on the same dashboard to receive full aggregate updates.
+    <div class="tatm-filter-group">
+      <span class="tatm-filter-lbl">Type:</span>
+      <button class="tatm-chip tatm-chip-active" data-dim="type" data-val="all">All types</button>
+      <button class="tatm-chip" data-dim="type" data-val="sensor">🌡 Sensor</button>
+      <button class="tatm-chip" data-dim="type" data-val="led">💡 LED/Light</button>
+      <button class="tatm-chip" data-dim="type" data-val="lora_node">📡 P2P Node</button>
+      <button class="tatm-chip" data-dim="type" data-val="unknown">❓ Unknown</button>
+    </div>
+    <div class="tatm-filter-group">
+      <span class="tatm-filter-lbl">State:</span>
+      <button class="tatm-chip tatm-chip-active" data-dim="state" data-val="all">All</button>
+      <button class="tatm-chip" data-dim="state" data-val="live">Live</button>
+      <button class="tatm-chip" data-dim="state" data-val="stale">Stale</button>
+      <button class="tatm-chip" data-dim="state" data-val="error">Error</button>
     </div>
   </div>
 
-  <div class="tam-debug">
-    <div class="tam-debug-hdr">
-      <span class="tam-debug-title">Monitor Debug</span>
-      <span id="tam-debug-meta" class="tam-debug-meta">0 entries</span>
+  <!-- ── Card grid ── -->
+  <div id="tatm-grid" class="tatm-grid">
+    <div id="tatm-hint" class="tatm-hint">
+      <div class="tatm-hint-icon">🔭</div>
+      <div class="tatm-hint-title">No devices active yet</div>
+      <div class="tatm-hint-sub">
+        Use the <strong>Total Application Test Control</strong> widget to connect
+        BLE, Zigbee or LoRa P2P devices.<br>
+        Cards appear automatically as data arrives.
+      </div>
     </div>
-    <div id="tam-debug-lines" class="tam-debug-lines"></div>
   </div>
 
-  <div class="tam-footer">
-    <span id="tam-total-rx">0 samples</span>
-    <span id="tam-tech-count">0 cards</span>
-    <span id="tam-last-ts">—</span>
+  <!-- ── Footer ── -->
+  <div class="tatm-footer">
+    <span id="tatm-stats">0 reports / 0 devices</span>
+    <span id="tatm-last-ts">—</span>
+    <button class="tatm-btn-clear">↺ Clear</button>
   </div>
-</div>
+
+</div><!-- /tatm-root -->

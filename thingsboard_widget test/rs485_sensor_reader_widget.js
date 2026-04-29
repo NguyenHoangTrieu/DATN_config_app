@@ -26,7 +26,10 @@ var CFG = {
   RPC_TIMEOUT_MS: 12000,
   FRAME_TIMEOUT_MS: 5000,
   CMD_GAP_MS: 160,
-  POLL_DEFAULT_MS: 2500,
+  POLL_DEFAULT_MS: 1000,
+  POLL_MIN_SECONDS: 1,
+  POLL_MAX_SECONDS: 60,
+  POLL_MAX_RPC_IN_FLIGHT: 2,
   LOG_LIMIT: 220
 };
 
@@ -45,7 +48,6 @@ var BAUD_CODES = [
 
 var GATEWAY_BAUDS = ["9600", "19200", "38400", "57600", "115200"];
 
-var POLL_INTERVAL_OPTIONS = [1000, 2500, 5000, 10000, 30000];
 var SLEEP_WAIT_OPTIONS = [0, 1, 3, 5, 10, 30, 60, 120, 255];
 var ACTION_BUTTON_IDS = [
   "sr-btn-prepare",
@@ -107,6 +109,9 @@ var _uiBound = false;
 var _bridgeEventHandler = null;
 var _bridgeStorageTimer = null;
 var _bridgeStorageSeenTs = 0;
+var _telemetrySubscribeFailed = false;
+var _pollNextDueMs = 0;
+var _pollRpcInFlightCount = 0;
 
 self.onInit = function () {
   _root = document.getElementById("rs485-sensor-root");
@@ -178,6 +183,7 @@ function resolveTargetEntityId() {
 }
 
 function subscribeTelemetry() {
+  if (_telemetrySubscribeFailed) return;
   unsubscribeTelemetry();
   state.entityId = resolveTargetEntityId();
   renderStatus();
@@ -210,7 +216,9 @@ function subscribeTelemetry() {
     logInfo("Telemetry subscribed - entityId=" + state.entityId + " key=data");
     renderStatus();
   } catch (e) {
+    _telemetrySubscribeFailed = true;
     logWarn("Telemetry subscribe failed: " + errorText(e));
+    logWarn("Disable telemetryWsService subscription and use datasource/monitor bridge fallback.");
   }
 }
 
@@ -260,13 +268,6 @@ function populateSelects() {
     }).join('');
   }
 
-  var pollSelect = ge("sr-poll-ms");
-  if (pollSelect && !pollSelect.options.length) {
-    pollSelect.innerHTML = POLL_INTERVAL_OPTIONS.map(function (value) {
-      return '<option value="' + value + '">' + humanPollInterval(value) + '</option>';
-    }).join('');
-  }
-
   var sleepWait = ge("sr-sleep-wait");
   if (sleepWait && !sleepWait.options.length) {
     sleepWait.innerHTML = SLEEP_WAIT_OPTIONS.map(function (value) {
@@ -312,7 +313,7 @@ function syncRuntimeStateFromUi() {
   state.slot = getValue("sr-slot-select") === "1" ? "1" : "0";
   state.gatewayBaud = String(getValue("sr-gateway-baud") || state.gatewayBaud || "9600");
   state.slaveHex = normalizeHex(getValue("sr-slave-select") || state.slaveHex, 2);
-  state.pollMs = clampInt(getValue("sr-poll-ms"), 500, 60000, CFG.POLL_DEFAULT_MS);
+  state.pollMs = pollSecondsToMs(getValue("sr-poll-ms"));
 }
 
 function refreshTargetContext() {
@@ -329,7 +330,7 @@ function syncControls() {
   setValue("sr-slot-select", state.slot);
   setValue("sr-gateway-baud", state.gatewayBaud);
   setValue("sr-slave-select", state.slaveHex);
-  setValue("sr-poll-ms", String(state.pollMs));
+  setValue("sr-poll-ms", pollMsToSeconds(state.pollMs));
 
   if (state.device && state.device.baudCode !== null && state.device.baudCode !== undefined) {
     setValue("sr-sensor-baud", String(state.device.baudCode));
@@ -472,7 +473,14 @@ function renderActionState() {
   var busy = !!state.pendingResponse;
   for (var i = 0; i < ACTION_BUTTON_IDS.length; i++) {
     var el = ge(ACTION_BUTTON_IDS[i]);
-    if (el) el.disabled = busy;
+    if (!el) continue;
+
+    if (state.autoPoll && state.pendingResponse && state.pendingResponse.description &&
+        state.pendingResponse.description.indexOf("Polling") === 0) {
+      el.disabled = false;
+    } else {
+      el.disabled = busy;
+    }
   }
 }
 
@@ -500,7 +508,7 @@ function loadLocalState() {
     if (saved.slot === "0" || saved.slot === "1") state.slot = saved.slot;
     if (saved.gatewayBaud) state.gatewayBaud = String(saved.gatewayBaud);
     if (saved.slaveHex) state.slaveHex = normalizeHex(saved.slaveHex, 2);
-    if (saved.pollMs) state.pollMs = clampInt(saved.pollMs, 500, 60000, CFG.POLL_DEFAULT_MS);
+    if (saved.pollMs) state.pollMs = normalizeStoredPollMs(saved.pollMs);
   } catch (e) {}
 }
 
@@ -1081,7 +1089,7 @@ function rsOnSlaveChange(value) {
 }
 
 function rsOnPollIntervalChange(value) {
-  state.pollMs = clampInt(value, 500, 60000, CFG.POLL_DEFAULT_MS);
+  state.pollMs = pollSecondsToMs(value);
   saveLocalState();
   if (state.autoPoll) restartPollTimer();
   syncControls();
@@ -1291,18 +1299,58 @@ function rsClearConsole() {
 
 function runPollingCycle() {
   syncRuntimeStateFromUi();
-  if (!state.autoPoll || state.pendingResponse) return Promise.resolve();
+  if (!state.autoPoll || state.pendingResponse || state.queueBusy) return Promise.resolve();
+  if (_pollRpcInFlightCount >= CFG.POLL_MAX_RPC_IN_FLIGHT) return Promise.resolve();
 
-  return readHoldingRange(currentSlave(), 0x0000, 0x0008, "Polling AIN0..AIN3", function (parsed) {
-    return parsed && parsed.functionCode === 0x03 && parsed.slave === currentSlave() && parsed.byteCount === 16;
-  }).catch(function () {});
+  _pollRpcInFlightCount += 1;
+  var frame = buildReadHoldingFrame(currentSlave(), 0x0000, 0x0008);
+  var requestHex = bytesToHex(frame);
+  state.lastFrameHex = requestHex;
+  renderHero();
+
+  return sendGatewayCommand("CFML:CFRS:" + state.slot + ":DATA:" + requestHex, state.rpcTimeout)
+    .then(function (ackText) {
+      if (ackText && ackText.indexOf("FAIL") !== -1) {
+        throw new Error(ackText);
+      }
+      state.gatewayReady = true;
+      renderStatus();
+    })
+    .catch(function (e) {
+      logWarn("Polling TX error: " + errorText(e));
+    })
+    .finally(function () {
+      _pollRpcInFlightCount = Math.max(0, _pollRpcInFlightCount - 1);
+    });
+}
+
+function scheduleNextPoll() {
+  if (state.pollTimer) {
+    clearTimeout(state.pollTimer);
+    state.pollTimer = null;
+  }
+  if (!state.autoPoll || !_pollNextDueMs) return;
+
+  state.pollTimer = setTimeout(function () {
+    state.pollTimer = null;
+    if (!state.autoPoll) return;
+
+    _pollNextDueMs += state.pollMs;
+    while (_pollNextDueMs <= Date.now()) {
+      _pollNextDueMs += state.pollMs;
+    }
+
+    scheduleNextPoll();
+    runPollingCycle();
+  }, Math.max(0, _pollNextDueMs - Date.now()));
 }
 
 function restartPollTimer(stopOnly) {
   if (state.pollTimer) {
-    clearInterval(state.pollTimer);
+    clearTimeout(state.pollTimer);
     state.pollTimer = null;
   }
+  _pollNextDueMs = 0;
   if (stopOnly || !state.autoPoll) {
     renderPollingState();
     return;
@@ -1312,9 +1360,8 @@ function restartPollTimer(stopOnly) {
   renderHero();
   renderPollingState();
 
-  state.pollTimer = setInterval(function () {
-    runPollingCycle();
-  }, state.pollMs);
+  _pollNextDueMs = Date.now() + state.pollMs;
+  scheduleNextPoll();
 }
 
 function readHoldingRange(slave, startReg, count, description, matcher) {
@@ -1524,6 +1571,22 @@ function sleepWaitText(value) {
 function humanPollInterval(value) {
   if (value >= 1000 && value % 1000 === 0) return (value / 1000) + " s";
   return value + " ms";
+}
+
+function pollSecondsToMs(value) {
+  var seconds = clampInt(value, CFG.POLL_MIN_SECONDS, CFG.POLL_MAX_SECONDS, CFG.POLL_DEFAULT_MS / 1000);
+  return seconds * 1000;
+}
+
+function pollMsToSeconds(value) {
+  var ms = normalizeStoredPollMs(value);
+  return String(Math.round(ms / 1000));
+}
+
+function normalizeStoredPollMs(value) {
+  var ms = clampInt(value, CFG.POLL_MIN_SECONDS * 1000, CFG.POLL_MAX_SECONDS * 1000, CFG.POLL_DEFAULT_MS);
+  var seconds = clampInt(Math.round(ms / 1000), CFG.POLL_MIN_SECONDS, CFG.POLL_MAX_SECONDS, CFG.POLL_DEFAULT_MS / 1000);
+  return seconds * 1000;
 }
 
 function formatVoltage(value) {

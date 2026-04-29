@@ -85,7 +85,10 @@
 
         <label class="sr-field">
           <span>Polling Interval</span>
-          <select id="sr-poll-ms" class="sr-input"></select>
+          <div class="sr-poll-input">
+            <input id="sr-poll-ms" class="sr-input" type="number" min="1" max="60" step="1" inputmode="numeric" />
+            <span class="sr-chip">s</span>
+          </div>
         </label>
 
         <div class="sr-btn-row">
@@ -185,29 +188,6 @@
           <div class="sr-hero-sub" id="sr-hero-sub">Prepare gateway or refresh the sensor.</div>
           <div class="sr-hero-tip" id="sr-hero-tip">Press Prepare Gateway, then Refresh All.</div>
         </div>
-        <div class="sr-hero-meta">
-          <div class="sr-meta-box">
-            <span class="sr-meta-label">Last ACK</span>
-            <span class="sr-meta-value" id="sr-last-ack">-</span>
-          </div>
-          <div class="sr-meta-box">
-            <span class="sr-meta-label">Last Frame</span>
-            <span class="sr-meta-value sr-mono" id="sr-last-frame">-</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="sr-card sr-bridge-card">
-        <div class="sr-card-head">
-          <span class="sr-card-title">Last Data Value</span>
-          <span class="sr-chip">from monitor</span>
-        </div>
-        <div class="sr-kv-list">
-          <div class="sr-kv-row"><span>Timestamp</span><span id="sr-bridge-ts">-</span></div>
-          <div class="sr-kv-row"><span>Source</span><span id="sr-bridge-source">-</span></div>
-          <div class="sr-kv-row"><span>Raw</span><span id="sr-bridge-raw" class="sr-mono">-</span></div>
-        </div>
-        <div class="sr-inline-note">AIN0..AIN3 moved to RS485 Monitor widget.</div>
       </div>
 
       <div class="sr-card sr-config-card">
