@@ -45,7 +45,7 @@
 #define NODE_ID       0x01
 
 /* ── Timing ──────────────────────────────────────────────────────── */
-#define RX_WINDOW_MS  2000UL  /* RX listen window after each TX (ms) */
+#define RX_WINDOW_MS  10000UL /* RX listen window after each TX (ms) — must cover cloud roundtrip */
 #define AT_INIT_MS    3000UL  /* timeout for setup AT commands        */
 #define AT_TX_MS      2000UL  /* timeout for TXLRPKT confirmation     */
 

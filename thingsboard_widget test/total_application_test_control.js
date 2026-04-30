@@ -70,9 +70,10 @@ var tatState = {
 };
 
 /* ── Bridge / telemetry listeners ── */
-var _tatTeleSubscriber = null;
-var _tatLastTeleTs     = 0;
-var _tatBridgeHandler  = null;
+var _tatTeleSubscriber   = null;
+var _tatLastTeleTs       = 0;
+var _tatBridgeHandler    = null;
+var _lrLastJoinAcceptTs  = 0;   /* debounce: ms timestamp of last lrSendJoinAccept */
 
 /* ═══════════════════════════════════════════════════════════════════
    ThingsBoard Lifecycle
@@ -253,10 +254,15 @@ function tatHandleTeleData(data) {
 
 /* Bridge event from monitor widget */
 function tatHandleBridgeEvent(d) {
+  if (d.type === 'lrRawLine') {
+    tatLog('i', '[bridge] lrRawLine: ' + (d.line || '').substring(0, 80));
+  }
+  if (d.type && d.type.indexOf('zb') === 0) tatState.zb.hexNative = true;
   if (d.type === 'zbNodeJoin')     zbHandleNodeJoin(d.short, d.ieee || '????????????????');
   if (d.type === 'zbNodeAnnounce') zbHandleNodeAnnounce(d.short, d.ieee || '????????????????', d.ep || '?');
   if (d.type === 'zbNodeLeave')    zbHandleNodeLeave(d.ieee);
   if (d.type === 'zbAttrReport')   zbHandleAttrReport(d.short, d.cluster, d.attr, d.value);
+  if (d.type === 'lrRawLine' && d.line) lrHandleAsyncLine(d.line);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -278,6 +284,30 @@ function tatHexToStr(h) {
     if (!isNaN(b)) s += String.fromCharCode(b);
   }
   return s;
+}
+
+function tatHexToRgb(hex) {
+  var m = String(hex || '').replace('#', '').match(/^([0-9A-Fa-f]{2})([0-9A-Fa-f]{2})([0-9A-Fa-f]{2})$/);
+  return m ? {
+    r: parseInt(m[1], 16),
+    g: parseInt(m[2], 16),
+    b: parseInt(m[3], 16)
+  } : null;
+}
+
+function tatRgbToXy(r, g, b) {
+  function tatLinearize(channel) {
+    channel = channel / 255;
+    return channel > 0.04045 ? Math.pow((channel + 0.055) / 1.055, 2.4) : channel / 12.92;
+  }
+  var red = tatLinearize(r);
+  var green = tatLinearize(g);
+  var blue = tatLinearize(b);
+  var x = red * 0.664511 + green * 0.154324 + blue * 0.162028;
+  var y = red * 0.283881 + green * 0.668433 + blue * 0.047685;
+  var z = red * 0.000088 + green * 0.072310 + blue * 0.986039;
+  var sum = x + y + z;
+  return sum === 0 ? { x: 0.3127, y: 0.3290 } : { x: x / sum, y: y / sum };
 }
 
 function tatDecodeRpcValue(val) {
@@ -352,7 +382,12 @@ function sendCFZB(func, params, timeout) {
   return tatSendRpc('sendCommand', hex, timeout || tatState.rpcTimeout)
     .then(function (resp) {
       var decoded = tatDecodeRpcValue(resp);
-      if (decoded) tatSplitLines(decoded).forEach(function(l) { tatLog('RX', l); });
+      if (decoded) {
+        tatSplitLines(decoded).forEach(function(l) {
+          tatLog('RX', l);
+          zbHandleAsyncLine(l);
+        });
+      }
       return decoded;
     })
     .catch(function (err) {
@@ -453,7 +488,9 @@ function tatDispatchLine(line) {
   /* Zigbee hex frame (starts with "55 ") */
   if (/^55\s+[0-9A-Fa-f]{2}/i.test(line) || /CFZB:[0-9]+:(EVT|OK):/i.test(line)) { zbHandleAsyncLine(line); }
   /* LoRa async events */
-  if (/CFLR:[0-9]+:EVT:/i.test(line)) { lrHandleAsyncLine(line); }
+  if (/CFLR:[0-9]+:EVT:/i.test(line) || /^\+TEST:/i.test(line) || /^\+MODE:/i.test(line) || /^\+VER:/i.test(line)) {
+    lrHandleAsyncLine(line);
+  }
   /* Broadcast raw line to monitor widget */
   try {
     window.dispatchEvent(new CustomEvent('da2_tat_raw_line', { detail: { line: line } }));
@@ -1007,7 +1044,6 @@ function bleUpdateSensorPanel(idx) {
   if (!sd) return;
   tatSet('tat-sen-temp', sd.temp !== null ? sd.temp + ' °C' : '—');
   tatSet('tat-sen-hum',  sd.hum  !== null ? sd.hum  + ' %' : '—');
-  tatSet('tat-sen-cnt',  String(sd.count));
   tatSet('tat-sen-last', sd.lastTs ? tatFmtTime(new Date(sd.lastTs)) : '—');
 }
 
@@ -1147,6 +1183,15 @@ function zbBytesToHexStr(bytes) {
   return out.join(' ');
 }
 
+function zbBytesToCsvHex(bytes) {
+  var out = [];
+  for (var i = 0; i < bytes.length; i++) {
+    var b = bytes[i] & 0xFF;
+    out.push((b < 16 ? '0' : '') + b.toString(16).toUpperCase());
+  }
+  return out.join(',');
+}
+
 function zbBuildEbyteFrame(typeByte, codeByte, dataBytes) {
   dataBytes = dataBytes || [];
   var payload = [typeByte, codeByte].concat(dataBytes);
@@ -1154,6 +1199,26 @@ function zbBuildEbyteFrame(typeByte, codeByte, dataBytes) {
   for (var i = 0; i < payload.length; i++) checksum ^= payload[i];
   var length = payload.length + 1;
   return [0x55, length].concat(payload).concat([checksum]);
+}
+
+function zbBuildZdoFrame(codeByte, shortHex, extData) {
+  var shortAddr = zbParseHexNumber(shortHex) & 0xFFFF;
+  return zbBuildEbyteFrame(0x01, codeByte, [
+    shortAddr & 0xFF,
+    (shortAddr >> 8) & 0xFF
+  ].concat(extData || []));
+}
+
+function zbIeeeToLeBytes(ieee) {
+  var clean = String(ieee === undefined || ieee === null ? '' : ieee)
+    .replace(/[^0-9A-Fa-f]/g, '')
+    .toUpperCase();
+  if (clean.length !== 16) return [];
+  var out = [];
+  for (var i = 14; i >= 0; i -= 2) {
+    out.push(parseInt(clean.substr(i, 2), 16));
+  }
+  return out;
 }
 
 function zbBuildZclFrame(codeByte, shortHex, epHex, clusterHex, extData) {
@@ -1209,6 +1274,28 @@ function zbBuildReportRuleCommand(shortHex, epHex, clusterHex, attrHex, dataType
   ]));
 }
 
+function zbBuildMoveToColorParams(hexColor) {
+  var rgb = tatHexToRgb(hexColor);
+  if (!rgb) return null;
+  var xy = tatRgbToXy(rgb.r, rgb.g, rgb.b);
+  var xInt = Math.round(xy.x * 65535);
+  var yInt = Math.round(xy.y * 65535);
+  return [
+    xInt & 0xFF,
+    (xInt >> 8) & 0xFF,
+    yInt & 0xFF,
+    (yInt >> 8) & 0xFF,
+    0x0A,
+    0x00
+  ];
+}
+
+function zbBuildDeleteNodeCommand(shortHex, ieee) {
+  var macBytes = zbIeeeToLeBytes(ieee);
+  if (macBytes.length !== 8) return '';
+  return zbBytesToHexStr(zbBuildZdoFrame(0x34, shortHex, macBytes.concat([0x01, 0x00])));
+}
+
 function zbSendReadAttr(shortHex, epHex, clusterHex, attrHex, timeout) {
   if (zbUseHexNative()) {
     return sendCFZB('MODULE_ZCL_READ_ATTR', zbBuildReadAttrCommand(shortHex, epHex, clusterHex, attrHex), timeout);
@@ -1234,6 +1321,15 @@ function zbSendReportRule(shortHex, epHex, clusterHex, attrHex, dataTypeHex, min
     shortHex + ',' + epHex + ',' + clusterHex + ',' + attrHex + ',' + dataTypeHex + ',' + minHex + ',' + maxHex + ',' + changeHex,
     timeout
   );
+}
+
+function zbSendDeleteNode(shortHex, ieee, timeout) {
+  if (zbUseHexNative()) {
+    var payload = zbBuildDeleteNodeCommand(shortHex, ieee);
+    if (!payload) return Promise.reject(new Error('Cannot delete node: IEEE address unknown'));
+    return sendCFZB('MODULE_DELETE_NODE', payload, timeout);
+  }
+  return sendCFZB('MODULE_DELETE_NODE', shortHex, timeout);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1280,6 +1376,7 @@ function zbHandleNodeLeave(ieee) {
   var keys = Object.keys(tatState.zb.nodes);
   for (var i = 0; i < keys.length; i++) {
     if (tatState.zb.nodes[keys[i]].ieee === ieee) {
+      delete tatState.zb.sensorData[keys[i]];
       delete tatState.zb.nodes[keys[i]];
       if (tatState.zb.selectedNode === keys[i]) {
         tatState.zb.selectedNode = null;
@@ -1384,7 +1481,6 @@ function zbUpdateSensorPanel(short) {
   if (!sd) return;
   tatSet('tat-zbsen-temp', sd.temp !== null && sd.temp !== undefined ? sd.temp.toFixed(1) + ' °C' : '—');
   tatSet('tat-zbsen-hum',  sd.hum  !== null && sd.hum  !== undefined ? sd.hum.toFixed(1)  + ' %' : '—');
-  tatSet('tat-zbsen-cnt',  String(sd.count || 0));
   tatSet('tat-zbsen-last', sd.lastTs ? tatFmtTime(new Date(sd.lastTs)) : '—');
 }
 
@@ -1419,22 +1515,29 @@ function zbBulbLevel(pct) {
     .then(function() { zbRememberBulbUpdate(n.short, { level: pct, lastCmd: 'Set Level ' + pct + '%' }); });
 }
 
-var ZB_XY_COLORS = {
-  red:   'B3,74,32,78,0A,00',
-  green: '30,2B,7A,C0,0A,00',
-  blue:  '14,CC,0A,55,0A,00',
-  white: '4C,2F,51,29,0A,00'
+var ZB_BULB_COLORS = {
+  red:    { label: 'Red',    hex: 'FF0000' },
+  green:  { label: 'Green',  hex: '00FF00' },
+  blue:   { label: 'Blue',   hex: '0000FF' },
+  yellow: { label: 'Yellow', hex: 'FFFF00' },
+  white:  { label: 'White',  hex: 'FFFFFF' }
 };
 
 function zbBulbColor(colorName) {
   var n = zbGetSelected(); if (!n) return;
-  var xy = ZB_XY_COLORS[colorName];
-  if (!xy) return;
-  zbEnqueue(function() { return zbSendControlCmd(n.short, ZB_BULB_EP, '0300', '07', xy, 8000); })
+  var preset = ZB_BULB_COLORS[colorName];
+  if (!preset) return;
+  var params = zbBuildMoveToColorParams(preset.hex);
+  if (!params) return;
+  zbEnqueue(function() {
+    return zbSendControlCmd(n.short, ZB_BULB_EP, '0006', '01', '', 8000)
+      .then(function() {
+        return zbSendControlCmd(n.short, ZB_BULB_EP, '0300', '07', zbBytesToCsvHex(params), 8000);
+      });
+  })
     .then(function() {
-      var label = colorName.charAt(0).toUpperCase() + colorName.substring(1);
-      zbRememberBulbUpdate(n.short, { color: label, lastCmd: 'Set Color ' + label });
-      tatToast('Color: ' + colorName);
+      zbRememberBulbUpdate(n.short, { on: true, color: preset.label, lastCmd: 'Set Color ' + preset.label });
+      tatToast('Color: ' + preset.label);
     });
 }
 
@@ -1472,14 +1575,25 @@ function zbReadHum() {
 }
 
 function zbDeleteNode() {
-  var short = tatState.zb.selectedNode;
-  if (!short) return;
-  delete tatState.zb.nodes[short];
-  delete tatState.zb.sensorData[short];
-  tatState.zb.selectedNode = null;
-  zbShowOverlay();
-  zbRenderNodeList();
-  tatLog('i', 'Deleted node 0x' + short);
+  var n = zbGetSelected();
+  if (!n) return;
+  var short = n.short;
+  var ieee = n.ieee;
+  zbEnqueue(function () {
+    return zbSendDeleteNode(short, ieee, 8000);
+  })
+    .then(function () {
+      tatState.zb.selectedNode = null;
+      zbShowOverlay();
+      zbRenderNodeList();
+      tatLog('i', 'Delete request sent for 0x' + short + ' — awaiting leave notify');
+      tatToast('Delete sent: 0x' + short);
+    })
+    .catch(function (err) {
+      var msg = err && err.message ? err.message : String(err);
+      tatLog('!', 'Delete node failed: ' + msg);
+      tatToast('Delete failed: ' + msg);
+    });
 }
 
 function zbGetSelected() {
@@ -1548,10 +1662,6 @@ function zbRunVerifyQueue() {
     return zbSendReadAttr(item.short, item.ep, '0000', '0005', 10000)
       .then(function (resp) {
         var syncResp = resp || '';
-        var respLines = tatSplitLines(syncResp);
-        for (var ri = 0; ri < respLines.length; ri++) {
-          zbHandleAsyncLine(respLines[ri]);
-        }
         if (/DATN_AUTH_KEY:/i.test(syncResp)) {
           zbHandleModelIdResponse(item.short, syncResp);
         }
@@ -1770,58 +1880,74 @@ function zbHandleAttrReport(short, cluster, attr, value) {
 }
 
 function zbHandleZclAttrReport(data) {
-  if (data.length < 12) return;
+  if (data.length < 15) return;
   var shortAddr = ('0000' + ((data[1] | (data[2] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
   var clusterId = ('0000' + ((data[6] | (data[7] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
-  /* Attribute list starts at offset 11 */
-  if (data.length > 13) {
-    var attrId   = ('0000' + ((data[11] | (data[12] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
-    var dataType = data[13];
+  var numAttr = data[11] || 0;
+  var pos = 12;
+  for (var i = 0; i < numAttr && pos + 2 < data.length; i++) {
+    var attrId = ('0000' + ((data[pos] | (data[pos + 1] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
+    var dataType = data[pos + 2];
+    pos += 3;
+    if (pos >= data.length) break;
     var value = 0;
     if (dataType === 0x10 || dataType === 0x20 || dataType === 0x30) {
-      value = data[14] || 0;
+      value = data[pos] || 0;
+      pos += 1;
     } else if (dataType === 0x21) {
-      value = (data[15] << 8) | data[14];
+      value = ((data[pos + 1] << 8) | data[pos]) || 0;
+      pos += 2;
     } else if (dataType === 0x29) {
-      var v = (data[15] << 8) | data[14];
+      var v = ((data[pos + 1] << 8) | data[pos]) || 0;
       value = v > 32767 ? v - 65536 : v;
+      pos += 2;
+    } else {
+      break;
     }
     zbHandleAttrReport(shortAddr, clusterId, attrId, value);
   }
 }
 
 function zbHandleZclReadAttrRsp(data) {
-  if (data.length < 15) return;
+  if (data.length < 16) return;
   var shortAddr = ('0000' + ((data[1] | (data[2] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
   var clusterId = ('0000' + ((data[6] | (data[7] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
-  if (data.length > 14) {
-    var attrId   = ('0000' + ((data[11] | (data[12] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
-    var status   = data[13];
-    var dataType = data[14];
-    if (status !== 0) return;
+  var numAttr = data[11] || 0;
+  var pos = 12;
+  for (var i = 0; i < numAttr && pos + 3 < data.length; i++) {
+    var attrId = ('0000' + ((data[pos] | (data[pos + 1] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
+    var status = data[pos + 2];
+    pos += 3;
+    if (status !== 0 || pos >= data.length) continue;
+    var dataType = data[pos];
+    pos += 1;
+    if (pos > data.length) break;
+    if (dataType === 0x42) {
+      var len = data[pos] || 0;
+      pos += 1;
+      var str = '';
+      for (var si = 0; si < len && (pos + si) < data.length; si++) {
+        str += String.fromCharCode(data[pos + si]);
+      }
+      zbHandleModelIdResponse(shortAddr, str);
+      pos += len;
+      continue;
+    }
     var value = 0;
     if (dataType === 0x10 || dataType === 0x20 || dataType === 0x30) {
-      value = data[15] || 0;
+      value = data[pos] || 0;
+      pos += 1;
     } else if (dataType === 0x21) {
-      value = ((data[16] << 8) | data[15]) || 0;
+      value = ((data[pos + 1] << 8) | data[pos]) || 0;
+      pos += 2;
     } else if (dataType === 0x29) {
-      var v2 = ((data[16] << 8) | data[15]) || 0;
+      var v2 = ((data[pos + 1] << 8) | data[pos]) || 0;
       value = v2 > 32767 ? v2 - 65536 : v2;
-    } else if (dataType === 0x42) {
-      /* String */
-      var len = data[15] || 0;
-      var str = '';
-      for (var i = 0; i < len && (16 + i) < data.length; i++) {
-        str += String.fromCharCode(data[16 + i]);
-      }
-      /* Check for auth key */
-      zbHandleModelIdResponse(shortAddr, str);
-      return;
+      pos += 2;
+    } else {
+      break;
     }
-    if (clusterId === '0000' && attrId === '0005') {
-      /* Model Identifier — already handled in String case above */
-      return;
-    }
+    if (clusterId === '0000' && attrId === '0005') continue;
     zbHandleAttrReport(shortAddr, clusterId, attrId, value);
   }
 }
@@ -1967,23 +2093,20 @@ function lrSendLedCmd(hexCmd, label) {
 function lrSendJoinAccept(nodeId) {
   var nodeIdHex = ('00' + nodeId.toString(16).toUpperCase()).slice(-2);
   lrEnqueue(function () {
-    return sendCFLR('MODULE_GET_INFO', '', 5000)
-      .then(function () {
-        tatState.lr.rxActive = false;
-        lrSetRxBadge(false);
-        return sendCFLR('MODULE_SEND_P2P_PKT', '"FE' + nodeIdHex + '"', 8000)
-          .then(function () {
-            tatState.lr.lastCmd = 'JOIN_ACCEPT';
-            tatLog('i', 'JOIN_ACCEPT sent → nodeId=0x' + nodeIdHex);
-            lrBroadcastNodeSnapshot();
-            return sendCFLR('MODULE_ENTER_P2P_RX', '', 5000)
-              .then(function (resp) {
-                tatState.lr.rxActive = true;
-                lrSetRxBadge(true);
-                return resp;
-              });
-          });
-      });
+     tatState.lr.rxActive = false;
+     lrSetRxBadge(false);
+     return sendCFLR('MODULE_SEND_P2P_PKT', '"FE' + nodeIdHex + '"', 8000)
+       .then(function () {
+         tatState.lr.lastCmd = 'JOIN_ACCEPT';
+         tatLog('i', 'JOIN_ACCEPT sent → nodeId=0x' + nodeIdHex);
+         lrBroadcastNodeSnapshot();
+         return sendCFLR('MODULE_ENTER_P2P_RX', '', 5000)
+           .then(function (resp) {
+             tatState.lr.rxActive = true;
+             lrSetRxBadge(true);
+             return resp;
+           });
+       });
   });
 }
 
@@ -1991,9 +2114,16 @@ function lrSendJoinAccept(nodeId) {
    LoRa P2P — Async Line Handler
    ═══════════════════════════════════════════════════════════════════ */
 function lrHandleAsyncLine(line) {
-  var l = line;
+  var l = String(line || '').trim();
   var ci = l.indexOf('CFLR:');
   if (ci > 0) l = l.substring(ci);
+  l = l.replace(/^CFLR:\d+:EVT:/i, '').trim();
+  var ti = l.indexOf('+TEST:');
+  if (ti > 0) l = l.substring(ti);
+  var mi = l.indexOf('+MODE:');
+  if (mi > 0) l = l.substring(mi);
+  var vi = l.indexOf('+VER:');
+  if (vi > 0) l = l.substring(vi);
 
   /* +TEST: RFCFG */
   var m = l.match(/\+TEST:\s*RFCFG\s+(.+)/i);
@@ -2013,6 +2143,38 @@ function lrHandleAsyncLine(line) {
   /* Firmware / version info */
   m = l.match(/\+VER:\s*(.+)/i);
   if (m) { tatSet('tat-lr-fw', m[1].trim()); return; }
+
+  /* Split RX metadata line: +TEST: LEN:<len>, RSSI:<rssi>, SNR:<snr> */
+  m = l.match(/\+TEST:\s*LEN:(\d+),\s*RSSI:([\-\d]+),\s*SNR:([\-\d]+)/i);
+  if (m) {
+    tatState.lr.pendingRxMeta = {
+      len: parseInt(m[1], 10),
+      rssi: m[2],
+      snr: m[3],
+      ts: Date.now()
+    };
+     tatLog('i', '[lr] LEN match → pending meta set len=' + m[1]);
+    return;
+  }
+
+  /* Split RX payload line: +TEST: RX "<hex>" */
+  m = l.match(/\+TEST:\s*RX\s*"([0-9A-Fa-f]*)"/i);
+  if (m) {
+    var hexSplit = m[1].toUpperCase();
+    var meta = tatState.lr.pendingRxMeta || null;
+     tatLog('i', '[lr] RX match hex=' + hexSplit + ' meta=' + (meta ? 'ok' : 'NONE'));
+    var rssiSplit = meta && meta.rssi !== undefined ? meta.rssi : '';
+    var snrSplit = meta && meta.snr !== undefined ? meta.snr : '';
+    tatState.lr.pendingRxMeta = null;
+    tatState.lr.lastRx = tatFmtTime(new Date());
+    tatState.lr.rssi   = rssiSplit ? (rssiSplit + ' dBm') : tatState.lr.rssi;
+    tatState.lr.snr    = snrSplit ? (snrSplit + ' dB') : tatState.lr.snr;
+    tatSet('tat-lr-last-rx', tatState.lr.lastRx);
+    if (rssiSplit) tatSet('tat-lr-rssi', tatState.lr.rssi);
+    if (snrSplit) tatSet('tat-lr-snr', tatState.lr.snr);
+    lrHandleP2PPacket(hexSplit, rssiSplit, snrSplit);
+    return;
+  }
 
   /* +TEST: RXLRPKT <len>, <rssi>, <snr>, "<hex>" */
   m = l.match(/\+TEST:\s*RXLRPKT\s+(\d+),\s*(-?\d+),\s*(-?\d+),\s*"([0-9A-Fa-f]*)"/i);
@@ -2060,8 +2222,14 @@ function lrHandleP2PPacket(hex, rssi, snr) {
     tatLog('EVT', 'JOIN_REQUEST from nodeId=0x' + nodeId.toString(16).toUpperCase() + ' RSSI=' + rssi);
     tatToast('Node joined: 0x' + nodeId.toString(16).toUpperCase());
     lrBroadcastNodeSnapshot();
-    /* Send JOIN_ACCEPT */
-    lrSendJoinAccept(nodeId);
+    /* Send JOIN_ACCEPT — debounce to prevent queue flooding from telemetry replay */
+    var _now = Date.now();
+    if (_now - _lrLastJoinAcceptTs >= 3000) {
+      _lrLastJoinAcceptTs = _now;
+      lrSendJoinAccept(nodeId);
+    } else {
+      tatLog('i', 'JOIN_ACCEPT debounced (' + Math.round((_now - _lrLastJoinAcceptTs)/1000) + 's since last)');
+    }
     return;
   }
 

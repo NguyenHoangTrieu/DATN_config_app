@@ -278,6 +278,9 @@ function tatmHandleDeviceEvent(d) {
 function tatmHandleRawLine(line, forwardToControl) {
   if (!line) return;
   if (forwardToControl) {
+    if (/CFLR:[0-9]+:EVT:/i.test(line) || /^\+TEST:/i.test(line) || /^\+MODE:/i.test(line) || /^\+VER:/i.test(line)) {
+      tatmEmitControlEvent({ type: 'lrRawLine', line: line });
+    }
     tatmMaybeForwardZigbeeFrames(line);
   }
   var bleLine = String(line).trim();
@@ -712,9 +715,6 @@ function tatmBuildCard(key, now) {
     var colorVal = dev.data.color || '—';
     var lastCmd  = dev.data.lastCmd || '—';
     html += '<div class="tatm-card-attr"><span class="tatm-attr-lbl">State</span><span class="tatm-attr-val">' + onBadge + '</span></div>';
-    if (dev.data.level !== undefined) {
-      html += '<div class="tatm-card-attr"><span class="tatm-attr-lbl">Level</span><span class="tatm-attr-val">' + tatmEsc(String(dev.data.level)) + '%</span></div>';
-    }
     html += '<div class="tatm-card-attr"><span class="tatm-attr-lbl">Color</span><span class="tatm-attr-val">' + tatmEsc(String(colorVal)) + '</span></div>';
     html += '<div class="tatm-card-attr"><span class="tatm-attr-lbl">Last cmd</span><span class="tatm-attr-val">' + tatmEsc(String(lastCmd)) + '</span></div>';
   }
@@ -736,7 +736,6 @@ function tatmBuildCard(key, now) {
 
   if (dev.type === 'sensor') {
     html += '<div class="tatm-card-div"></div>';
-    html += '<div class="tatm-card-footer"><span>' + tatmEsc(String(tatmSampleCount(dev))) + ' samples</span></div>';
   }
 
   div.innerHTML = html;
@@ -798,9 +797,10 @@ function tatmDescribeDeviceEvent(d, source) {
   if (dataKeys.length) {
     var dataParts = [];
     for (var i = 0; i < dataKeys.length; i++) {
+      if (d.proto === 'zb' && d.type === 'led' && dataKeys[i] === 'level') continue;
       dataParts.push(dataKeys[i] + '=' + d.data[dataKeys[i]]);
     }
-    parts.push(dataParts.join(', '));
+    if (dataParts.length) parts.push(dataParts.join(', '));
   }
   return parts.join(' | ');
 }

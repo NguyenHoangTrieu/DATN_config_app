@@ -200,19 +200,12 @@
             <button class="tat-btn-off" data-action="zbBulbOff">OFF</button>
             <button class="tat-btn-sm"  data-action="zbBulbToggle">Toggle</button>
           </div>
-          <div class="tat-label-sm">Brightness:</div>
-          <div class="tat-level-row">
-            <button class="tat-btn-sm" data-action="zbBulbLevel" data-param="0">0%</button>
-            <button class="tat-btn-sm" data-action="zbBulbLevel" data-param="25">25%</button>
-            <button class="tat-btn-sm" data-action="zbBulbLevel" data-param="50">50%</button>
-            <button class="tat-btn-sm" data-action="zbBulbLevel" data-param="75">75%</button>
-            <button class="tat-btn-sm" data-action="zbBulbLevel" data-param="100">100%</button>
-          </div>
-          <div class="tat-label-sm">Color (XY):</div>
+          <div class="tat-label-sm">Color:</div>
           <div class="tat-color-row">
             <button class="tat-color-btn" style="background:#f44336" data-action="zbBulbColor" data-param="red" data-color="red" title="Red" aria-label="Red"><span class="tat-color-core"></span></button>
             <button class="tat-color-btn" style="background:#4caf50" data-action="zbBulbColor" data-param="green" data-color="green" title="Green" aria-label="Green"><span class="tat-color-core"></span></button>
             <button class="tat-color-btn" style="background:#2196f3" data-action="zbBulbColor" data-param="blue" data-color="blue" title="Blue" aria-label="Blue"><span class="tat-color-core"></span></button>
+            <button class="tat-color-btn" style="background:#ffc107" data-action="zbBulbColor" data-param="yellow" data-color="yellow" title="Yellow" aria-label="Yellow"><span class="tat-color-core"></span></button>
             <button class="tat-color-btn" style="background:#e0e0e0" data-action="zbBulbColor" data-param="white" data-color="white" title="White" aria-label="White"><span class="tat-color-core"></span></button>
           </div>
           <button class="tat-btn-sm" style="margin-top:6px" data-action="zbReadBulbStatus">Read Status</button>
@@ -240,8 +233,7 @@
             </div>
           </div>
           <div class="tat-sensor-footer">
-            Last: <span id="tat-zbsen-last">--</span>&nbsp;
-            <span id="tat-zbsen-cnt">0</span> reports
+            Last: <span id="tat-zbsen-last">--</span>
           </div>
           <div class="tat-label-sm">Configure Reporting:</div>
           <div class="tat-report-row">
