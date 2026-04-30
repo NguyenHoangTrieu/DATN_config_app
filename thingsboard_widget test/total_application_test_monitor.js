@@ -23,6 +23,7 @@ var TATM_STALE_MS      = 120000;   /* 2 minutes */
 var TATM_STALE_CHECK   = 30000;    /* poll every 30s */
 var TATM_LS_KEY        = 'da2_tatm_state';
 var TATM_MAX_DEVICES   = 64;
+var TATM_LOG_MAX       = 250;
 
 /* ═══════════════════════════════════════════════════════════════════
    State
@@ -41,6 +42,9 @@ var tatmState = {
 var _tatmBridgeHandler  = null;
 var _tatmRawLineHandler = null;
 var _tatmLastRawTs      = 0;
+var _tatmLogLines       = 0;
+var _tatmBleScanByMac   = {};
+var _tatmBleConnByIdx   = {};
 
 /* ═══════════════════════════════════════════════════════════════════
    ThingsBoard Lifecycle
@@ -70,9 +74,11 @@ self.onInit = function () {
           evt.preventDefault();
           return;
         }
-        /* Clear button */
+        /* Clear buttons */
         if (el.className && el.className.indexOf('tatm-btn-clear') >= 0) {
-          tatmClearState();
+          var action = el.getAttribute('data-action') || 'clearState';
+          if (action === 'clearLog') tatmClearLog();
+          else tatmClearState();
           evt.preventDefault();
           return;
         }
@@ -84,6 +90,7 @@ self.onInit = function () {
       try {
         var d = evt && evt.detail;
         if (!d || !d.proto) return;
+        tatmLog('evt', tatmDescribeDeviceEvent(d, 'bridge'));
         tatmHandleDeviceEvent(d);
       } catch (e) {}
     };
@@ -94,7 +101,8 @@ self.onInit = function () {
       try {
         var d = evt && evt.detail;
         if (!d || !d.line) return;
-        tatmHandleRawLine(d.line);
+        tatmLog('raw', '[control] ' + d.line);
+        tatmHandleRawLine(d.line, false);
       } catch (e) {}
     };
     window.addEventListener('da2_tat_raw_line', _tatmRawLineHandler);
@@ -136,7 +144,10 @@ self.onDataUpdated = function () {
         _tatmLastRawTs = ts;
         var decoded = tatmDecodeVal(raw);
         var lines   = decoded.split(/\x1e|\n/).map(function(x){ return x.trim(); }).filter(Boolean);
-        lines.forEach(tatmHandleRawLine);
+        lines.forEach(function (line) {
+          tatmLog('raw', '[telemetry] ' + line);
+          tatmHandleRawLine(line, true);
+        });
       }
     }
   } catch (e) {}
@@ -145,9 +156,86 @@ self.onDataUpdated = function () {
 /* ═══════════════════════════════════════════════════════════════════
    Device event handler (from control widget bridge)
    ═══════════════════════════════════════════════════════════════════ */
+function tatmNormalizeBleAddr(addr) {
+  var hex = String(addr || '').toUpperCase().replace(/[^0-9A-F]/g, '');
+  if (hex.length !== 12) return '';
+  var parts = [];
+  for (var i = 0; i < hex.length; i += 2) parts.push(hex.substr(i, 2));
+  return parts.join(':');
+}
+
+function tatmBuildDeviceKey(proto, id, addr) {
+  if (proto === 'ble') {
+    var mac = tatmNormalizeBleAddr(addr);
+    if (mac) return 'ble:' + mac;
+  }
+  return proto + ':' + String(id).toUpperCase();
+}
+
+function tatmMergeDeviceRecord(target, source) {
+  if (!target || !source) return target;
+  if (!target.proto && source.proto) target.proto = source.proto;
+  if ((!target.type || target.type === 'unknown') && source.type) target.type = source.type;
+  if ((!target.name || target.name === '—') && source.name) target.name = source.name;
+  if (source.addr && source.addr !== '—') target.addr = source.addr;
+  else if (!target.addr) target.addr = source.addr;
+  if (source.slot && source.slot !== '?') target.slot = source.slot;
+  target.lastTs = Math.max(target.lastTs || 0, source.lastTs || 0);
+  target.updateCount = Math.max(target.updateCount || 0, source.updateCount || 0);
+  if (source.error !== undefined) target.error = source.error;
+  if (!target.data) target.data = {};
+  var dataKeys = Object.keys(source.data || {});
+  for (var i = 0; i < dataKeys.length; i++) {
+    var dataKey = dataKeys[i];
+    if (source.data[dataKey] !== undefined && source.data[dataKey] !== null) {
+      target.data[dataKey] = source.data[dataKey];
+    }
+  }
+  return target;
+}
+
+function tatmNormalizeStoredDevices(preferredLegacyId, preferredBleAddr) {
+  var normalized = {};
+  var keys = Object.keys(tatmState.devices);
+  var preferredLegacyKey = preferredLegacyId !== undefined && preferredLegacyId !== null
+    ? 'ble:' + String(preferredLegacyId).toUpperCase()
+    : '';
+  var preferredKey = preferredBleAddr ? ('ble:' + preferredBleAddr) : '';
+
+  for (var i = 0; i < keys.length; i++) {
+    var key = keys[i];
+    var dev = tatmState.devices[key];
+    if (!dev) continue;
+
+    var canonicalKey = key;
+    if (dev.proto === 'ble') {
+      var mac = tatmNormalizeBleAddr(dev.addr);
+      if (mac) canonicalKey = 'ble:' + mac;
+      else if (preferredKey && key === preferredLegacyKey) canonicalKey = preferredKey;
+    }
+
+    if (!normalized[canonicalKey]) normalized[canonicalKey] = dev;
+    else tatmMergeDeviceRecord(normalized[canonicalKey], dev);
+  }
+
+  tatmState.devices = normalized;
+}
+
 function tatmHandleDeviceEvent(d) {
   /* d = {proto, type, id, name, addr, slot, data:{…}} */
-  var key = d.proto + ':' + String(d.id).toUpperCase();
+  var normalizedBleAddr = d.proto === 'ble' ? tatmNormalizeBleAddr(d.addr) : '';
+  if (d.proto === 'ble' && normalizedBleAddr) {
+    _tatmBleScanByMac[normalizedBleAddr] = {
+      name: d.name || ('BLE Device ' + d.id),
+      type: d.type || 'unknown'
+    };
+    _tatmBleConnByIdx[String(d.id)] = {
+      mac: normalizedBleAddr,
+      name: d.name || ('BLE Device ' + d.id),
+      type: d.type || 'unknown'
+    };
+  }
+  var key = tatmBuildDeviceKey(d.proto, d.id, d.addr);
   if (!tatmState.devices[key]) {
     /* Check cap */
     if (Object.keys(tatmState.devices).length >= TATM_MAX_DEVICES) return;
@@ -160,7 +248,7 @@ function tatmHandleDeviceEvent(d) {
   dev.proto        = d.proto || dev.proto;
   dev.type         = d.type || dev.type || 'unknown';
   dev.name         = d.name || dev.name;
-  dev.addr         = d.addr || dev.addr;
+  dev.addr         = normalizedBleAddr || d.addr || dev.addr;
   dev.slot         = d.slot || dev.slot;
   dev.lastTs       = Date.now();
   dev.updateCount  = (dev.updateCount || 0) + 1;
@@ -171,6 +259,10 @@ function tatmHandleDeviceEvent(d) {
     if (d.data[keys[ki]] !== undefined && d.data[keys[ki]] !== null) {
       dev.data[keys[ki]] = d.data[keys[ki]];
     }
+  }
+  if (d.proto === 'ble') {
+    tatmNormalizeStoredDevices(d.id, normalizedBleAddr);
+    dev = tatmState.devices[key] || dev;
   }
   tatmState.totalRx++;
   tatmState.lastTs = dev.lastTs;
@@ -183,21 +275,61 @@ function tatmHandleDeviceEvent(d) {
 /* ═══════════════════════════════════════════════════════════════════
    Raw telemetry line parser (fallback — no control widget running)
    ═══════════════════════════════════════════════════════════════════ */
-function tatmHandleRawLine(line) {
+function tatmHandleRawLine(line, forwardToControl) {
   if (!line) return;
-  /* BLE NOTIFY → sensor: CFBG:OK:NOTIFY:<idx>:0x<handle>:<hexdata> */
-  var m = line.match(/CFBG:OK:NOTIFY:(\d+):0x([0-9A-Fa-f]+):([0-9A-Fa-f]{8,})/i);
+  if (forwardToControl) {
+    tatmMaybeForwardZigbeeFrames(line);
+  }
+  var bleLine = String(line).trim();
+  var cfbgIdx = bleLine.indexOf('CFBG:');
+  if (cfbgIdx > 0) bleLine = bleLine.substring(cfbgIdx);
+  if (/^CFBG:OK:/i.test(bleLine)) bleLine = bleLine.substring(8);
+  else if (/^CFBG:[0-9]+:EVT:/i.test(bleLine)) bleLine = bleLine.replace(/^CFBG:[0-9]+:EVT:/i, '');
+
+  var m = bleLine.match(/^SCAN_RESULT:(\d+),([0-9A-Fa-f:]+),(-?\d+),([^\x1e\n]*)/i);
+  if (m) {
+    var scanMac = m[2].toUpperCase();
+    var scanName = m[4].trim() || ('BLE Device ' + m[1]);
+    _tatmBleScanByMac[scanMac] = {
+      name: scanName,
+      type: scanName.indexOf('DA2_LED_') === 0 ? 'led' : (scanName.indexOf('DA2_SENSOR_') === 0 ? 'sensor' : 'unknown')
+    };
+    return;
+  }
+
+  m = bleLine.match(/^CONNECTED:(\d+):0x([0-9A-Fa-f]+):([0-9A-Fa-f:]+)/i);
+  if (m) {
+    var connIdx = String(m[1]);
+    var connMac = m[3].toUpperCase();
+    var scanMeta = _tatmBleScanByMac[connMac] || {};
+    _tatmBleConnByIdx[connIdx] = {
+      mac: connMac,
+      name: scanMeta.name || ('BLE Device ' + connIdx),
+      type: scanMeta.type || 'unknown'
+    };
+    return;
+  }
+
+  m = bleLine.match(/^DISCONNECTED:(\d+)/i);
+  if (m) {
+    delete _tatmBleConnByIdx[String(m[1])];
+    return;
+  }
+
+  /* BLE NOTIFY → sensor */
+  m = bleLine.match(/^NOTIFY:(\d+):0x([0-9A-Fa-f]+):([0-9A-Fa-f]{8,})/i);
   if (m) {
     var idx  = m[1];
     var hex4 = m[3];
+    var connMeta = _tatmBleConnByIdx[String(idx)] || {};
     var t = parseInt(hex4.substr(0,2), 16) | (parseInt(hex4.substr(2,2), 16) << 8);
     if (t > 32767) t -= 65536;
     var h = parseInt(hex4.substr(4,2), 16) | (parseInt(hex4.substr(6,2), 16) << 8);
     if (h > 32767) h -= 65536;
     tatmHandleDeviceEvent({
-      proto: 'ble', type: 'sensor', id: idx,
-      name:  'BLE Sensor ' + idx,
-      addr:  '—', slot: '?',
+      proto: 'ble', type: connMeta.type === 'led' ? 'sensor' : (connMeta.type || 'sensor'), id: connMeta.mac || idx,
+      name:  connMeta.name || ('BLE Sensor ' + idx),
+      addr:  connMeta.mac || '—', slot: '?',
       data:  { temp: (t/100.0).toFixed(1), hum: (h/100.0).toFixed(1) }
     });
     return;
@@ -210,6 +342,9 @@ function tatmHandleRawLine(line) {
     var cluster = m[3].toUpperCase();
     var attr    = m[4].toUpperCase();
     var val     = parseInt(m[6], 16);
+    if (forwardToControl) {
+      tatmEmitControlEvent({ type: 'zbAttrReport', short: short, cluster: cluster, attr: attr, value: val });
+    }
     var dkey    = 'zb:' + short;
     var dev2    = tatmState.devices[dkey];
     var data2   = {};
@@ -247,6 +382,126 @@ function tatmHandleRawLine(line) {
       });
     }
     return;
+  }
+}
+
+function tatmEmitControlEvent(detail) {
+  try {
+    window.dispatchEvent(new CustomEvent('da2_tat_ctrl_event', { detail: detail }));
+  } catch (e) {}
+}
+
+function tatmExtractZigbeeFrames(line) {
+  if (!line || line.indexOf('55') < 0) return [];
+  var hexPairs = String(line).match(/\b[0-9A-Fa-f]{2}\b/g);
+  if (!hexPairs || hexPairs.length < 4) return [];
+  var bytes = [];
+  for (var i = 0; i < hexPairs.length; i++) {
+    bytes.push(parseInt(hexPairs[i], 16));
+  }
+  var frames = [];
+  for (var bi = 0; bi < bytes.length - 1; ) {
+    if (bytes[bi] !== 0x55) {
+      bi++;
+      continue;
+    }
+    var totalLen = bytes[bi + 1] + 2;
+    if (totalLen < 6 || (bi + totalLen) > bytes.length) {
+      bi++;
+      continue;
+    }
+    frames.push(bytes.slice(bi, bi + totalLen));
+    bi += totalLen;
+  }
+  return frames;
+}
+
+function tatmZigbeeFrameData(frame) {
+  var length = frame[1] || 0;
+  var dataLen = length - 3;
+  if (dataLen < 0) dataLen = 0;
+  return frame.slice(4, 4 + dataLen);
+}
+
+function tatmBytesToIeee(bytes) {
+  var out = '';
+  for (var i = 7; i >= 0; i--) {
+    out += ('00' + bytes[i].toString(16).toUpperCase()).slice(-2);
+    if (i > 0) out += ':';
+  }
+  return out;
+}
+
+function tatmDecodeZigbeeValue(dataType, low, high) {
+  if (dataType === 0x10 || dataType === 0x20 || dataType === 0x30) return low;
+  if (dataType === 0x21) return (high << 8) | low;
+  if (dataType === 0x29) {
+    var signed = (high << 8) | low;
+    return signed > 32767 ? signed - 65536 : signed;
+  }
+  return null;
+}
+
+function tatmMaybeForwardZigbeeFrames(line) {
+  var frames = tatmExtractZigbeeFrames(line);
+  for (var i = 0; i < frames.length; i++) {
+    var frame = frames[i];
+    var type = frame[2];
+    var code = frame[3];
+    var data = tatmZigbeeFrameData(frame);
+
+    if (type === 0x80 && code === 0x03 && data.length >= 10) {
+      tatmEmitControlEvent({
+        type: 'zbNodeJoin',
+        ieee: tatmBytesToIeee(data.slice(0, 8)),
+        short: ('0000' + ((data[8] | (data[9] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4)
+      });
+      continue;
+    }
+
+    if (type === 0x80 && code === 0x05 && data.length >= 13) {
+      tatmEmitControlEvent({
+        type: 'zbNodeAnnounce',
+        ieee: tatmBytesToIeee(data.slice(2, 10)),
+        short: ('0000' + ((data[10] | (data[11] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4),
+        ep: ('00' + data[12].toString(16).toUpperCase()).slice(-2)
+      });
+      continue;
+    }
+
+    if (type === 0x80 && code === 0x06 && data.length >= 8) {
+      tatmEmitControlEvent({
+        type: 'zbNodeLeave',
+        ieee: tatmBytesToIeee(data.slice(0, 8))
+      });
+      continue;
+    }
+
+    if (type === 0x82 && code === 0x0A && data.length > 14) {
+      var shortAddr = ('0000' + ((data[1] | (data[2] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
+      var clusterId = ('0000' + ((data[6] | (data[7] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
+      var attrId = ('0000' + ((data[11] | (data[12] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
+      var dataType = data[13];
+      var value = tatmDecodeZigbeeValue(dataType, data[14] || 0, data[15] || 0);
+      if (value !== null) {
+        tatmEmitControlEvent({ type: 'zbAttrReport', short: shortAddr, cluster: clusterId, attr: attrId, value: value });
+      }
+      continue;
+    }
+
+    if (type === 0x82 && code === 0x00 && data.length > 15) {
+      var rspShort = ('0000' + ((data[1] | (data[2] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
+      var rspCluster = ('0000' + ((data[6] | (data[7] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
+      var rspAttr = ('0000' + ((data[11] | (data[12] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
+      var status = data[13];
+      var rspType = data[14];
+      if (status === 0) {
+        var rspValue = tatmDecodeZigbeeValue(rspType, data[15] || 0, data[16] || 0);
+        if (rspValue !== null) {
+          tatmEmitControlEvent({ type: 'zbAttrReport', short: rspShort, cluster: rspCluster, attr: rspAttr, value: rspValue });
+        }
+      }
+    }
   }
 }
 
@@ -506,6 +761,8 @@ function tatmClearState() {
   tatmState.devices   = {};
   tatmState.totalRx   = 0;
   tatmState.lastTs    = 0;
+  _tatmBleScanByMac   = {};
+  _tatmBleConnByIdx   = {};
   try { localStorage.removeItem(TATM_LS_KEY); } catch (e) {}
   tatmSetPill('idle', 'Waiting');
   tatmRenderCards();
@@ -516,27 +773,63 @@ function tatmClearState() {
    Persistence (localStorage)
    ═══════════════════════════════════════════════════════════════════ */
 function tatmPersistState() {
-  try {
-    var state = {
-      devices:  tatmState.devices,
-      totalRx:  tatmState.totalRx,
-      lastTs:   tatmState.lastTs
-    };
-    localStorage.setItem(TATM_LS_KEY, JSON.stringify(state));
-  } catch (e) {}
+  return;
 }
 
 function tatmRestoreState() {
   try {
-    var s = localStorage.getItem(TATM_LS_KEY);
-    if (!s) return;
-    var parsed = JSON.parse(s);
-    if (parsed && parsed.devices) {
-      tatmState.devices  = parsed.devices;
-      tatmState.totalRx  = parsed.totalRx  || 0;
-      tatmState.lastTs   = parsed.lastTs   || 0;
-    }
+    localStorage.removeItem(TATM_LS_KEY);
+    tatmState.devices = {};
+    tatmState.totalRx = 0;
+    tatmState.lastTs = 0;
   } catch (e) {}
+}
+
+function tatmDescribeDeviceEvent(d, source) {
+  var parts = [
+    '[' + source + ']',
+    String(d.proto || '?').toUpperCase(),
+    String(d.type || 'unknown'),
+    d.name || ('id=' + d.id)
+  ];
+  if (d.addr) parts.push('addr=' + d.addr);
+  if (d.slot !== undefined) parts.push('slot=' + d.slot);
+  var dataKeys = d.data ? Object.keys(d.data) : [];
+  if (dataKeys.length) {
+    var dataParts = [];
+    for (var i = 0; i < dataKeys.length; i++) {
+      dataParts.push(dataKeys[i] + '=' + d.data[dataKeys[i]]);
+    }
+    parts.push(dataParts.join(', '));
+  }
+  return parts.join(' | ');
+}
+
+function tatmLog(kind, msg) {
+  var el = document.getElementById('tatm-console');
+  if (!el || !msg) return;
+  var cls = 'tatm-log-info';
+  if (kind === 'raw') cls = 'tatm-log-raw';
+  else if (kind === 'evt') cls = 'tatm-log-evt';
+  else if (kind === 'warn') cls = 'tatm-log-warn';
+  else if (kind === 'fail') cls = 'tatm-log-fail';
+  var line = document.createElement('div');
+  line.className = 'tatm-log-line ' + cls;
+  line.textContent = '[' + tatmFmtTime(new Date()) + '] ' + msg;
+  el.appendChild(line);
+  _tatmLogLines++;
+  while (_tatmLogLines > TATM_LOG_MAX && el.firstChild) {
+    el.removeChild(el.firstChild);
+    _tatmLogLines--;
+  }
+  el.scrollTop = el.scrollHeight;
+}
+
+function tatmClearLog() {
+  var el = document.getElementById('tatm-console');
+  if (!el) return;
+  el.innerHTML = '';
+  _tatmLogLines = 0;
 }
 
 /* ═══════════════════════════════════════════════════════════════════

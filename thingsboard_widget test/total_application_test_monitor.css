@@ -185,6 +185,49 @@
   font-size: 10px; color: var(--text-muted); padding-top: 2px;
 }
 
+/* ── Console ── */
+.tatm-console-wrap {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.tatm-console-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  background: rgba(15, 23, 42, 0.75);
+  border-bottom: 1px solid var(--border);
+}
+
+.tatm-console-title {
+  flex: 1;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+}
+
+.tatm-console-log {
+  height: 132px;
+  overflow-y: auto;
+  padding: 6px 10px 8px;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.tatm-console-log::-webkit-scrollbar { width: 4px; }
+.tatm-console-log::-webkit-scrollbar-thumb { background: var(--surface3); border-radius: 2px; }
+
+.tatm-log-line { white-space: pre-wrap; word-break: break-all; }
+.tatm-log-raw   { color: #93c5fd; }
+.tatm-log-evt   { color: #86efac; }
+.tatm-log-info  { color: var(--text-dim); }
+.tatm-log-warn  { color: var(--warn); }
+.tatm-log-fail  { color: #f87171; }
+
 /* ── Footer ── */
 .tatm-footer {
   display: flex; align-items: center; justify-content: space-between;

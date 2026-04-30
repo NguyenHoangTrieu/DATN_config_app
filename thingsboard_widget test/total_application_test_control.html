@@ -28,7 +28,7 @@
     </div>
     <div class="tat-hdr-right">
       <label class="tat-slot-lbl">Stack</label>
-      <select id="tat-slot" class="tat-slot-sel" onchange="tatSetSlot(this.value)">
+      <select id="tat-slot" class="tat-slot-sel">
         <option value="0">0</option>
         <option value="1">1</option>
       </select>
@@ -129,20 +129,7 @@
               <span id="tat-sen-mac" class="tat-mono">--</span>
               <span id="tat-sen-cccd" class="tat-meta-sm"></span>
             </div>
-            <div class="tat-sensor-cards">
-              <div class="tat-data-card">
-                <div class="tat-data-lbl">Temperature</div>
-                <div id="tat-sen-temp" class="tat-data-val">--</div>
-              </div>
-              <div class="tat-data-card">
-                <div class="tat-data-lbl">Humidity</div>
-                <div id="tat-sen-hum" class="tat-data-val">--</div>
-              </div>
-            </div>
-            <div class="tat-sensor-footer">
-              Last: <span id="tat-sen-last">--</span>&nbsp;
-              <span id="tat-sen-cnt">0</span> samples
-            </div>
+            <div class="tat-meta-sm" style="margin-bottom:10px">Live sensor data is shown in the monitor widget.</div>
             <div class="tat-interval-row">
               Interval:
               <input id="tat-sen-interval" class="tat-input-sm" type="number" min="1" max="60" value="3" style="width:52px">s

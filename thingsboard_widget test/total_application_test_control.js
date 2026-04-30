@@ -41,7 +41,8 @@ var tatState = {
     cmdPending:    false,
     verifyQueue:   [],
     verifyRunning: false,
-    hexSeq:        0
+    hexSeq:        0,
+    hexNative:     false
   },
 
   lr: {
@@ -97,6 +98,12 @@ self.onInit = function () {
     if (root) {
       root.addEventListener('click', function(evt) {
         var el = evt.target;
+        while (el && el !== root &&
+               (!(el.id && el.id.match(/^tat-tab-(ble|zb|lora)$/))) &&
+               (!el.getAttribute || !el.getAttribute('data-action'))) {
+          el = el.parentNode;
+        }
+        if (!el || el === root) return;
         var action = el.getAttribute('data-action');
         
         /* Tab clicks */
@@ -146,6 +153,14 @@ self.onInit = function () {
           }
           evt.preventDefault();
           return;
+        }
+      });
+
+      root.addEventListener('change', function(evt) {
+        var el = evt.target;
+        if (!el) return;
+        if (el.id === 'tat-slot') {
+          tatSetSlot(el.value);
         }
       });
     }
@@ -432,9 +447,11 @@ function lrDrainQueue() {
 function tatDispatchLine(line) {
   if (!line) return;
   /* BLE async events */
-  if (/^CFBG:/i.test(line) || /CFBG:/i.test(line)) { bleHandleAsyncLine(line); }
+  if (/^CFBG:/i.test(line) || /^(SCAN_RESULT:|CONNECTED:|DISC_DONE:|CHAR:|NOTIFY:|DISCONNECTING:|DISCONNECTED:|DESCR_WRITE_OK|WRITE_OK|SCAN_DONE:)/i.test(line)) {
+    bleHandleAsyncLine(line);
+  }
   /* Zigbee hex frame (starts with "55 ") */
-  if (/^55\s+[0-9A-Fa-f]{2}/i.test(line) || /CFZB:[0-9]+:EVT:/i.test(line)) { zbHandleAsyncLine(line); }
+  if (/^55\s+[0-9A-Fa-f]{2}/i.test(line) || /CFZB:[0-9]+:(EVT|OK):/i.test(line)) { zbHandleAsyncLine(line); }
   /* LoRa async events */
   if (/CFLR:[0-9]+:EVT:/i.test(line)) { lrHandleAsyncLine(line); }
   /* Broadcast raw line to monitor widget */
@@ -468,8 +485,12 @@ function tatSetTab(tab) {
 }
 
 function tatSetSlot(v) {
-  tatState.slot = v;
-  tatLog('i', 'Slot changed to ' + v);
+  var slot = String(v) === '1' ? '1' : '0';
+  if (tatState.slot !== slot) tatState.zb.hexNative = false;
+  tatState.slot = slot;
+  var el = document.getElementById('tat-slot');
+  if (el && el.value !== slot) el.value = slot;
+  tatLog('i', 'Slot changed to ' + slot);
 }
 
 function tatQueryInfo() {
@@ -537,6 +558,7 @@ function bleAutoDiscover(idx) {
     return sendCFBG('DISC', String(idx), tatState.rpcTimeout)
       .then(function (resp) {
         tatSplitLines(resp || '').forEach(bleHandleAsyncLine);
+        bleMaybeEnableNotify(idx);
       });
   });
 }
@@ -548,10 +570,22 @@ function bleDisconnectSelected() {
   var idx = tatState.ble.selectedIdx;
   if (idx === null) return;
   tatLog('i', 'Disconnecting idx=' + idx);
+  var capturedIdx = idx;
   bleEnqueue(function () {
     return sendCFBG('DISCONNECT', String(idx))
       .then(function (resp) {
-        tatSplitLines(resp || '').forEach(bleHandleAsyncLine);
+        var found = false;
+        tatSplitLines(resp || '').forEach(function (line) {
+          if (/^CFBG:OK:DISCONNECT(ING|ED):/i.test(line) || /^DISCONNECT(ING|ED):/i.test(line)) found = true;
+          bleHandleAsyncLine(line);
+        });
+        if (!found) {
+          bleHandleDisconnected(capturedIdx);
+        }
+      })
+      .catch(function (err) {
+        tatLog('!', 'Disconnect RPC fallback cleanup: ' + (err && err.message ? err.message : err));
+        bleHandleDisconnected(capturedIdx);
       });
   });
 }
@@ -616,14 +650,15 @@ function bleApplyInterval() {
    ═══════════════════════════════════════════════════════════════════ */
 function bleHandleAsyncLine(line) {
   if (!line) return;
-  var l = line;
-  /* Strip leading log prefix to extract CFBG: part */
+  var l = String(line).trim();
+  /* Strip leading log prefix to extract CFBG: part when present */
   var ci = l.indexOf('CFBG:');
   if (ci > 0) l = l.substring(ci);
-  if (l.indexOf('CFBG:') < 0) return;
+  if (/^CFBG:OK:/i.test(l)) l = l.substring(8);
+  else if (/^CFBG:[0-9]+:EVT:/i.test(l)) l = l.replace(/^CFBG:[0-9]+:EVT:/i, '');
 
   /* SCAN_DONE */
-  var m = l.match(/CFBG:OK:SCAN_DONE:(\d+)/i);
+  var m = l.match(/^SCAN_DONE:(\d+)/i);
   if (m) {
     tatState.ble.scanning = false;
     tatSetPill('idle', 'Idle');
@@ -635,24 +670,36 @@ function bleHandleAsyncLine(line) {
   }
 
   /* SCAN_RESULT */
-  m = l.match(/CFBG:OK:SCAN_RESULT:(\d+),([0-9A-Fa-f:]+),(-?\d+),([^\x1e\n]*)/i);
+  m = l.match(/^SCAN_RESULT:(\d+),([0-9A-Fa-f:]+),(-?\d+),([^\x1e\n]*)/i);
   if (m) {
+    var scanIdx = parseInt(m[1], 10);
     var name = m[4].trim();
     var type = name.indexOf('DA2_LED_') === 0 ? 'led' : (name.indexOf('DA2_SENSOR_') === 0 ? 'sensor' : 'unknown');
     var mac  = m[2].toUpperCase();
+    var rssi = parseInt(m[3], 10);
     /* Check if already connected */
     var alreadyConn = false;
     var connKeys = Object.keys(tatState.ble.connected);
     for (var ci2 = 0; ci2 < connKeys.length; ci2++) {
       if (tatState.ble.connected[connKeys[ci2]].mac === mac) { alreadyConn = true; break; }
     }
-    tatState.ble.scanResults.push({ idx: parseInt(m[1], 10), mac: mac, rssi: parseInt(m[3], 10), name: name, type: type, connected: alreadyConn });
+    var result = { idx: scanIdx, mac: mac, rssi: rssi, name: name, type: type, connected: alreadyConn };
+    var found = false;
+    for (var si0 = 0; si0 < tatState.ble.scanResults.length; si0++) {
+      var existing = tatState.ble.scanResults[si0];
+      if (existing.idx === scanIdx || existing.mac === mac) {
+        tatState.ble.scanResults[si0] = result;
+        found = true;
+        break;
+      }
+    }
+    if (!found) tatState.ble.scanResults.push(result);
     bleRenderScanList();
     return;
   }
 
   /* CONNECTED */
-  m = l.match(/CFBG:OK:CONNECTED:(\d+):0x([0-9A-Fa-f]+):([0-9A-Fa-f:]+)/i);
+  m = l.match(/^CONNECTED:(\d+):0x([0-9A-Fa-f]+):([0-9A-Fa-f:]+)/i);
   if (m) {
     var devIdx  = parseInt(m[1], 10);
     var connId  = m[2];
@@ -667,7 +714,20 @@ function bleHandleAsyncLine(line) {
         break;
       }
     }
-    tatState.ble.connected[devIdx] = { idx: devIdx, mac: devMac, name: devName, type: devType, connId: connId, chars: {}, fff2Handle: null, aa11Handle: null, aa12Handle: null, cccdHandle: null };
+    tatState.ble.connected[devIdx] = {
+      idx: devIdx,
+      mac: devMac,
+      name: devName,
+      type: devType,
+      connId: connId,
+      chars: {},
+      fff2Handle: null,
+      aa11Handle: null,
+      aa12Handle: null,
+      cccdHandle: null,
+      notifyPending: false,
+      notifyEnabled: false
+    };
     bleRenderGrid();
     bleRenderScanList();
     tatLog('i', 'Connected: ' + devName + ' idx=' + devIdx);
@@ -678,27 +738,17 @@ function bleHandleAsyncLine(line) {
   }
 
   /* DISC_DONE */
-  m = l.match(/CFBG:OK:DISC_DONE:(\d+):/i);
+  m = l.match(/^DISC_DONE:(\d+):/i);
   if (m) {
     var dIdx = parseInt(m[1], 10);
     tatLog('i', 'Discovered chars for idx=' + dIdx);
-    var dev2 = tatState.ble.connected[dIdx];
-    if (!dev2) return;
-    /* If sensor, auto enable NOTIFY on AA11 CCCD */
-    if (dev2.type === 'sensor' && dev2.cccdHandle) {
-      setTimeout(function () {
-        bleEnqueue(function () {
-          return sendCFBG('NOTIFY', dIdx + ':' + dev2.cccdHandle + ':1')
-            .then(function (r) { tatLog('i', 'NOTIFY enabled: ' + r); });
-        });
-      }, 500);
-    }
+    if (!tatState.ble.connected[dIdx]) return;
     bleRenderGrid();
     return;
   }
 
   /* CHAR discovery line: CFBG:OK:CHAR:<idx>:0x<uuid>:0x<handle>:0x<props> */
-  m = l.match(/CFBG:OK:CHAR:(\d+):0x([0-9A-Fa-f]+):0x([0-9A-Fa-f]+):0x([0-9A-Fa-f]+)/i);
+  m = l.match(/^CHAR:(\d+):0x([0-9A-Fa-f]+):0x([0-9A-Fa-f]+):0x([0-9A-Fa-f]+)/i);
   if (m) {
     var cIdx    = parseInt(m[1], 10);
     var uuid16  = m[2].toUpperCase();
@@ -719,12 +769,13 @@ function bleHandleAsyncLine(line) {
       }
       /* 2902 — explicit CCCD */
       if (uuid16 === '2902' && dev3.aa11Handle) dev3.cccdHandle = handle;
+      bleMaybeEnableNotify(cIdx);
     }
     return;
   }
 
   /* NOTIFY async — sensor data */
-  m = l.match(/CFBG:OK:NOTIFY:(\d+):0x([0-9A-Fa-f]+):([0-9A-Fa-f]+)/i);
+  m = l.match(/^NOTIFY:(\d+):0x([0-9A-Fa-f]+):([0-9A-Fa-f]+)/i);
   if (m) {
     var nIdx = parseInt(m[1], 10);
     var hex4 = m[3];
@@ -753,34 +804,72 @@ function bleHandleAsyncLine(line) {
   }
 
   /* DESCR_WRITE_OK — NOTIFY enabled confirmation */
-  if (/CFBG:OK:DESCR_WRITE_OK/i.test(l)) {
+  if (/^DESCR_WRITE_OK/i.test(l)) {
     tatLog('i', 'NOTIFY enabled OK');
     return;
   }
 
   /* WRITE_OK */
-  if (/CFBG:OK:WRITE_OK/i.test(l)) {
+  if (/^WRITE_OK/i.test(l)) {
     return;
   }
 
   /* DISCONNECTED */
-  m = l.match(/CFBG:OK:DISCONNECTED:(\d+)/i);
+  m = l.match(/^DISCONNECTING:(\d+)/i);
   if (m) {
-    var dIdx2 = parseInt(m[1], 10);
-    var dDev  = tatState.ble.connected[dIdx2];
-    if (dDev) {
-      tatLog('i', 'Disconnected: ' + dDev.name);
-      delete tatState.ble.connected[dIdx2];
-      delete tatState.ble.sensorData[dIdx2];
-      if (tatState.ble.selectedIdx === dIdx2) {
-        tatState.ble.selectedIdx = null;
-        bleShowDetailHint();
-      }
-      bleRenderGrid();
-      bleRenderScanList();
-    }
+    bleHandleDisconnected(parseInt(m[1], 10));
     return;
   }
+
+  /* DISCONNECTED */
+  m = l.match(/^DISCONNECTED:(\d+)/i);
+  if (m) {
+    bleHandleDisconnected(parseInt(m[1], 10));
+    return;
+  }
+}
+
+function bleMaybeEnableNotify(idx) {
+  var dev = tatState.ble.connected[idx];
+  if (!dev || dev.type !== 'sensor' || !dev.aa11Handle || !dev.cccdHandle) return;
+  if (dev.notifyPending || dev.notifyEnabled) return;
+  dev.notifyPending = true;
+  bleEnqueue(function () {
+    return sendCFBG('NOTIFY', idx + ':' + dev.cccdHandle + ':1', 10000)
+      .then(function (resp) {
+        dev.notifyPending = false;
+        dev.notifyEnabled = true;
+        tatLog('i', 'NOTIFY enabled for ' + dev.name);
+        tatSplitLines(resp || '').forEach(bleHandleAsyncLine);
+      })
+      .catch(function (err) {
+        dev.notifyPending = false;
+        tatLog('!', 'Enable NOTIFY failed for ' + dev.name + ': ' + (err && err.message ? err.message : err));
+        throw err;
+      });
+  });
+}
+
+function bleHandleDisconnected(devIdx) {
+  var dev = tatState.ble.connected[devIdx];
+  if (!dev) return;
+  var name = dev.name;
+  var mac  = dev.mac;
+  delete tatState.ble.connected[devIdx];
+  delete tatState.ble.sensorData[devIdx];
+  for (var i = 0; i < tatState.ble.scanResults.length; i++) {
+    if (tatState.ble.scanResults[i].mac === mac) {
+      tatState.ble.scanResults[i].connected = false;
+    }
+  }
+  if (tatState.ble.selectedIdx === devIdx) {
+    tatState.ble.selectedIdx = null;
+    bleShowDetailHint();
+  }
+  bleRenderGrid();
+  bleRenderScanList();
+  tatLog('i', 'Disconnected: ' + name);
+  tatToast('Disconnected: ' + name);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -809,10 +898,20 @@ function bleRenderScanList() {
   var html = '';
   for (var i = 0; i < results.length; i++) {
     var r = results[i];
+    var connectedNow = false;
+    var connKeys = Object.keys(tatState.ble.connected);
+    for (var j = 0; j < connKeys.length; j++) {
+      var dev = tatState.ble.connected[connKeys[j]];
+      if (dev && dev.mac === r.mac) {
+        connectedNow = true;
+        break;
+      }
+    }
+    r.connected = connectedNow;
     var icon = tatIconSvg(r.type === 'led' ? 'led' : (r.type === 'sensor' ? 'sensor' : 'unknown'));
     var rssiPct = Math.max(0, Math.min(100, (r.rssi + 100) * 2));
-    var connTxt = r.connected ? 'Connected' : 'Connect';
-    var connDis = r.connected ? 'disabled' : '';
+    var connTxt = connectedNow ? 'Connected' : 'Connect';
+    var connDis = connectedNow ? 'disabled' : '';
     html += '<div class="tat-scan-item">' +
       '<div class="tat-scan-top">' +
         '<span class="tat-scan-icon">' + icon + '</span>' +
@@ -999,6 +1098,7 @@ function zbResetState() {
   tatState.zb.nodes = {};
   tatState.zb.selectedNode = null;
   tatState.zb.networkUp = false;
+  tatState.zb.hexNative = false;
   zbSetNetBadge('off');
   zbRenderNodeList();
   zbShowOverlay();
@@ -1018,6 +1118,122 @@ function zbSetNetBadge(state) {
   } else {
     el.textContent = 'OFF';
   }
+}
+
+function zbUseHexNative() {
+  return tatState.zb.hexNative === true;
+}
+
+function zbParseHexNumber(value) {
+  var clean = String(value === undefined || value === null ? '' : value)
+    .replace(/^0x/i, '')
+    .replace(/[^0-9A-Fa-f]/g, '');
+  return clean ? parseInt(clean, 16) : 0;
+}
+
+function zbCsvHexToBytes(csv) {
+  if (!csv) return [];
+  return String(csv).split(',').map(function (part) {
+    return zbParseHexNumber(part) & 0xFF;
+  });
+}
+
+function zbBytesToHexStr(bytes) {
+  var out = [];
+  for (var i = 0; i < bytes.length; i++) {
+    var b = bytes[i] & 0xFF;
+    out.push((b < 16 ? '0' : '') + b.toString(16).toUpperCase());
+  }
+  return out.join(' ');
+}
+
+function zbBuildEbyteFrame(typeByte, codeByte, dataBytes) {
+  dataBytes = dataBytes || [];
+  var payload = [typeByte, codeByte].concat(dataBytes);
+  var checksum = 0;
+  for (var i = 0; i < payload.length; i++) checksum ^= payload[i];
+  var length = payload.length + 1;
+  return [0x55, length].concat(payload).concat([checksum]);
+}
+
+function zbBuildZclFrame(codeByte, shortHex, epHex, clusterHex, extData) {
+  var shortAddr = zbParseHexNumber(shortHex) & 0xFFFF;
+  var ep = zbParseHexNumber(epHex) & 0xFF;
+  var cluster = zbParseHexNumber(clusterHex) & 0xFFFF;
+  var seq = (tatState.zb.hexSeq++) & 0xFF;
+  var header = [
+    0x00,
+    shortAddr & 0xFF,
+    (shortAddr >> 8) & 0xFF,
+    ep,
+    seq,
+    0x00,
+    cluster & 0xFF,
+    (cluster >> 8) & 0xFF,
+    0x00,
+    0x00,
+    0x00
+  ];
+  return zbBuildEbyteFrame(0x02, codeByte, header.concat(extData || []));
+}
+
+function zbBuildReadAttrCommand(shortHex, epHex, clusterHex, attrHex) {
+  var attrId = zbParseHexNumber(attrHex) & 0xFFFF;
+  return zbBytesToHexStr(zbBuildZclFrame(0x00, shortHex, epHex, clusterHex, [
+    0x01,
+    attrId & 0xFF,
+    (attrId >> 8) & 0xFF
+  ]));
+}
+
+function zbBuildControlCommand(shortHex, epHex, clusterHex, cmdHex, paramsCsv) {
+  var ext = [zbParseHexNumber(cmdHex) & 0xFF].concat(zbCsvHexToBytes(paramsCsv));
+  return zbBytesToHexStr(zbBuildZclFrame(0x0F, shortHex, epHex, clusterHex, ext));
+}
+
+function zbBuildReportRuleCommand(shortHex, epHex, clusterHex, attrHex, dataTypeHex, minHex, maxHex, changeHex) {
+  var attrId = zbParseHexNumber(attrHex) & 0xFFFF;
+  var minVal = zbParseHexNumber(minHex) & 0xFFFF;
+  var maxVal = zbParseHexNumber(maxHex) & 0xFFFF;
+  var delta = zbParseHexNumber(changeHex) & 0xFFFF;
+  return zbBytesToHexStr(zbBuildZclFrame(0x03, shortHex, epHex, clusterHex, [
+    attrId & 0xFF,
+    (attrId >> 8) & 0xFF,
+    zbParseHexNumber(dataTypeHex) & 0xFF,
+    minVal & 0xFF,
+    (minVal >> 8) & 0xFF,
+    maxVal & 0xFF,
+    (maxVal >> 8) & 0xFF,
+    delta & 0xFF,
+    (delta >> 8) & 0xFF
+  ]));
+}
+
+function zbSendReadAttr(shortHex, epHex, clusterHex, attrHex, timeout) {
+  if (zbUseHexNative()) {
+    return sendCFZB('MODULE_ZCL_READ_ATTR', zbBuildReadAttrCommand(shortHex, epHex, clusterHex, attrHex), timeout);
+  }
+  return sendCFZB('MODULE_ZCL_READ_ATTR', shortHex + ',' + epHex + ',' + clusterHex + ',' + attrHex, timeout);
+}
+
+function zbSendControlCmd(shortHex, epHex, clusterHex, cmdHex, paramsCsv, timeout) {
+  if (zbUseHexNative()) {
+    return sendCFZB('MODULE_ZCL_SEND_CONTROL_CMD', zbBuildControlCommand(shortHex, epHex, clusterHex, cmdHex, paramsCsv), timeout);
+  }
+  var payload = shortHex + ',' + epHex + ',' + clusterHex + ',' + cmdHex;
+  if (paramsCsv) payload += ',' + paramsCsv;
+  return sendCFZB('MODULE_ZCL_SEND_CONTROL_CMD', payload, timeout);
+}
+
+function zbSendReportRule(shortHex, epHex, clusterHex, attrHex, dataTypeHex, minHex, maxHex, changeHex, timeout) {
+  if (zbUseHexNative()) {
+    return sendCFZB('MODULE_ZCL_SET_REPORT_RULE', zbBuildReportRuleCommand(shortHex, epHex, clusterHex, attrHex, dataTypeHex, minHex, maxHex, changeHex), timeout);
+  }
+  return sendCFZB(
+    'MODULE_ZCL_SET_REPORT_RULE',
+    shortHex + ',' + epHex + ',' + clusterHex + ',' + attrHex + ',' + dataTypeHex + ',' + minHex + ',' + maxHex + ',' + changeHex,
+    timeout
+  );
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1179,19 +1395,19 @@ var ZB_BULB_EP = '0A';
 
 function zbBulbOn() {
   var n = zbGetSelected(); if (!n) return;
-  zbEnqueue(function() { return sendCFZB('MODULE_ZCL_SEND_CONTROL_CMD', n.short + ',' + ZB_BULB_EP + ',0006,01'); })
+  zbEnqueue(function() { return zbSendControlCmd(n.short, ZB_BULB_EP, '0006', '01', '', 8000); })
     .then(function() { zbSetBulbState(n.short, true, 'Turn ON'); });
 }
 
 function zbBulbOff() {
   var n = zbGetSelected(); if (!n) return;
-  zbEnqueue(function() { return sendCFZB('MODULE_ZCL_SEND_CONTROL_CMD', n.short + ',' + ZB_BULB_EP + ',0006,00'); })
+  zbEnqueue(function() { return zbSendControlCmd(n.short, ZB_BULB_EP, '0006', '00', '', 8000); })
     .then(function() { zbSetBulbState(n.short, false, 'Turn OFF'); });
 }
 
 function zbBulbToggle() {
   var n = zbGetSelected(); if (!n) return;
-  zbEnqueue(function() { return sendCFZB('MODULE_ZCL_SEND_CONTROL_CMD', n.short + ',' + ZB_BULB_EP + ',0006,02'); })
+  zbEnqueue(function() { return zbSendControlCmd(n.short, ZB_BULB_EP, '0006', '02', '', 8000); })
     .then(function() { zbRememberBulbUpdate(n.short, { lastCmd: 'Toggle' }); });
 }
 
@@ -1199,7 +1415,7 @@ function zbBulbLevel(pct) {
   var n = zbGetSelected(); if (!n) return;
   var levelBytes = { 0: '00,00,01,00', 25: '3F,00,01,00', 50: '7F,00,01,00', 75: 'BF,00,01,00', 100: 'FE,00,01,00' };
   var params = levelBytes[pct] || '7F,00,01,00';
-  zbEnqueue(function() { return sendCFZB('MODULE_ZCL_SEND_CONTROL_CMD', n.short + ',' + ZB_BULB_EP + ',0008,04,' + params); })
+  zbEnqueue(function() { return zbSendControlCmd(n.short, ZB_BULB_EP, '0008', '04', params, 8000); })
     .then(function() { zbRememberBulbUpdate(n.short, { level: pct, lastCmd: 'Set Level ' + pct + '%' }); });
 }
 
@@ -1214,7 +1430,7 @@ function zbBulbColor(colorName) {
   var n = zbGetSelected(); if (!n) return;
   var xy = ZB_XY_COLORS[colorName];
   if (!xy) return;
-  zbEnqueue(function() { return sendCFZB('MODULE_ZCL_SEND_CONTROL_CMD', n.short + ',' + ZB_BULB_EP + ',0300,07,' + xy); })
+  zbEnqueue(function() { return zbSendControlCmd(n.short, ZB_BULB_EP, '0300', '07', xy, 8000); })
     .then(function() {
       var label = colorName.charAt(0).toUpperCase() + colorName.substring(1);
       zbRememberBulbUpdate(n.short, { color: label, lastCmd: 'Set Color ' + label });
@@ -1224,7 +1440,7 @@ function zbBulbColor(colorName) {
 
 function zbReadBulbStatus() {
   var n = zbGetSelected(); if (!n) return;
-  zbEnqueue(function() { return sendCFZB('MODULE_ZCL_READ_ATTR', n.short + ',' + ZB_BULB_EP + ',0006,0000'); });
+  zbEnqueue(function() { return zbSendReadAttr(n.short, ZB_BULB_EP, '0006', '0000', 10000); });
 }
 
 var ZB_SENSOR_EP = '0B';
@@ -1238,21 +1454,21 @@ function zbConfigReport() {
   var minHex = ('0000' + minS.toString(16).toUpperCase()).slice(-4);
   var maxHex = ('0000' + maxS.toString(16).toUpperCase()).slice(-4);
   var short = n.short;
-  zbEnqueue(function() { return sendCFZB('MODULE_CONFIGURE_REPORT', short + ',' + ZB_SENSOR_EP + ',0402,0000,29,' + minHex + ',' + maxHex + ',0064'); })
+  zbEnqueue(function() { return zbSendReportRule(short, ZB_SENSOR_EP, '0402', '0000', '29', minHex, maxHex, '0064', 10000); })
     .then(function() {
-      return zbEnqueue(function() { return sendCFZB('MODULE_CONFIGURE_REPORT', short + ',' + ZB_SENSOR_EP + ',0405,0000,21,' + minHex + ',' + maxHex + ',0064'); });
+      return zbEnqueue(function() { return zbSendReportRule(short, ZB_SENSOR_EP, '0405', '0000', '21', minHex, maxHex, '0064', 10000); });
     })
     .then(function() { tatToast('Configure Reporting sent'); });
 }
 
 function zbReadTemp() {
   var n = zbGetSelected(); if (!n) return;
-  zbEnqueue(function() { return sendCFZB('MODULE_ZCL_READ_ATTR', n.short + ',' + ZB_SENSOR_EP + ',0402,0000'); });
+  zbEnqueue(function() { return zbSendReadAttr(n.short, ZB_SENSOR_EP, '0402', '0000', 10000); });
 }
 
 function zbReadHum() {
   var n = zbGetSelected(); if (!n) return;
-  zbEnqueue(function() { return sendCFZB('MODULE_ZCL_READ_ATTR', n.short + ',' + ZB_SENSOR_EP + ',0405,0000'); });
+  zbEnqueue(function() { return zbSendReadAttr(n.short, ZB_SENSOR_EP, '0405', '0000', 10000); });
 }
 
 function zbDeleteNode() {
@@ -1329,9 +1545,16 @@ function zbRunVerifyQueue() {
   tatLog('i', 'Auto-verify 0x' + item.short + ' (attempt ' + n.verifyAttempts + ')…');
   /* Read Basic cluster Model Identifier (attr 0x0005) */
   zbEnqueue(function () {
-    return sendCFZB('MODULE_ZCL_READ_ATTR', item.short + ',' + item.ep + ',0000,0005', 10000)
+    return zbSendReadAttr(item.short, item.ep, '0000', '0005', 10000)
       .then(function (resp) {
-        zbHandleModelIdResponse(item.short, resp || '');
+        var syncResp = resp || '';
+        var respLines = tatSplitLines(syncResp);
+        for (var ri = 0; ri < respLines.length; ri++) {
+          zbHandleAsyncLine(respLines[ri]);
+        }
+        if (/DATN_AUTH_KEY:/i.test(syncResp)) {
+          zbHandleModelIdResponse(item.short, syncResp);
+        }
         setTimeout(zbRunVerifyQueue, 300);
       })
       .catch(function () {
@@ -1376,8 +1599,8 @@ function zbHandleModelIdResponse(short, resp) {
     /* Sensor: auto-configure reporting */
     if (n.type === 'sensor') {
       setTimeout(function () {
-        zbEnqueue(function() { return sendCFZB('MODULE_CONFIGURE_REPORT', short + ',' + ZB_SENSOR_EP + ',0402,0000,29,0005,003C,0064'); })
-          .then(function() { return zbEnqueue(function() { return sendCFZB('MODULE_CONFIGURE_REPORT', short + ',' + ZB_SENSOR_EP + ',0405,0000,21,0005,003C,0064'); }); });
+        zbEnqueue(function() { return zbSendReportRule(short, ZB_SENSOR_EP, '0402', '0000', '29', '0005', '003C', '0064', 10000); })
+          .then(function() { return zbEnqueue(function() { return zbSendReportRule(short, ZB_SENSOR_EP, '0405', '0000', '21', '0005', '003C', '0064', 10000); }); });
       }, 1000);
     }
     zbRenderNodeList();
@@ -1392,64 +1615,128 @@ function zbHandleModelIdResponse(short, resp) {
   }
 }
 
+function zbHexWordsToBytes(text) {
+  if (!text) return [];
+  var s = String(text).trim();
+  if (!s) return [];
+  if (/^[0-9A-Fa-f]{2}(?:\s+[0-9A-Fa-f]{2})*$/.test(s)) {
+    return s.split(/\s+/).map(function (b) {
+      return parseInt(b, 16);
+    }).filter(function (b) {
+      return !isNaN(b);
+    });
+  }
+
+  var bytes = [];
+  var i = 0;
+  while (i < s.length) {
+    var ch = s.charAt(i);
+    if (/\s|:|,/.test(ch)) {
+      i++;
+      continue;
+    }
+    var next = s.charAt(i + 1);
+    var afterNext = s.charAt(i + 2);
+    if (/[0-9A-Fa-f]/.test(ch) && /[0-9A-Fa-f]/.test(next) && (!afterNext || /\s|:|,/.test(afterNext))) {
+      bytes.push(parseInt(s.substr(i, 2), 16));
+      i += 2;
+      continue;
+    }
+    bytes.push(s.charCodeAt(i) & 0xFF);
+    i++;
+  }
+  return bytes;
+}
+
+function zbExtractEmbeddedFrames(text) {
+  var bytes = zbHexWordsToBytes(text);
+  var frames = [];
+  for (var pos = 0; pos < bytes.length; ) {
+    if (bytes[pos] !== 0x55) {
+      pos++;
+      continue;
+    }
+    if (pos + 1 >= bytes.length) break;
+    var totalLen = 2 + bytes[pos + 1];
+    if (totalLen < 6 || (pos + totalLen) > bytes.length) {
+      pos++;
+      continue;
+    }
+    frames.push(bytes.slice(pos, pos + totalLen).map(function (b) {
+      return ('00' + b.toString(16).toUpperCase()).slice(-2);
+    }).join(' '));
+    pos += totalLen;
+  }
+  return frames;
+}
+
+function zbHandleEbyteFrame(hexStr) {
+  var frame = zbParseEbyteFrame(hexStr);
+  if (!frame) return false;
+  /* 0x80/0x02 — Network Open */
+  if (frame.type === 0x80 && frame.code === 0x02) {
+    tatState.zb.networkUp = true;
+    /* Extract channel and PAN from data */
+    if (frame.data.length >= 10) {
+      tatState.zb.channel = frame.data[0].toString(10);
+      tatState.zb.panId   = '0x' + ('0000' + ((frame.data[2] | (frame.data[3] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
+    }
+    zbSetNetBadge('active');
+    var info = document.getElementById('tat-zb-net-info');
+    if (info) info.textContent = 'CH:' + tatState.zb.channel + ' PAN:' + tatState.zb.panId;
+    tatLog('EVT', 'Network open CH:' + tatState.zb.channel + ' PAN:' + tatState.zb.panId);
+    return true;
+  }
+  /* 0x80/0x03 — Node Join */
+  if (frame.type === 0x80 && frame.code === 0x03) {
+    if (frame.data.length >= 10) {
+      var ieee  = zbBytesToIeee(frame.data.slice(0, 8));
+      var short = ('0000' + ((frame.data[8] | (frame.data[9] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
+      zbHandleNodeJoin(short, ieee);
+    }
+    return true;
+  }
+  /* 0x80/0x05 — Node Announce */
+  if (frame.type === 0x80 && frame.code === 0x05) {
+    if (frame.data.length >= 13) {
+      var ieee2  = zbBytesToIeee(frame.data.slice(2, 10));
+      var short2 = ('0000' + ((frame.data[10] | (frame.data[11] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
+      var ep2    = ('00' + frame.data[12].toString(16).toUpperCase()).slice(-2);
+      zbHandleNodeAnnounce(short2, ieee2, ep2);
+    }
+    return true;
+  }
+  /* 0x80/0x06 — Node Leave */
+  if (frame.type === 0x80 && frame.code === 0x06) {
+    if (frame.data.length >= 8) {
+      zbHandleNodeLeave(zbBytesToIeee(frame.data.slice(0, 8)));
+    }
+    return true;
+  }
+  /* 0x82/0x0A — ZCL Attribute Report */
+  if (frame.type === 0x82 && frame.code === 0x0A) {
+    zbHandleZclAttrReport(frame.data);
+    return true;
+  }
+  /* 0x82/0x00 — ZCL Read Attr Response */
+  if (frame.type === 0x82 && frame.code === 0x00) {
+    zbHandleZclReadAttrRsp(frame.data);
+    return true;
+  }
+  return false;
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    Zigbee — Async Line / Attribute Report Handler
    ═══════════════════════════════════════════════════════════════════ */
 function zbHandleAsyncLine(line) {
-  /* Ebyte HEX frame */
-  if (/^55\s/i.test(line)) {
-    var frame = zbParseEbyteFrame(line);
-    if (!frame) return;
-    /* 0x80/0x02 — Network Open */
-    if (frame.type === 0x80 && frame.code === 0x02) {
-      tatState.zb.networkUp = true;
-      /* Extract channel and PAN from data */
-      if (frame.data.length >= 10) {
-        tatState.zb.channel = frame.data[0].toString(10);
-        tatState.zb.panId   = '0x' + ('0000' + ((frame.data[2] | (frame.data[3] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
-      }
-      zbSetNetBadge('active');
-      var info = document.getElementById('tat-zb-net-info');
-      if (info) info.textContent = 'CH:' + tatState.zb.channel + ' PAN:' + tatState.zb.panId;
-      tatLog('EVT', 'Network open CH:' + tatState.zb.channel + ' PAN:' + tatState.zb.panId);
-      return;
+  var frames = zbExtractEmbeddedFrames(line);
+  if (frames.length) {
+    tatState.zb.hexNative = true;
+    for (var fi = 0; fi < frames.length; fi++) {
+      zbHandleEbyteFrame(frames[fi]);
     }
-    /* 0x80/0x03 — Node Join */
-    if (frame.type === 0x80 && frame.code === 0x03) {
-      if (frame.data.length >= 10) {
-        var ieee  = zbBytesToIeee(frame.data.slice(0, 8));
-        var short = ('0000' + ((frame.data[8] | (frame.data[9] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
-        zbHandleNodeJoin(short, ieee);
-      }
-      return;
-    }
-    /* 0x80/0x05 — Node Announce */
-    if (frame.type === 0x80 && frame.code === 0x05) {
-      if (frame.data.length >= 11) {
-        var ieee2  = zbBytesToIeee(frame.data.slice(0, 8));
-        var short2 = ('0000' + ((frame.data[8] | (frame.data[9] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
-        var ep2    = ('00' + frame.data[10].toString(16).toUpperCase()).slice(-2);
-        zbHandleNodeAnnounce(short2, ieee2, ep2);
-      }
-      return;
-    }
-    /* 0x80/0x06 — Node Leave */
-    if (frame.type === 0x80 && frame.code === 0x06) {
-      if (frame.data.length >= 8) {
-        zbHandleNodeLeave(zbBytesToIeee(frame.data.slice(0, 8)));
-      }
-      return;
-    }
-    /* 0x82/0x0A — ZCL Attribute Report */
-    if (frame.type === 0x82 && frame.code === 0x0A) {
-      zbHandleZclAttrReport(frame.data);
-      return;
-    }
-    /* 0x82/0x00 — ZCL Read Attr Response */
-    if (frame.type === 0x82 && frame.code === 0x00) {
-      zbHandleZclReadAttrRsp(frame.data);
-      return;
-    }
+    return;
   }
   /* Legacy RPT line: RPT:<short4>,<ep2>,<cluster4>,<attr4>,<type2>,<value> */
   var m = line.match(/RPT:([0-9A-Fa-f]{4}),([0-9A-Fa-f]{2}),([0-9A-Fa-f]{4}),([0-9A-Fa-f]{4}),([0-9A-Fa-f]{2}),([0-9A-Fa-f]+)/i);
@@ -1583,9 +1870,17 @@ function lrApplyRf() {
   var txpr  = (document.getElementById('tat-lr-txpr')  || {}).value || '12';
   var rxpr  = (document.getElementById('tat-lr-rxpr')  || {}).value || '15';
   var pow   = (document.getElementById('tat-lr-pow')   || {}).value || '14';
-  var params = freq + ',' + sf + ',' + bw + ',' + txpr + ',' + rxpr + ',' + pow + ',8,0';
+  var params = freq + ',' + sf + ',' + bw + ',' + txpr + ',' + rxpr + ',' + pow + ',ON,OFF,OFF';
   lrEnqueue(function () {
-    return sendCFLR('MODULE_SET_P2P_CONFIG', params, 10000)
+    var startPromise = Promise.resolve();
+    if (!tatState.lr.testMode) {
+      tatLog('i', 'Entering TEST mode before applying RF config');
+      startPromise = sendCFLR('MODULE_ENTER_P2P_MODE', '', 10000);
+    }
+    return startPromise
+      .then(function () {
+        return sendCFLR('MODULE_SET_P2P_CONFIG', params, 10000);
+      })
       .then(function (resp) {
         if (/RFCFG/i.test(resp || '')) {
           tatState.lr.rfConfigured = true;
@@ -1912,3 +2207,8 @@ function tatToast(msg) {
     _tatToastTimer = null;
   }, 2800);
 }
+
+window.tatSetSlot = tatSetSlot;
+window.bleConnect = bleConnect;
+window.bleSelectDevice = bleSelectDevice;
+window.zbSelectNode = zbSelectNode;
