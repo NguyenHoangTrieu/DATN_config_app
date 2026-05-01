@@ -445,6 +445,29 @@ function tatmDecodeZigbeeValue(dataType, low, high) {
   return null;
 }
 
+function tatmApplyZbAttr(shortAddr, clusterId, attrId, value) {
+  var short = String(shortAddr || '').toUpperCase();
+  var cluster = String(clusterId || '').toUpperCase();
+  var attr = String(attrId || '').toUpperCase();
+  var existing = tatmState.devices['zb:' + short];
+  var data = {};
+  if (cluster === '0402' && attr === '0000') data.temp = (value / 100.0).toFixed(1);
+  else if (cluster === '0405' && attr === '0000') data.hum = (value / 100.0).toFixed(1);
+  else if (cluster === '0006' && attr === '0000') data.on = value !== 0;
+  else if (cluster === '0008' && attr === '0000') data.level = Math.round(value / 2.54);
+  else return;
+
+  tatmHandleDeviceEvent({
+    proto: 'zb',
+    type: (cluster === '0006' || cluster === '0008') ? 'led' : ((existing && existing.type) || 'sensor'),
+    id: short,
+    name: (existing && existing.name) || ('ZB 0x' + short),
+    addr: '0x' + short,
+    slot: '?',
+    data: data
+  });
+}
+
 function tatmMaybeForwardZigbeeFrames(line) {
   var frames = tatmExtractZigbeeFrames(line);
   for (var i = 0; i < frames.length; i++) {
@@ -480,28 +503,32 @@ function tatmMaybeForwardZigbeeFrames(line) {
       continue;
     }
 
-    if (type === 0x82 && code === 0x0A && data.length > 14) {
+    if (type === 0x82 && code === 0x0A && data.length > 15) {
       var shortAddr = ('0000' + ((data[1] | (data[2] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
       var clusterId = ('0000' + ((data[6] | (data[7] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
-      var attrId = ('0000' + ((data[11] | (data[12] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
-      var dataType = data[13];
-      var value = tatmDecodeZigbeeValue(dataType, data[14] || 0, data[15] || 0);
+      /* data[11] = numAttr, first attribute starts at data[12] */
+      var attrId = ('0000' + ((data[12] | (data[13] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
+      var dataType = data[14];
+      var value = tatmDecodeZigbeeValue(dataType, data[15] || 0, data[16] || 0);
       if (value !== null) {
-        tatmEmitControlEvent({ type: 'zbAttrReport', short: shortAddr, cluster: clusterId, attr: attrId, value: value });
+        /* Do NOT bridge temp/hum back to control widget. Parse locally in monitor only. */
+        tatmApplyZbAttr(shortAddr, clusterId, attrId, value);
       }
       continue;
     }
 
-    if (type === 0x82 && code === 0x00 && data.length > 15) {
+    if (type === 0x82 && code === 0x00 && data.length > 16) {
       var rspShort = ('0000' + ((data[1] | (data[2] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
       var rspCluster = ('0000' + ((data[6] | (data[7] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
-      var rspAttr = ('0000' + ((data[11] | (data[12] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
-      var status = data[13];
-      var rspType = data[14];
+      /* data[11] = numAttr, first attribute response starts at data[12] */
+      var rspAttr = ('0000' + ((data[12] | (data[13] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
+      var status = data[14];
+      var rspType = data[15];
       if (status === 0) {
-        var rspValue = tatmDecodeZigbeeValue(rspType, data[15] || 0, data[16] || 0);
+        var rspValue = tatmDecodeZigbeeValue(rspType, data[16] || 0, data[17] || 0);
         if (rspValue !== null) {
-          tatmEmitControlEvent({ type: 'zbAttrReport', short: rspShort, cluster: rspCluster, attr: rspAttr, value: rspValue });
+          /* Do NOT bridge temp/hum back to control widget. Parse locally in monitor only. */
+          tatmApplyZbAttr(rspShort, rspCluster, rspAttr, rspValue);
         }
       }
     }

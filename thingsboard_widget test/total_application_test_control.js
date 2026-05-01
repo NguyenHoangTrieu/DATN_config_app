@@ -27,7 +27,8 @@ var tatState = {
     sensorData:  {},      /* devIdx → {temp,hum,count,lastTs} */
     cmdQueue:    [],
     cmdPending:  false,
-    lastTeleTs:  0
+    lastTeleTs:  0,
+    pendingRpc:  null
   },
 
   zb: {
@@ -63,6 +64,7 @@ var tatState = {
     lastCmd:       '',
     ledState:      '—',
     txPending:     false,
+    pendingLedCmd: null,
     pendingRxMeta: null,
     cmdQueue:      [],
     cmdPending:    false
@@ -336,6 +338,92 @@ function tatSplitLines(s) {
   }).filter(Boolean);
 }
 
+function tatIsBleLine(line) {
+  return /^CFBG:/i.test(line) || /^(SCAN_RESULT:|CONNECTED:|DISC_DONE:|CHAR:|NOTIFY:|DISCONNECTING:|DISCONNECTED:|DESCR_WRITE_OK|WRITE_OK|SCAN_DONE:)/i.test(line);
+}
+
+function tatNormalizeBleLine(line) {
+  var l = String(line || '').trim();
+  var ci = l.indexOf('CFBG:');
+  if (ci > 0) l = l.substring(ci);
+  if (/^CFBG:OK:/i.test(l)) l = l.substring(8);
+  else if (/^CFBG:[0-9]+:EVT:/i.test(l)) l = l.replace(/^CFBG:[0-9]+:EVT:/i, '');
+  return l;
+}
+
+function tatBleRpcMatchState(verb, line) {
+  if (!line) return 'ignore';
+  if (/^(ERR|FAIL)[:]/i.test(line)) return 'error';
+  switch (String(verb || '').toUpperCase()) {
+    case 'SCAN':
+      if (/^SCAN_RESULT:/i.test(line)) return 'collect';
+      if (/^SCAN_DONE:/i.test(line)) return 'finish';
+      return 'ignore';
+    case 'CONNECT':
+      return /^CONNECTED:/i.test(line) ? 'finish' : 'ignore';
+    case 'DISC':
+      if (/^CHAR:/i.test(line)) return 'collect';
+      if (/^DISC_DONE:/i.test(line)) return 'finish';
+      return 'ignore';
+    case 'NOTIFY':
+      return /^DESCR_WRITE_OK/i.test(line) ? 'finish' : 'ignore';
+    case 'WRITE':
+      return /^WRITE_OK/i.test(line) ? 'finish' : 'ignore';
+    case 'DISCONNECT':
+      return /^DISCONNECT(ING|ED):/i.test(line) ? 'finish' : 'ignore';
+    default:
+      return /^CFBG:/i.test(line) ? 'finish' : 'ignore';
+  }
+}
+
+function tatBleFinishPendingRpc(pending, err) {
+  if (!pending || tatState.ble.pendingRpc !== pending) return;
+  tatState.ble.pendingRpc = null;
+  if (pending.timer) clearTimeout(pending.timer);
+  if (err) pending.reject(err);
+  else pending.resolve(pending.lines.join('\n'));
+}
+
+function tatBleStartPendingRpc(verb, timeoutMs) {
+  return new Promise(function (resolve, reject) {
+    if (tatState.ble.pendingRpc) {
+      reject(new Error('BLE command overlap: ' + tatState.ble.pendingRpc.verb));
+      return;
+    }
+    var pending = {
+      verb: String(verb || '').toUpperCase(),
+      lines: [],
+      resolve: resolve,
+      reject: reject,
+      timer: setTimeout(function () {
+        tatBleFinishPendingRpc(pending, new Error('BLE ' + pending.verb + ' timeout'));
+      }, timeoutMs || tatState.rpcTimeout)
+    };
+    tatState.ble.pendingRpc = pending;
+  });
+}
+
+function tatBleObservePendingRpc(line) {
+  var pending = tatState.ble.pendingRpc;
+  if (!pending) return;
+  var state = tatBleRpcMatchState(pending.verb, line);
+  if (state === 'ignore') return;
+  pending.lines.push(line);
+  if (state === 'error') {
+    tatBleFinishPendingRpc(pending, new Error(line));
+    return;
+  }
+  if (state === 'finish') {
+    tatBleFinishPendingRpc(pending, null);
+  }
+}
+
+function tatBleHandleRpcLine(line) {
+  tatLog('RX', line);
+  bleHandleAsyncLine(line);
+  try { window.dispatchEvent(new CustomEvent('da2_tat_raw_line', { detail: { line: line } })); } catch (e) {}
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    RPC core
    ═══════════════════════════════════════════════════════════════════ */
@@ -359,20 +447,33 @@ function tatSendRpc(method, params, timeout) {
    ═══════════════════════════════════════════════════════════════════ */
 function sendCFBG(verb, params, timeout) {
   var cmd = 'CFML:CFBG:' + tatState.slot + ':' + verb + (params ? ':' + params : '');
+  var waitPromise = tatBleStartPendingRpc(verb, timeout || tatState.rpcTimeout);
   tatLog('TX', cmd);
   var hex = tatStrToHex(cmd);
-  return tatSendRpc('sendCommand', hex, timeout || tatState.rpcTimeout)
+  tatSendRpc('sendCommand', hex, timeout || tatState.rpcTimeout)
     .then(function (resp) {
       var decoded = tatDecodeRpcValue(resp);
-      if (decoded) tatSplitLines(decoded).forEach(function(l) { tatLog('RX', l); });
-      return decoded;
+      if (!decoded) return;
+      tatSplitLines(decoded).forEach(function (l) {
+        if (tatIsBleLine(l)) {
+          tatBleHandleRpcLine(l);
+        } else {
+          tatLog('EVT', l);
+          tatDispatchLine(l);
+        }
+      });
     })
     .catch(function (err) {
-      var msg = err && err.message ? err.message : String(err);
-      tatLog('!', 'BLE RPC: ' + msg);
-      tatToast('BLE error: ' + msg);
-      throw err;
+      if (tatState.ble.pendingRpc && tatState.ble.pendingRpc.verb === String(verb || '').toUpperCase()) {
+        tatBleFinishPendingRpc(tatState.ble.pendingRpc, err);
+      }
     });
+  return waitPromise.catch(function (err) {
+    var msg = err && err.message ? err.message : String(err);
+    tatLog('!', 'BLE RPC: ' + msg);
+    tatToast('BLE error: ' + msg);
+    throw err;
+  });
 }
 
 function sendCFZB(func, params, timeout) {
@@ -559,22 +660,14 @@ function bleScan() {
 
   bleEnqueue(function () {
     return sendCFBG('SCAN', '5000', 18000)
-      .then(function (resp) {
-        if (!resp || resp.indexOf('SCAN_DONE') < 0) {
-          /* Response may be a NOTIFY racing with SCAN_DONE — dispatch as async */
-          if (resp) tatSplitLines(resp).forEach(bleHandleAsyncLine);
-          /* Don't clear scanning flag — SCAN_DONE will arrive via telemetry */
-          return;
-        }
-        tatSplitLines(resp).forEach(bleHandleAsyncLine);
-      })
       .catch(function () {
         tatState.ble.scanning = false;
         tatSetPill('idle', 'Idle');
         var b = document.getElementById('tat-btn-scan');
         if (b) { b.disabled = false; b.textContent = 'Scan'; }
+        throw new Error('BLE scan failed');
       });
-  });
+  }).catch(function () {});
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -583,18 +676,14 @@ function bleScan() {
 function bleConnect(mac) {
   tatLog('i', 'Connecting to ' + mac + '…');
   bleEnqueue(function () {
-    return sendCFBG('CONNECT', mac, tatState.rpcTimeout)
-      .then(function (resp) {
-        tatSplitLines(resp || '').forEach(bleHandleAsyncLine);
-      });
+    return sendCFBG('CONNECT', mac, tatState.rpcTimeout);
   });
 }
 
 function bleAutoDiscover(idx) {
   bleEnqueue(function () {
     return sendCFBG('DISC', String(idx), tatState.rpcTimeout)
-      .then(function (resp) {
-        tatSplitLines(resp || '').forEach(bleHandleAsyncLine);
+      .then(function () {
         bleMaybeEnableNotify(idx);
       });
   });
@@ -610,21 +699,12 @@ function bleDisconnectSelected() {
   var capturedIdx = idx;
   bleEnqueue(function () {
     return sendCFBG('DISCONNECT', String(idx))
-      .then(function (resp) {
-        var found = false;
-        tatSplitLines(resp || '').forEach(function (line) {
-          if (/^CFBG:OK:DISCONNECT(ING|ED):/i.test(line) || /^DISCONNECT(ING|ED):/i.test(line)) found = true;
-          bleHandleAsyncLine(line);
-        });
-        if (!found) {
-          bleHandleDisconnected(capturedIdx);
-        }
-      })
       .catch(function (err) {
         tatLog('!', 'Disconnect RPC fallback cleanup: ' + (err && err.message ? err.message : err));
         bleHandleDisconnected(capturedIdx);
+        throw err;
       });
-  });
+  }).catch(function () {});
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -687,12 +767,8 @@ function bleApplyInterval() {
    ═══════════════════════════════════════════════════════════════════ */
 function bleHandleAsyncLine(line) {
   if (!line) return;
-  var l = String(line).trim();
-  /* Strip leading log prefix to extract CFBG: part when present */
-  var ci = l.indexOf('CFBG:');
-  if (ci > 0) l = l.substring(ci);
-  if (/^CFBG:OK:/i.test(l)) l = l.substring(8);
-  else if (/^CFBG:[0-9]+:EVT:/i.test(l)) l = l.replace(/^CFBG:[0-9]+:EVT:/i, '');
+  var l = tatNormalizeBleLine(line);
+  tatBleObservePendingRpc(l);
 
   /* SCAN_DONE */
   var m = l.match(/^SCAN_DONE:(\d+)/i);
@@ -873,11 +949,10 @@ function bleMaybeEnableNotify(idx) {
   dev.notifyPending = true;
   bleEnqueue(function () {
     return sendCFBG('NOTIFY', idx + ':' + dev.cccdHandle + ':1', 10000)
-      .then(function (resp) {
+      .then(function () {
         dev.notifyPending = false;
         dev.notifyEnabled = true;
         tatLog('i', 'NOTIFY enabled for ' + dev.name);
-        tatSplitLines(resp || '').forEach(bleHandleAsyncLine);
       })
       .catch(function (err) {
         dev.notifyPending = false;
@@ -1251,6 +1326,16 @@ function zbBuildReadAttrCommand(shortHex, epHex, clusterHex, attrHex) {
   ]));
 }
 
+function zbBuildWriteAttrCommand(shortHex, epHex, clusterHex, attrHex, dataTypeHex, valueCsv) {
+  var attrId = zbParseHexNumber(attrHex) & 0xFFFF;
+  return zbBytesToHexStr(zbBuildZclFrame(0x02, shortHex, epHex, clusterHex, [
+    0x01,
+    attrId & 0xFF,
+    (attrId >> 8) & 0xFF,
+    zbParseHexNumber(dataTypeHex) & 0xFF
+  ].concat(zbCsvHexToBytes(valueCsv))));
+}
+
 function zbBuildControlCommand(shortHex, epHex, clusterHex, cmdHex, paramsCsv) {
   var ext = [zbParseHexNumber(cmdHex) & 0xFF].concat(zbCsvHexToBytes(paramsCsv));
   return zbBytesToHexStr(zbBuildZclFrame(0x0F, shortHex, epHex, clusterHex, ext));
@@ -1303,6 +1388,10 @@ function zbSendReadAttr(shortHex, epHex, clusterHex, attrHex, timeout) {
   return sendCFZB('MODULE_ZCL_READ_ATTR', shortHex + ',' + epHex + ',' + clusterHex + ',' + attrHex, timeout);
 }
 
+function zbSendWriteAttr(shortHex, epHex, clusterHex, attrHex, dataTypeHex, valueCsv, timeout) {
+  return sendCFZB('MODULE_ZCL_WRITE_ATTR', zbBuildWriteAttrCommand(shortHex, epHex, clusterHex, attrHex, dataTypeHex, valueCsv), timeout);
+}
+
 function zbSendControlCmd(shortHex, epHex, clusterHex, cmdHex, paramsCsv, timeout) {
   if (zbUseHexNative()) {
     return sendCFZB('MODULE_ZCL_SEND_CONTROL_CMD', zbBuildControlCommand(shortHex, epHex, clusterHex, cmdHex, paramsCsv), timeout);
@@ -1332,6 +1421,152 @@ function zbSendDeleteNode(shortHex, ieee, timeout) {
   return sendCFZB('MODULE_DELETE_NODE', shortHex, timeout);
 }
 
+var ZB_VERIFY_PREFIX = 'DATN_AUTH_KEY:';
+var ZB_VERIFY_MAX_ATTEMPTS = 3;
+var ZB_SENSOR_DEFAULT_INTERVAL_S = 5;
+
+function zbScheduleVerify(short, ep, delayMs) {
+  var n = tatState.zb.nodes[short];
+  if (!n || n.verified || n.verifyFailed || n.deletePending) return;
+  if (n.verifyTimer) clearTimeout(n.verifyTimer);
+  n.verifyTimer = setTimeout(function () {
+    var latest = tatState.zb.nodes[short];
+    if (!latest || latest.verified || latest.verifyFailed || latest.deletePending) return;
+    latest.verifyTimer = null;
+    zbQueueVerify(short, ep || latest.ep || ZB_SENSOR_EP);
+  }, delayMs || 0);
+}
+
+function zbRejectNode(short, reason) {
+  var n = tatState.zb.nodes[short];
+  if (!n || n.deletePending) return;
+  n.verifyFailed = true;
+  n.deletePending = true;
+  if (n.verifyTimer) {
+    clearTimeout(n.verifyTimer);
+    n.verifyTimer = null;
+  }
+  if (n.verifyResponseTimer) {
+    clearTimeout(n.verifyResponseTimer);
+    n.verifyResponseTimer = null;
+  }
+  n.verifyPendingResponse = false;
+  tatState.zb.verifyQueue = tatState.zb.verifyQueue.filter(function (item) {
+    return item.short !== short;
+  });
+  if (tatState.zb.selectedNode === short) {
+    tatState.zb.selectedNode = null;
+    zbShowOverlay();
+  }
+  zbRenderNodeList();
+  tatLog('!', 'Reject node 0x' + short + ': ' + reason);
+  tatToast('Reject 0x' + short + ': ' + reason);
+
+  if (!n.ieee || /^\?+$/.test(n.ieee)) {
+    tatLog('!', 'Cannot auto-delete 0x' + short + ': IEEE unknown');
+    return;
+  }
+
+  zbEnqueue(function () {
+    return zbSendDeleteNode(short, n.ieee, 8000);
+  })
+    .then(function () {
+      tatLog('i', 'Auto-delete sent for rejected node 0x' + short);
+    })
+    .catch(function (err) {
+      n.deletePending = false;
+      zbRenderNodeList();
+      tatLog('!', 'Auto-delete failed for 0x' + short + ': ' + (err && err.message ? err.message : String(err)));
+    });
+}
+
+function zbGetSensorAutoReportConfig() {
+  var interval = ZB_SENSOR_DEFAULT_INTERVAL_S;
+  var intervalEl = document.getElementById('tat-zbsen-interval');
+  if (intervalEl) {
+    var parsed = parseInt(intervalEl.value, 10);
+    if (!isNaN(parsed) && parsed >= 1 && parsed <= 3600) interval = parsed;
+  }
+  return {
+    intervalSec: interval
+  };
+}
+
+function zbApplySensorReportConfig(short, intervalS) {
+  var minHex = ('0000' + intervalS.toString(16).toUpperCase()).slice(-4);
+  var maxHex = minHex;
+  var intervalMs = intervalS * 1000;
+  if (intervalMs < 100) intervalMs = 100;
+  if (intervalMs > 60000) intervalMs = 60000;
+  var identifyS = intervalS;
+  if (identifyS < 1) identifyS = 1;
+  if (identifyS > 65535) identifyS = 65535;
+  var identifyCsv = [identifyS & 0xFF, (identifyS >> 8) & 0xFF].map(function (b) {
+    return ('00' + b.toString(16).toUpperCase()).slice(-2);
+  }).join(',');
+  var intervalCsv = [intervalMs & 0xFF, (intervalMs >> 8) & 0xFF].map(function (b) {
+    return ('00' + b.toString(16).toUpperCase()).slice(-2);
+  }).join(',');
+  return zbEnqueue(function () {
+    return zbSendReportRule(short, ZB_SENSOR_EP, '0402', '0000', '29', minHex, maxHex, '0064', 10000);
+  })
+    .then(function () {
+      return zbEnqueue(function () {
+        return zbSendReportRule(short, ZB_SENSOR_EP, '0405', '0000', '21', minHex, maxHex, '0064', 10000);
+      });
+    })
+    .then(function () {
+      return zbEnqueue(function () {
+        tatLog('i', 'SEND Identify cmd time=' + identifyS + 's to 0x' + short + ' for local push interval');
+        return zbSendControlCmd(short, ZB_SENSOR_EP, '0003', '00', identifyCsv, 10000)
+          .then(function () {
+            /* Stop identify effect immediately so stack countdown ticks do not emit 1s/0s callbacks. */
+            return zbSendControlCmd(short, ZB_SENSOR_EP, '0003', '00', '00,00', 10000)
+              .catch(function () { return ''; });
+          })
+          .catch(function () {
+            tatLog('!', 'Identify cmd failed; fallback WRITE IdentifyTime=' + intervalMs + 'ms to 0x' + short);
+            return zbSendWriteAttr(short, ZB_SENSOR_EP, '0003', '0000', '21', intervalCsv, 10000);
+          });
+      });
+    });
+}
+
+function zbPrimeSensorSnapshot(short) {
+  return zbEnqueue(function () {
+    return zbSendReadAttr(short, ZB_SENSOR_EP, '0402', '0000', 10000);
+  })
+    .then(function () {
+      return zbEnqueue(function () {
+        return zbSendReadAttr(short, ZB_SENSOR_EP, '0405', '0000', 10000);
+      });
+    });
+}
+
+function zbClearVerifyWait(short) {
+  var n = tatState.zb.nodes[short];
+  if (!n) return;
+  if (n.verifyResponseTimer) {
+    clearTimeout(n.verifyResponseTimer);
+    n.verifyResponseTimer = null;
+  }
+  n.verifyPendingResponse = false;
+}
+
+function zbHandleVerifyTimeout(short, ep) {
+  var n = tatState.zb.nodes[short];
+  if (!n || n.verified || n.verifyFailed || n.deletePending || !n.verifyPendingResponse) return;
+  zbClearVerifyWait(short);
+  if (n.verifyAttempts < ZB_VERIFY_MAX_ATTEMPTS) {
+    tatLog('!', 'Verify response timeout for 0x' + short + ' — retrying');
+    tatState.zb.verifyQueue.push({ short: short, ep: ep || n.ep || ZB_SENSOR_EP });
+    if (!tatState.zb.verifyRunning) zbRunVerifyQueue();
+    return;
+  }
+  zbRejectNode(short, 'verify timeout');
+  if (!tatState.zb.verifyRunning) zbRunVerifyQueue();
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    Zigbee — Node List
    ═══════════════════════════════════════════════════════════════════ */
@@ -1340,7 +1575,10 @@ function zbAddNode(short, ieee, ep) {
     tatState.zb.nodes[short] = {
       short: short, ieee: ieee, ep: ep || '?',
       name: '0x' + short, type: 'unknown',
-      verified: false, verifyFailed: false, verifyAttempts: 0
+      verified: false, verifyFailed: false, verifyAttempts: 0,
+      deletePending: false, reportConfigured: false, reportPending: false,
+      reportIntervalSec: ZB_SENSOR_DEFAULT_INTERVAL_S, verifyTimer: null,
+      verifyPendingResponse: false, verifyResponseTimer: null
     };
   } else {
     if (ieee && ieee !== '????????????????') tatState.zb.nodes[short].ieee = ieee;
@@ -1352,23 +1590,13 @@ function zbAddNode(short, ieee, ep) {
 function zbHandleNodeJoin(short, ieee) {
   tatLog('EVT', 'Node join: 0x' + short + ' IEEE:' + ieee);
   zbAddNode(short, ieee, '?');
-  /* Schedule auto-verify after announce */
-  ;(function(sh) {
-    setTimeout(function () {
-      var n = tatState.zb.nodes[sh];
-      if (!n || n.verified) return;
-      var ep = (n.ep && n.ep !== '?') ? n.ep : '0B';
-      zbQueueVerify(sh, ep);
-    }, 10000);
-  }(short));
+  zbScheduleVerify(short, ZB_SENSOR_EP, 10000);
 }
 
 function zbHandleNodeAnnounce(short, ieee, ep) {
   tatLog('EVT', 'Node announce: 0x' + short + ' EP:' + ep);
   zbAddNode(short, ieee, ep);
-  ;(function(sh, e) {
-    setTimeout(function () { zbQueueVerify(sh, e); }, 2000);
-  }(short, ep || '01'));
+  zbScheduleVerify(short, ep || '01', 2000);
 }
 
 function zbHandleNodeLeave(ieee) {
@@ -1376,6 +1604,9 @@ function zbHandleNodeLeave(ieee) {
   var keys = Object.keys(tatState.zb.nodes);
   for (var i = 0; i < keys.length; i++) {
     if (tatState.zb.nodes[keys[i]].ieee === ieee) {
+      if (tatState.zb.nodes[keys[i]].verifyTimer) clearTimeout(tatState.zb.nodes[keys[i]].verifyTimer);
+      if (tatState.zb.nodes[keys[i]].verifyResponseTimer) clearTimeout(tatState.zb.nodes[keys[i]].verifyResponseTimer);
+      tatState.zb.verifyQueue = tatState.zb.verifyQueue.filter(function (item) { return item.short !== keys[i]; });
       delete tatState.zb.sensorData[keys[i]];
       delete tatState.zb.nodes[keys[i]];
       if (tatState.zb.selectedNode === keys[i]) {
@@ -1419,6 +1650,17 @@ function zbSelectNode(short) {
   zbRenderNodeList();
   var n = tatState.zb.nodes[short];
   if (!n) { zbShowOverlay(); return; }
+  if (n.verifyFailed || n.deletePending) {
+    var failedOv = document.getElementById('tat-zb-overlay');
+    if (failedOv) {
+      failedOv.style.display = 'flex';
+      var failedMsg = failedOv.querySelector('.tat-overlay-msg');
+      if (failedMsg) failedMsg.textContent = 'Node 0x' + short + ' failed verification and is being removed';
+    }
+    document.getElementById('tat-zb-bulb').style.display = 'none';
+    document.getElementById('tat-zb-sensor').style.display = 'none';
+    return;
+  }
   zbHideOverlay();
   if (n.type === 'led') {
     zbShowBulbPanel(n);
@@ -1550,16 +1792,23 @@ var ZB_SENSOR_EP = '0B';
 
 function zbConfigReport() {
   var n = zbGetSelected(); if (!n || n.type !== 'sensor') return;
-  var minEl = document.getElementById('tat-zbsen-min');
-  var maxEl = document.getElementById('tat-zbsen-max');
-  var minS = minEl ? (parseInt(minEl.value, 10) || 5) : 5;
-  var maxS = maxEl ? (parseInt(maxEl.value, 10) || 60) : 60;
-  var minHex = ('0000' + minS.toString(16).toUpperCase()).slice(-4);
-  var maxHex = ('0000' + maxS.toString(16).toUpperCase()).slice(-4);
+  var intervalEl = document.getElementById('tat-zbsen-interval');
+  var intervalS = intervalEl ? (parseInt(intervalEl.value, 10) || 5) : 5;
+  if (intervalS < 1) intervalS = 1;
+  if (intervalS > 3600) intervalS = 3600;
   var short = n.short;
-  zbEnqueue(function() { return zbSendReportRule(short, ZB_SENSOR_EP, '0402', '0000', '29', minHex, maxHex, '0064', 10000); })
+  zbEnqueue(function () {
+    tatLog('i', 'AUTO_FIND_TARGET to bind 0x' + short + ' before Configure Reporting');
+    return sendCFZB('MODULE_AUTO_FIND_TARGET', '', 8000);
+  })
+    .then(function () {
+      return zbApplySensorReportConfig(short, intervalS);
+    })
     .then(function() {
-      return zbEnqueue(function() { return zbSendReportRule(short, ZB_SENSOR_EP, '0405', '0000', '21', minHex, maxHex, '0064', 10000); });
+      n.reportConfigured = true;
+      n.reportPending = false;
+      n.reportIntervalSec = intervalS;
+      return zbPrimeSensorSnapshot(short);
     })
     .then(function() { tatToast('Configure Reporting sent'); });
 }
@@ -1638,7 +1887,11 @@ function zbRememberBulbUpdate(short, patch) {
 function zbQueueVerify(short, ep) {
   var n = tatState.zb.nodes[short];
   if (!n) return;
-  if (n.verified || n.verifyFailed) return;
+  if (n.verifyTimer) {
+    clearTimeout(n.verifyTimer);
+    n.verifyTimer = null;
+  }
+  if (n.verified || n.verifyFailed || n.deletePending || n.verifyPendingResponse) return;
   for (var i = 0; i < tatState.zb.verifyQueue.length; i++) {
     if (tatState.zb.verifyQueue[i].short === short) return;
   }
@@ -1652,7 +1905,8 @@ function zbRunVerifyQueue() {
   q.verifyRunning = true;
   var item = q.verifyQueue.shift();
   var n = q.nodes[item.short];
-  if (!n || n.verified || n.verifyFailed) {
+  if (!n || n.verified || n.verifyFailed || n.deletePending || n.verifyPendingResponse) {
+    q.verifyRunning = false;
     setTimeout(zbRunVerifyQueue, 200); return;
   }
   n.verifyAttempts = (n.verifyAttempts || 0) + 1;
@@ -1664,16 +1918,24 @@ function zbRunVerifyQueue() {
         var syncResp = resp || '';
         if (/DATN_AUTH_KEY:/i.test(syncResp)) {
           zbHandleModelIdResponse(item.short, syncResp);
+          q.verifyRunning = false;
+          setTimeout(zbRunVerifyQueue, 300);
+          return;
         }
-        setTimeout(zbRunVerifyQueue, 300);
+        n.verifyPendingResponse = true;
+        if (n.verifyResponseTimer) clearTimeout(n.verifyResponseTimer);
+        n.verifyResponseTimer = setTimeout(function () {
+          zbHandleVerifyTimeout(item.short, item.ep);
+        }, 5000);
+        q.verifyRunning = false;
       })
       .catch(function () {
-        if (n.verifyAttempts < 3) {
+        q.verifyRunning = false;
+        if (n.verifyAttempts < ZB_VERIFY_MAX_ATTEMPTS) {
+          tatLog('!', 'Verify timeout for 0x' + item.short + ' — retrying');
           q.verifyQueue.push(item);
         } else {
-          n.verifyFailed = true;
-          tatLog('!', 'Verify gave up: 0x' + item.short);
-          zbRenderNodeList();
+          zbRejectNode(item.short, 'verify timeout');
         }
         setTimeout(zbRunVerifyQueue, 300);
       });
@@ -1683,6 +1945,7 @@ function zbRunVerifyQueue() {
 function zbHandleModelIdResponse(short, resp) {
   var n = tatState.zb.nodes[short];
   if (!n) return;
+  zbClearVerifyWait(short);
   /* Try to extract model string from response */
   var m = resp.match(/DATN_AUTH_KEY:([^\x1e\n",]+)/i);
   if (!m) {
@@ -1700,28 +1963,54 @@ function zbHandleModelIdResponse(short, resp) {
   }
   if (m) {
     var deviceName = m[1].trim();
+    var lowered = deviceName.toLowerCase();
+    var nodeType = (lowered.indexOf('bulb') >= 0 || lowered.indexOf('led') >= 0) ? 'led' :
+      (lowered.indexOf('sensor') >= 0) ? 'sensor' : 'unknown';
+    if (!deviceName || nodeType === 'unknown') {
+      zbRejectNode(short, 'invalid verify response');
+      return;
+    }
     n.verified = true;
+    n.verifyFailed = false;
+    n.deletePending = false;
     n.name = deviceName;
-    n.type = (deviceName.indexOf('bulb') >= 0 || deviceName.indexOf('led') >= 0) ? 'led' :
-             (deviceName.indexOf('sensor') >= 0) ? 'sensor' : 'unknown';
+    n.type = nodeType;
     tatLog('i', 'Node 0x' + short + ' verified: ' + deviceName + ' type=' + n.type);
-    tatToast('Verified: ' + deviceName);
+    if (n.type === 'led') tatToast('Verified bulb: ' + deviceName);
     /* Sensor: auto-configure reporting */
     if (n.type === 'sensor') {
-      setTimeout(function () {
-        zbEnqueue(function() { return zbSendReportRule(short, ZB_SENSOR_EP, '0402', '0000', '29', '0005', '003C', '0064', 10000); })
-          .then(function() { return zbEnqueue(function() { return zbSendReportRule(short, ZB_SENSOR_EP, '0405', '0000', '21', '0005', '003C', '0064', 10000); }); });
-      }, 1000);
+      var autoCfg = zbGetSensorAutoReportConfig();
+      n.reportPending = true;
+      n.reportIntervalSec = autoCfg.intervalSec;
+      tatLog('i', 'Sensor 0x' + short + ' verified — binding then enabling report interval ' + autoCfg.intervalSec + 's');
+      zbEnqueue(function () {
+        tatLog('i', 'AUTO_FIND_TARGET to bind 0x' + short + ' before Configure Reporting');
+        return sendCFZB('MODULE_AUTO_FIND_TARGET', '', 8000);
+      })
+        .then(function () {
+          return zbApplySensorReportConfig(short, autoCfg.intervalSec);
+        })
+        .then(function () {
+          n.reportConfigured = true;
+          n.reportPending = false;
+          return zbPrimeSensorSnapshot(short);
+        })
+        .then(function () {
+          tatToast('Verified sensor: ' + deviceName + ' • report ' + autoCfg.intervalSec + 's');
+        })
+        .catch(function (err) {
+          n.reportPending = false;
+          tatLog('!', 'Sensor report init failed for 0x' + short + ': ' + (err && err.message ? err.message : String(err)));
+          tatToast('Verify OK, report init failed: ' + deviceName);
+        });
     }
     zbRenderNodeList();
     /* If this node is selected, update control panel */
     if (tatState.zb.selectedNode === short) zbSelectNode(short);
+    if (!tatState.zb.verifyRunning) setTimeout(zbRunVerifyQueue, 100);
   } else {
-    tatLog('!', 'Auth key not found in response for 0x' + short);
-    if (n.verifyAttempts >= 3) {
-      n.verifyFailed = true;
-      zbRenderNodeList();
-    }
+    zbRejectNode(short, 'invalid verify response');
+    if (!tatState.zb.verifyRunning) setTimeout(zbRunVerifyQueue, 100);
   }
 }
 
@@ -1831,6 +2120,20 @@ function zbHandleEbyteFrame(hexStr) {
   /* 0x82/0x00 — ZCL Read Attr Response */
   if (frame.type === 0x82 && frame.code === 0x00) {
     zbHandleZclReadAttrRsp(frame.data);
+    return true;
+  }
+  /* 0x82/0x03 — ZCL Configure Reporting Response */
+  if (frame.type === 0x82 && frame.code === 0x03) {
+    if (frame.data.length >= 13) {
+      var cfgStatus  = frame.data[12];
+      var cfgShort   = ('0000' + ((frame.data[1] | (frame.data[2] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
+      var cfgCluster = ('0000' + ((frame.data[6] | (frame.data[7] << 8)) >>> 0).toString(16).toUpperCase()).slice(-4);
+      if (cfgStatus === 0x00) {
+        tatLog('i', 'ConfigureReporting OK: 0x' + cfgShort + ' cluster 0x' + cfgCluster);
+      } else {
+        tatLog('!', 'ConfigureReporting status=0x' + cfgStatus.toString(16).toUpperCase() + ' 0x' + cfgShort + ' cl:0x' + cfgCluster + ' (firmware self-enabling via identify)');
+      }
+    }
     return true;
   }
   return false;
@@ -2046,38 +2349,56 @@ function lrReadInfo() {
 
 function lrLedOn() {
   if (!tatState.lr.nodeJoined) { tatToast('Node not joined'); return; }
-  lrSendLedCmd('10', 'LED ON');
+  lrQueueLedCmd('10', 'LED ON');
 }
 
 function lrLedOff() {
   if (!tatState.lr.nodeJoined) { tatToast('Node not joined'); return; }
-  lrSendLedCmd('11', 'LED OFF');
+  lrQueueLedCmd('11', 'LED OFF');
+}
+
+function lrQueueLedCmd(hexCmd, label) {
+  var prev = tatState.lr.pendingLedCmd;
+  tatState.lr.pendingLedCmd = {
+    hexCmd: hexCmd,
+    label: label,
+    ts: Date.now()
+  };
+  if (prev) {
+    tatLog('i', 'Queued ' + label + ' (replaced ' + prev.label + ')');
+  } else {
+    tatLog('i', 'Queued ' + label + ' (wait next SENSOR_DATA)');
+  }
+  tatToast('Queued: ' + label);
+}
+
+function lrTrySendQueuedLedCmd(sensorSeq) {
+  var pending = tatState.lr.pendingLedCmd;
+  if (!pending) return;
+  if (tatState.lr.txPending) return;
+  tatState.lr.pendingLedCmd = null;
+  tatLog('i', 'Sending queued ' + pending.label + ' on SENSOR_DATA seq=' + sensorSeq);
+  lrSendLedCmd(pending.hexCmd, pending.label);
 }
 
 function lrSendLedCmd(hexCmd, label) {
   lrEnqueue(function () {
     tatState.lr.txPending = true;
-    /* Step 1: exit RX mode */
-    return sendCFLR('MODULE_GET_INFO', '', 5000)
+    tatState.lr.rxActive = false;
+    lrSetRxBadge(false);
+    return sendCFLR('MODULE_SEND_P2P_PKT', '"' + hexCmd + '"', 8000)
       .then(function () {
-        tatState.lr.rxActive = false;
-        lrSetRxBadge(false);
-        /* Step 2: send LED command */
-        return sendCFLR('MODULE_SEND_P2P_PKT', '"' + hexCmd + '"', 8000)
-          .then(function () {
-            tatState.lr.lastCmd = hexCmd === '10' ? 'LED ON' : 'LED OFF';
-            tatState.lr.ledState = hexCmd === '10' ? 'ON' : 'OFF';
-            tatState.lr.lastTx = tatFmtTime(new Date());
-            tatSet('tat-lr-last-tx', label + ' @ ' + tatState.lr.lastTx);
-            tatToast('Sent: ' + label);
-            lrBroadcastNodeSnapshot();
-            /* Step 3: re-enter RX */
-            return sendCFLR('MODULE_ENTER_P2P_RX', '', 5000)
-              .then(function (resp) {
-                tatState.lr.rxActive = true;
-                lrSetRxBadge(true);
-                return resp;
-              });
+        tatState.lr.lastCmd = hexCmd === '10' ? 'LED ON' : 'LED OFF';
+        tatState.lr.ledState = hexCmd === '10' ? 'ON' : 'OFF';
+        tatState.lr.lastTx = tatFmtTime(new Date());
+        tatSet('tat-lr-last-tx', label + ' @ ' + tatState.lr.lastTx);
+        tatToast('Sent: ' + label);
+        lrBroadcastNodeSnapshot();
+        return sendCFLR('MODULE_ENTER_P2P_RX', '', 5000)
+          .then(function (resp) {
+            tatState.lr.rxActive = true;
+            lrSetRxBadge(true);
+            return resp;
           });
       })
       .then(function (resp) {
@@ -2258,6 +2579,7 @@ function lrHandleP2PPacket(hex, rssi, snr) {
     tatSet('tat-lr-last-up', tatState.lr.lastUp);
     lrSetPill('active', 'Active');
     tatLog('EVT', 'SENSOR_DATA nodeId=0x' + nodeId2.toString(16).toUpperCase() + ' seq=' + seq + ' T=' + temp + '°C H=' + hum + '%');
+    lrTrySendQueuedLedCmd(seq);
     lrBroadcastNodeSnapshot();
     return;
   }

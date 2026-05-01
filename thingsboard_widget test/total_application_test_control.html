@@ -222,28 +222,10 @@
             <span id="tat-zbsen-short" class="tat-mono">--</span>
             <span id="tat-zbsen-ep" class="tat-meta-sm"></span>
           </div>
-          <div class="tat-sensor-cards">
-            <div class="tat-data-card">
-              <div class="tat-data-lbl">Temperature</div>
-              <div id="tat-zbsen-temp" class="tat-data-val">--</div>
-            </div>
-            <div class="tat-data-card">
-              <div class="tat-data-lbl">Humidity</div>
-              <div id="tat-zbsen-hum" class="tat-data-val">--</div>
-            </div>
-          </div>
-          <div class="tat-sensor-footer">
-            Last: <span id="tat-zbsen-last">--</span>
-          </div>
           <div class="tat-label-sm">Configure Reporting:</div>
           <div class="tat-report-row">
-            Min <input id="tat-zbsen-min" class="tat-input-sm" type="number" value="5"  min="1" max="3600" style="width:48px">s
-            Max <input id="tat-zbsen-max" class="tat-input-sm" type="number" value="60" min="1" max="3600" style="width:52px">s
+            Interval <input id="tat-zbsen-interval" class="tat-input-sm" type="number" value="5" min="1" max="3600" style="width:64px">s
             <button class="tat-btn-sm" data-action="zbConfigReport">Configure</button>
-          </div>
-          <div class="tat-row-btns">
-            <button class="tat-btn-sm" data-action="zbReadTemp">Read Temp</button>
-            <button class="tat-btn-sm" data-action="zbReadHum">Read Humidity</button>
           </div>
         </div>
       </div>

@@ -46,7 +46,7 @@
 
 /* ─── Configuration ───────────────────────────────────────────────── */
 #define ZIGBEE_EP_TEMP        11      /* Temperature + Humidity endpoint (0x0B) */
-#define ATTR_UPDATE_INTERVAL  2000    /* How often to refresh temperature (ms) */
+#define ATTR_UPDATE_INTERVAL_DEFAULT_MS  5000    /* Default push interval until widget writes a new one */
 /* ─── Simulated sensor values: random within realistic ranges ───────── */
 #define TEMP_MIN_C     20.0f   /* minimum simulated temperature °C */
 #define TEMP_MAX_C     35.0f   /* maximum simulated temperature °C */
@@ -71,8 +71,22 @@ static float getSimulatedHumidity() {
    200.0f  → ZCL unit = 20000; temperature ZCL range is –40 to 125 °C.  ── */
 #define HUMID_DELTA_IMPOSSIBLE   655.35f
 #define TEMP_DELTA_IMPOSSIBLE    200.0f
+#define ATTR_UPDATE_INTERVAL_MIN_MS  100UL
+#define ATTR_UPDATE_INTERVAL_MAX_MS  60000UL
+#define DEBUG_HEARTBEAT_MS       10000
+#define DEBUG_WATCHDOG_LOG_MS    2000
 
 static unsigned long  g_lastAttrUpdateMs    = 0;
+static unsigned long  g_bootMs              = 0;
+static unsigned long  g_lastHeartbeatMs     = 0;
+static unsigned long  g_lastWatchdogLogMs   = 0;
+static unsigned long  g_lastConfigRxMs      = 0;
+static uint32_t       g_attrUpdateCount     = 0;
+static uint32_t       g_joinCount           = 0;
+static uint32_t       g_configRxCount       = 0;
+static unsigned long  g_lastIdentifyRxMs    = 0;
+static uint16_t       g_lastIdentifyRaw     = 0;
+static unsigned long  g_attrUpdateIntervalMs = ATTR_UPDATE_INTERVAL_DEFAULT_MS;
 
 /* ─── Device name: embedded in Model Identifier attr (Basic Cluster 0x0005).
    Format: "DATN_AUTH_KEY:<name>"  — JS widget parses auth key + friendly name
@@ -97,6 +111,78 @@ ZigbeeTempSensor zbTempSensor(ZIGBEE_EP_TEMP);
 static void applyReportingSuppression() {
    zbTempSensor.setReporting(0xFFFF, 0xFFFF, TEMP_DELTA_IMPOSSIBLE);
    zbTempSensor.setHumidityReporting(0xFFFF, 0xFFFF, HUMID_DELTA_IMPOSSIBLE);
+   /* Keep local explicit push loop alive; suppression only disables stack auto-report. */
+}
+
+/* ─── Identify callback — widget writes intervalMs into IdentifyTime ─────── */
+static void onIdentifyCallback(uint16_t time) {
+   unsigned long nowMs = millis();
+   unsigned long prevMs = g_lastIdentifyRxMs;
+   uint16_t prevRaw = g_lastIdentifyRaw;
+   g_lastIdentifyRxMs = nowMs;
+   g_lastIdentifyRaw = time;
+
+   /* Ignore Identify countdown ticks emitted by the stack (N -> N-1 -> ... -> 0). */
+   if (time == 0 && prevRaw > 0 && prevRaw <= 60) {
+      unsigned long dt0 = nowMs - prevMs;
+      if (dt0 >= 700 && dt0 <= 1500) {
+         Serial.printf("[CFG] Ignore identify countdown end raw=0 (prev=%u) at uptime=%lums\n", prevRaw, nowMs);
+         return;
+      }
+   }
+   if (time > 0 && time <= 60 && prevRaw > 1 && prevRaw <= 60 && (time + 1) == prevRaw) {
+      unsigned long dt = nowMs - prevMs;
+      if (dt >= 700 && dt <= 1500) {
+         Serial.printf("[CFG] Ignore identify countdown tick raw=%u (prev=%u) at uptime=%lums\n", time, prevRaw, nowMs);
+         return;
+      }
+   }
+
+   unsigned long intervalMs = 0;
+   const char* unit = "invalid";
+
+   /* Accept both Identify(seconds) and IdentifyTime(ms) styles. */
+   if (time >= 1 && time <= 60) {
+      intervalMs = (unsigned long)time * 1000UL;
+      unit = "s";
+   } else if ((unsigned long)time >= ATTR_UPDATE_INTERVAL_MIN_MS && (unsigned long)time <= ATTR_UPDATE_INTERVAL_MAX_MS) {
+      intervalMs = (unsigned long)time;
+      unit = "ms";
+   }
+
+   if (intervalMs < ATTR_UPDATE_INTERVAL_MIN_MS || intervalMs > ATTR_UPDATE_INTERVAL_MAX_MS) {
+      Serial.printf("[CFG] Ignore identify payload=%u at uptime=%lums (expected 1..60s or %lu..%lu ms)\n",
+                    time,
+                    nowMs,
+                    (unsigned long)ATTR_UPDATE_INTERVAL_MIN_MS,
+                    (unsigned long)ATTR_UPDATE_INTERVAL_MAX_MS);
+      return;
+   }
+
+   g_configRxCount++;
+   g_lastConfigRxMs = nowMs;
+   g_attrUpdateIntervalMs = intervalMs;
+   g_lastAttrUpdateMs = 0;
+   Serial.printf("[CFG] RX#%lu uptime=%lums raw=%u%s -> interval=%lu ms\n",
+                 (unsigned long)g_configRxCount,
+                 nowMs,
+                 time,
+                 unit,
+                 g_attrUpdateIntervalMs);
+}
+
+static void dbgPrintHeartbeat(bool connectedNow) {
+    unsigned long now = millis();
+    if (now - g_lastHeartbeatMs < DEBUG_HEARTBEAT_MS) return;
+    g_lastHeartbeatMs = now;
+   Serial.printf("[DBG] heartbeat | conn=%s | uptime=%lus | joins=%lu | attr_updates=%lu | cfg_rx=%lu | last_cfg_uptime=%lums | pending_rejoin=%s\n",
+                  connectedNow ? "yes" : "no",
+                  (unsigned long)((now - g_bootMs) / 1000UL),
+                  (unsigned long)g_joinCount,
+                  (unsigned long)g_attrUpdateCount,
+              (unsigned long)g_configRxCount,
+              (unsigned long)g_lastConfigRxMs,
+                  g_disconnectPending ? "yes" : "no");
 }
 
 
@@ -112,10 +198,14 @@ static float readInternalTemp() {
 void setup() {
     Serial.begin(115200);
     randomSeed(esp_random());   /* seed Arduino RNG with hardware entropy */
+   g_bootMs = millis();
 
     Serial.println("\nESP32-C6 Super Mini — Zigbee Temperature + Humidity Sensor");
     Serial.printf("Temp+Humid endpoint: %d (0x%02X), Clusters 0x0402 + 0x0405\n", ZIGBEE_EP_TEMP, ZIGBEE_EP_TEMP);
-    Serial.printf("Attr update interval: %d ms\n", ATTR_UPDATE_INTERVAL);
+   Serial.printf("Attr update interval: %lu ms\n", g_attrUpdateIntervalMs);
+   Serial.printf("[DBG] DEVICE_NAME=%s\n", DEVICE_NAME);
+   Serial.printf("[DBG] Auth model string=DATN_AUTH_KEY:%s\n", DEVICE_NAME);
+   Serial.println("[DBG] Test flow: JOIN -> widget verify -> Configure Reporting + IdentifyTime interval write");
     Serial.println("Starting Zigbee stack...");
 
     /* ── Configure endpoint BEFORE addEndpoint() + begin() ── */
@@ -145,6 +235,8 @@ void setup() {
     /* erase_nvs=true: always clear saved channel mask so the device does
        a full scan (channels 11-26) on each boot. This prevents the
        single-channel lock-in issue when the coordinator resets. */
+   zbTempSensor.onIdentify(onIdentifyCallback);
+
     if (!Zigbee.begin(ZIGBEE_END_DEVICE, /* erase_nvs= */ true)) {
         Serial.println("[ERROR] Zigbee.begin() failed (wrong Zigbee mode?)");
         Serial.println("  → Tools > Zigbee mode = 'Zigbee ED (end device)'");
@@ -154,7 +246,8 @@ void setup() {
         for (;;) delay(1000);   /* unreachable — factoryReset reboots */
     }
 
-   Serial.println("Silent mode: waits for auth verify, then JS widget Configure Reporting");
+   Serial.println("Silent mode: waits for auth verify, then JS widget Configure Reporting + IdentifyTime");
+   Serial.println("[DBG] Reporting suppression active (max=0xFFFF, impossible delta)");
 
     Serial.println("Waiting to join coordinator network...");
     Serial.println("(Run MODULE_START_NETWORK + MODULE_SET_PERMIT_JOIN on coordinator)");
@@ -162,6 +255,8 @@ void setup() {
         Serial.print(".");
         delay(500);
     }
+
+      Serial.printf("[REPORT] Local push loop interval @ %lu ms\n", g_attrUpdateIntervalMs);
 
     /* ── Post-join: suppress all auto-reporting ────────────────────────
        Layer 1: set impossible delta + max_interval=0xFFFF (no time-based
@@ -177,8 +272,13 @@ void setup() {
 
     Serial.println();
     Serial.println("*** Joined Zigbee network! ***");
+   g_joinCount++;
+   Serial.printf("[DBG] Join #%lu at uptime %lus\n",
+              (unsigned long)g_joinCount,
+              (unsigned long)((millis() - g_bootMs) / 1000UL));
     Serial.println("Coordinator: run MODULE_AUTO_FIND_TARGET to bind");
    Serial.println("Device is SILENT — verify first, then JS widget enables push reporting");
+   Serial.println("[DBG] Expect on widget: node status NEW -> verify OK -> Configure Reporting + IdentifyTime");
 }
 
 /* ─── loop ───────────────────────────────────────────────────────── */
@@ -192,11 +292,16 @@ void loop() {
             Serial.println("*** Lost network — starting rejoin watchdog ***");
             g_disconnectPending   = true;
             g_disconnectedSinceMs = millis();
+         g_lastWatchdogLogMs   = 0;
         } else {
             Serial.println("*** Re-joined network ***");
+         g_joinCount++;
+         Serial.printf("[DBG] Rejoin success | join_count=%lu | uptime=%lus\n",
+                    (unsigned long)g_joinCount,
+                    (unsigned long)((millis() - g_bootMs) / 1000UL));
             g_disconnectPending = false;
          applyReportingSuppression();
-         Serial.println("[REPORT] Suppressed after rejoin; waiting for Configure Reporting");
+             Serial.printf("[REPORT] Suppressed after rejoin; current interval @ %lu ms\n", g_attrUpdateIntervalMs);
         }
         lastConn = conn;
     }
@@ -214,21 +319,44 @@ void loop() {
         for (;;) delay(1000);    /* unreachable — factoryReset reboots */
     }
 
+   if (!conn && g_disconnectPending) {
+      unsigned long nowMs = millis();
+      if (g_lastWatchdogLogMs == 0 || (nowMs - g_lastWatchdogLogMs) >= DEBUG_WATCHDOG_LOG_MS) {
+         g_lastWatchdogLogMs = nowMs;
+         unsigned long elapsed = nowMs - g_disconnectedSinceMs;
+         unsigned long remain = (elapsed >= REJOIN_TIMEOUT_MS) ? 0 : (REJOIN_TIMEOUT_MS - elapsed);
+         Serial.printf("[DBG] rejoin watchdog | elapsed=%lums | remain=%lums\n",
+                    elapsed,
+                    remain);
+      }
+   }
+
     /* ── Temperature + Humidity updater ─────────────────────────────
-       Refresh both attributes every ATTR_UPDATE_INTERVAL ms so the device
-       has current data ready for ZCL Read Attr requests (0x0402 + 0x0405).
-       Once Configure Reporting is received, the updated attributes are
-       pushed automatically by the Zigbee stack.                           ── */
-    if (conn && (millis() - g_lastAttrUpdateMs >= ATTR_UPDATE_INTERVAL)) {
+       Always updates and pushes by one active interval (default or IdentifyTime).
+       This keeps behavior aligned with the widget's single-interval setting. ── */
+    if (conn && (millis() - g_lastAttrUpdateMs >= g_attrUpdateIntervalMs)) {
         g_lastAttrUpdateMs = millis();
+        g_attrUpdateCount++;
 
         float tempC   = getSimulatedTemp();
         float humidRH = getSimulatedHumidity();
         zbTempSensor.setTemperature(tempC);
         zbTempSensor.setHumidity(humidRH);
 
-      Serial.printf("[ATTR] Temp=%.1f°C  Humid=%.1f%%RH  (awaiting/reporting by config)\n", tempC, humidRH);
-    }
+        /* Some Zigbee.h builds only emit the latest changed cluster with report().
+           Send both clusters explicitly to guarantee temp+humidity uplink. */
+        zbTempSensor.reportTemperature();
+        delay(20);
+        zbTempSensor.reportHumidity();
+        delay(20);
+        Serial.printf("[ATTR] #%lu Temp=%.1f°C  Humid=%.1f%%RH  (push interval @ %lu ms)\n",
+                      (unsigned long)g_attrUpdateCount,
+                      tempC,
+                      humidRH,
+                      g_attrUpdateIntervalMs);
+   }
+
+      dbgPrintHeartbeat(conn);
 
     delay(100);
 }
