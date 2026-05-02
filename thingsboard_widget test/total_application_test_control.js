@@ -15,7 +15,7 @@
    Global State
    ═══════════════════════════════════════════════════════════════════ */
 var tatState = {
-  slot:       '0',
+  slots:      { ble: '0', zb: '0', lora: '0' },
   activeTab:  'ble',
   rpcTimeout: 15000,
 
@@ -28,7 +28,8 @@ var tatState = {
     cmdQueue:    [],
     cmdPending:  false,
     lastTeleTs:  0,
-    pendingRpc:  null
+    pendingRpc:  null,
+    scanWatchdogTimer: null
   },
 
   zb: {
@@ -38,6 +39,7 @@ var tatState = {
     nodes:         {},    /* short → {short,ieee,ep,name,type,verified,verifyFailed,verifyAttempts} */
     selectedNode:  null,
     sensorData:    {},    /* short → {temp,hum,count,lastTs,onOff,level} */
+    tempProbeTs:   {},
     cmdQueue:      [],
     cmdPending:    false,
     verifyQueue:   [],
@@ -53,8 +55,7 @@ var tatState = {
     nodeId:        null,
     nodeJoined:    false,
     nodeSeq:       0,
-    temp:          null,
-    hum:           null,
+    virtualSensorGate: false,
     rssi:          '',
     snr:           '',
     lastTx:        '',
@@ -74,8 +75,14 @@ var tatState = {
 /* ── Bridge / telemetry listeners ── */
 var _tatTeleSubscriber   = null;
 var _tatLastTeleTs       = 0;
+var _tatLastTeleSig      = '';
+var _tatHasWsTele        = false;
+var _tatSeenTeleMap      = {};
+var _tatSeenTeleOrder    = [];
+var TAT_TELE_SEEN_MAX    = 400;
 var _tatBridgeHandler    = null;
 var _lrLastJoinAcceptTs  = 0;   /* debounce: ms timestamp of last lrSendJoinAccept */
+var _zbTempWatchdogTimer = null;
 
 /* ═══════════════════════════════════════════════════════════════════
    ThingsBoard Lifecycle
@@ -94,7 +101,8 @@ self.onInit = function () {
 
     tatSetTab('ble');
     tatSetPill('idle', 'Idle');
-    tatLog('i', 'Widget ready — slot ' + tatState.slot);
+    tatSyncSlotSelectors();
+    tatLog('i', 'Widget ready — slots BLE:' + tatState.slots.ble + ' ZB:' + tatState.slots.zb + ' LR:' + tatState.slots.lora);
 
     /* ══════ EVENT DELEGATION ══════ */
     var root = document.getElementById('tat-root');
@@ -162,8 +170,10 @@ self.onInit = function () {
       root.addEventListener('change', function(evt) {
         var el = evt.target;
         if (!el) return;
-        if (el.id === 'tat-slot') {
-          tatSetSlot(el.value);
+        if (el.className && String(el.className).indexOf('tat-tab-slot-sel') >= 0) {
+          if (el.id === 'tat-slot-ble') tatSetSlot('ble', el.value);
+          else if (el.id === 'tat-slot-zb') tatSetSlot('zb', el.value);
+          else if (el.id === 'tat-slot-lora') tatSetSlot('lora', el.value);
         }
       });
     }
@@ -182,6 +192,7 @@ self.onInit = function () {
             try { tatHandleTeleData(data); } catch (e) { /* ignore */ }
           }
         });
+        _tatHasWsTele = true;
         tatLog('i', 'Telemetry WS subscribed');
       }
     } catch (se) {
@@ -198,6 +209,8 @@ self.onInit = function () {
     };
     window.addEventListener('da2_tat_ctrl_event', _tatBridgeHandler);
 
+    zbStartTempWatchdog();
+
   } catch (e) {
     console.error('[TAT] onInit error:', e);
   }
@@ -213,26 +226,54 @@ self.onDestroy = function () {
       self.ctx.telemetryWsService.unsubscribe(_tatTeleSubscriber);
       _tatTeleSubscriber = null;
     }
+    zbStopTempWatchdog();
+    _tatHasWsTele = false;
   } catch (e) {}
 };
+
+function tatIngestTelemetryEntry(ts, raw) {
+  var decoded = tatDecodeRpcValue(raw);
+  if (!decoded) return;
+  var key = String(ts || 0) + '|' + decoded;
+  if (_tatSeenTeleMap[key]) return;
+  _tatSeenTeleMap[key] = 1;
+  _tatSeenTeleOrder.push(key);
+  if (_tatSeenTeleOrder.length > TAT_TELE_SEEN_MAX) {
+    var old = _tatSeenTeleOrder.shift();
+    delete _tatSeenTeleMap[old];
+  }
+  _tatLastTeleTs = ts;
+  _tatLastTeleSig = decoded;
+  tatSplitLines(decoded).forEach(tatDispatchLine);
+}
 
 /* Fallback: datasource-based telemetry */
 self.onDataUpdated = function () {
   try {
+    // When WS subscription is active, ignore datasource fallback to avoid race drops.
+    if (_tatHasWsTele) return;
     var data = self.ctx && self.ctx.data;
     if (!data || !data.length) return;
+    var entries = [];
     for (var ki = 0; ki < data.length; ki++) {
       var kd = data[ki];
       if (!kd || !kd.data || !kd.data.length) continue;
       for (var di = 0; di < kd.data.length; di++) {
         var entry = kd.data[di];
-        var ts    = entry[0];
-        var raw   = entry[1];
-        if (ts <= _tatLastTeleTs) continue;
-        _tatLastTeleTs = ts;
-        var decoded = tatDecodeRpcValue(raw);
-        tatSplitLines(decoded).forEach(tatDispatchLine);
+        entries.push(entry);
       }
+    }
+
+    // Process oldest->newest so SCAN_DONE/SCAN_RESULT are not dropped by ts gate.
+    entries.sort(function (a, b) {
+      return (a[0] || 0) - (b[0] || 0);
+    });
+
+    for (var ei = 0; ei < entries.length; ei++) {
+      var entry2 = entries[ei];
+      var ts    = entry2[0];
+      var raw   = entry2[1];
+      tatIngestTelemetryEntry(ts, raw);
     }
   } catch (e) {}
 };
@@ -243,28 +284,35 @@ self.onDataUpdated = function () {
 function tatHandleTeleData(data) {
   var arr = data && data['data'];
   if (!arr || !arr.length) return;
-  for (var i = 0; i < arr.length; i++) {
-    var entry = arr[i];
+  var ordered = arr.slice(0).sort(function (a, b) {
+    return (a[0] || 0) - (b[0] || 0);
+  });
+  for (var i = 0; i < ordered.length; i++) {
+    var entry = ordered[i];
     var ts    = entry[0];
     var raw   = entry[1];
-    if (ts <= _tatLastTeleTs) continue;
-    _tatLastTeleTs = ts;
-    var decoded = tatDecodeRpcValue(raw);
-    tatSplitLines(decoded).forEach(tatDispatchLine);
+    tatIngestTelemetryEntry(ts, raw);
+  }
+}
+
+function bleClearScanWatchdog() {
+  if (tatState.ble.scanWatchdogTimer) {
+    clearTimeout(tatState.ble.scanWatchdogTimer);
+    tatState.ble.scanWatchdogTimer = null;
   }
 }
 
 /* Bridge event from monitor widget */
 function tatHandleBridgeEvent(d) {
-  if (d.type === 'lrRawLine') {
-    tatLog('i', '[bridge] lrRawLine: ' + (d.line || '').substring(0, 80));
+  if (d.type === 'bleRawLine' && d.line) {
+    tatDispatchLine(d.line);
   }
   if (d.type && d.type.indexOf('zb') === 0) tatState.zb.hexNative = true;
   if (d.type === 'zbNodeJoin')     zbHandleNodeJoin(d.short, d.ieee || '????????????????');
   if (d.type === 'zbNodeAnnounce') zbHandleNodeAnnounce(d.short, d.ieee || '????????????????', d.ep || '?');
   if (d.type === 'zbNodeLeave')    zbHandleNodeLeave(d.ieee);
-  if (d.type === 'zbAttrReport')   zbHandleAttrReport(d.short, d.cluster, d.attr, d.value);
-  if (d.type === 'lrRawLine' && d.line) lrHandleAsyncLine(d.line);
+  if (d.type === 'lrJoinRequest')  lrHandleJoinRequest(d.nodeIdHex, 'bridge');
+  if (d.type === 'lrSensorGate')   lrHandleVirtualSensorGate(d.seq);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -334,12 +382,26 @@ function tatSplitLines(s) {
     if (zi > 0) x = x.substring(zi);
     var li = x.indexOf('CFLR:');
     if (li > 0) x = x.substring(li);
+    var ti = x.indexOf('+TEST:');
+    if (ti > 0) x = x.substring(ti);
+    var mi = x.indexOf('+MODE:');
+    if (mi > 0) x = x.substring(mi);
+    var vi = x.indexOf('+VER:');
+    if (vi > 0) x = x.substring(vi);
     return x;
   }).filter(Boolean);
 }
 
 function tatIsBleLine(line) {
-  return /^CFBG:/i.test(line) || /^(SCAN_RESULT:|CONNECTED:|DISC_DONE:|CHAR:|NOTIFY:|DISCONNECTING:|DISCONNECTED:|DESCR_WRITE_OK|WRITE_OK|SCAN_DONE:)/i.test(line);
+  return /^CFBG:/i.test(line) || /^(SCAN_RESULT:|CONNECTED:|DISC_DONE:|CHAR:|DISCONNECTING:|DISCONNECTED:|DESCR_WRITE_OK|WRITE_OK|SCAN_DONE:)/i.test(line);
+}
+
+function tatIsZigbeeLine(line) {
+  return /^CFZB:[0-9]+:(EVT|OK|FAIL):/i.test(line) || /^55\s+[0-9A-Fa-f]{2}/i.test(line) || /RPT:[0-9A-Fa-f]{4},/i.test(line);
+}
+
+function tatIsLoraLine(line) {
+  return /^CFLR:[0-9]+:(EVT|OK|FAIL):/i.test(line) || /^\+TEST:/i.test(line) || /^\+MODE:/i.test(line) || /^\+VER:/i.test(line);
 }
 
 function tatNormalizeBleLine(line) {
@@ -424,6 +486,11 @@ function tatBleHandleRpcLine(line) {
   try { window.dispatchEvent(new CustomEvent('da2_tat_raw_line', { detail: { line: line } })); } catch (e) {}
 }
 
+function tatBleUseStrictPending(verb) {
+  var v = String(verb || '').toUpperCase();
+  return v === 'CONNECT' || v === 'DISC' || v === 'DISCONNECT';
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    RPC core
    ═══════════════════════════════════════════════════════════════════ */
@@ -446,28 +513,43 @@ function tatSendRpc(method, params, timeout) {
    Protocol-specific RPC wrappers
    ═══════════════════════════════════════════════════════════════════ */
 function sendCFBG(verb, params, timeout) {
-  var cmd = 'CFML:CFBG:' + tatState.slot + ':' + verb + (params ? ':' + params : '');
-  var waitPromise = tatBleStartPendingRpc(verb, timeout || tatState.rpcTimeout);
+  var cmd = 'CFML:CFBG:' + tatGetSlot('ble') + ':' + verb + (params ? ':' + params : '');
+  var strictPending = tatBleUseStrictPending(verb);
+  var waitPromise = strictPending ? tatBleStartPendingRpc(verb, timeout || tatState.rpcTimeout) : null;
   tatLog('TX', cmd);
   var hex = tatStrToHex(cmd);
-  tatSendRpc('sendCommand', hex, timeout || tatState.rpcTimeout)
+  var rpcPromise = tatSendRpc('sendCommand', hex, timeout || tatState.rpcTimeout)
     .then(function (resp) {
       var decoded = tatDecodeRpcValue(resp);
-      if (!decoded) return;
+      if (!decoded) return '';
+      var bleLines = [];
       tatSplitLines(decoded).forEach(function (l) {
         if (tatIsBleLine(l)) {
           tatBleHandleRpcLine(l);
+          bleLines.push(l);
         } else {
           tatLog('EVT', l);
           tatDispatchLine(l);
         }
       });
-    })
-    .catch(function (err) {
-      if (tatState.ble.pendingRpc && tatState.ble.pendingRpc.verb === String(verb || '').toUpperCase()) {
-        tatBleFinishPendingRpc(tatState.ble.pendingRpc, err);
-      }
+      return bleLines.join('\n');
     });
+
+  if (!strictPending) {
+    return rpcPromise.catch(function (err) {
+      var msg = err && err.message ? err.message : String(err);
+      tatLog('!', 'BLE RPC: ' + msg);
+      tatToast('BLE error: ' + msg);
+      throw err;
+    });
+  }
+
+  rpcPromise.catch(function (err) {
+    if (tatState.ble.pendingRpc && tatState.ble.pendingRpc.verb === String(verb || '').toUpperCase()) {
+      tatBleFinishPendingRpc(tatState.ble.pendingRpc, err);
+    }
+  });
+
   return waitPromise.catch(function (err) {
     var msg = err && err.message ? err.message : String(err);
     tatLog('!', 'BLE RPC: ' + msg);
@@ -477,7 +559,7 @@ function sendCFBG(verb, params, timeout) {
 }
 
 function sendCFZB(func, params, timeout) {
-  var cmd = 'CFML:CFZB:' + tatState.slot + ':' + func + (params ? ':' + params : '');
+  var cmd = 'CFML:CFZB:' + tatGetSlot('zb') + ':' + func + (params ? ':' + params : '');
   tatLog('TX', cmd);
   var hex = tatStrToHex(cmd);
   return tatSendRpc('sendCommand', hex, timeout || tatState.rpcTimeout)
@@ -485,6 +567,7 @@ function sendCFZB(func, params, timeout) {
       var decoded = tatDecodeRpcValue(resp);
       if (decoded) {
         tatSplitLines(decoded).forEach(function(l) {
+          if (!tatIsZigbeeLine(l)) return;
           tatLog('RX', l);
           zbHandleAsyncLine(l);
         });
@@ -500,13 +583,14 @@ function sendCFZB(func, params, timeout) {
 }
 
 function sendCFLR(func, params, timeout) {
-  var cmd = 'CFML:CFLR:' + tatState.slot + ':' + func + (params ? ':' + params : '');
+  var cmd = 'CFML:CFLR:' + tatGetSlot('lora') + ':' + func + (params ? ':' + params : '');
   tatLog('TX', cmd);
   var hex = tatStrToHex(cmd);
   return tatSendRpc('sendCommand', hex, timeout || tatState.rpcTimeout)
     .then(function (resp) {
       var decoded = tatDecodeRpcValue(resp);
       if (decoded) tatSplitLines(decoded).forEach(function(l) {
+        if (!tatIsLoraLine(l)) return;
         if (/EVT:/i.test(l)) { tatLog('EVT', l); tatDispatchLine(l); }
         else                  { tatLog('RX', l); tatDispatchLine(l); }
       });
@@ -583,13 +667,13 @@ function lrDrainQueue() {
 function tatDispatchLine(line) {
   if (!line) return;
   /* BLE async events */
-  if (/^CFBG:/i.test(line) || /^(SCAN_RESULT:|CONNECTED:|DISC_DONE:|CHAR:|NOTIFY:|DISCONNECTING:|DISCONNECTED:|DESCR_WRITE_OK|WRITE_OK|SCAN_DONE:)/i.test(line)) {
+  if (/^CFBG:/i.test(line) || /^(SCAN_RESULT:|CONNECTED:|DISC_DONE:|CHAR:|DISCONNECTING:|DISCONNECTED:|DESCR_WRITE_OK|WRITE_OK|SCAN_DONE:)/i.test(line)) {
     bleHandleAsyncLine(line);
   }
   /* Zigbee hex frame (starts with "55 ") */
-  if (/^55\s+[0-9A-Fa-f]{2}/i.test(line) || /CFZB:[0-9]+:(EVT|OK):/i.test(line)) { zbHandleAsyncLine(line); }
+  if (/^55\s+[0-9A-Fa-f]{2}/i.test(line) || /CFZB:[0-9]+:(EVT|OK|FAIL):/i.test(line)) { zbHandleAsyncLine(line); }
   /* LoRa async events */
-  if (/CFLR:[0-9]+:EVT:/i.test(line) || /^\+TEST:/i.test(line) || /^\+MODE:/i.test(line) || /^\+VER:/i.test(line)) {
+  if (/CFLR:[0-9]+:(EVT|OK|FAIL):/i.test(line) || /^\+TEST:/i.test(line) || /^\+MODE:/i.test(line) || /^\+VER:/i.test(line)) {
     lrHandleAsyncLine(line);
   }
   /* Broadcast raw line to monitor widget */
@@ -622,13 +706,36 @@ function tatSetTab(tab) {
   tatLog('i', 'Tab switched to ' + tab);
 }
 
-function tatSetSlot(v) {
+function tatGetSlot(proto) {
+  var p = String(proto || '').toLowerCase();
+  if (p !== 'ble' && p !== 'zb' && p !== 'lora') p = 'ble';
+  var s = tatState.slots && tatState.slots[p];
+  return String(s) === '1' ? '1' : '0';
+}
+
+function tatSyncSlotSelectors() {
+  var map = {
+    'tat-slot-ble': tatGetSlot('ble'),
+    'tat-slot-zb': tatGetSlot('zb'),
+    'tat-slot-lora': tatGetSlot('lora')
+  };
+  var ids = Object.keys(map);
+  for (var i = 0; i < ids.length; i++) {
+    var el = document.getElementById(ids[i]);
+    if (el && el.value !== map[ids[i]]) el.value = map[ids[i]];
+  }
+}
+
+function tatSetSlot(proto, v) {
+  var p = String(proto || '').toLowerCase();
+  if (p !== 'ble' && p !== 'zb' && p !== 'lora') p = tatState.activeTab;
   var slot = String(v) === '1' ? '1' : '0';
-  if (tatState.slot !== slot) tatState.zb.hexNative = false;
-  tatState.slot = slot;
-  var el = document.getElementById('tat-slot');
-  if (el && el.value !== slot) el.value = slot;
-  tatLog('i', 'Slot changed to ' + slot);
+  var prev = tatGetSlot(p);
+  if (!tatState.slots) tatState.slots = { ble: '0', zb: '0', lora: '0' };
+  tatState.slots[p] = slot;
+  if (p === 'zb' && prev !== slot) tatState.zb.hexNative = false;
+  tatSyncSlotSelectors();
+  tatLog('i', p.toUpperCase() + ' stack set to ' + slot);
 }
 
 function tatQueryInfo() {
@@ -644,6 +751,7 @@ function tatQueryInfo() {
    ═══════════════════════════════════════════════════════════════════ */
 function bleScan() {
   if (tatState.ble.scanning) { tatLog('w', 'Scan already running'); return; }
+  bleClearScanWatchdog();
   tatState.ble.scanning = true;
   tatState.ble.scanResults = [];
   tatSetPill('scanning', 'Scanning...');
@@ -668,6 +776,25 @@ function bleScan() {
         throw new Error('BLE scan failed');
       });
   }).catch(function () {});
+
+  // If SCAN_DONE never arrives (e.g. noisy async stream), release UI state.
+  tatState.ble.scanWatchdogTimer = setTimeout(function () {
+    if (!tatState.ble.scanning) return;
+    var found = tatState.ble.scanResults ? tatState.ble.scanResults.length : 0;
+    tatState.ble.scanning = false;
+    tatState.ble.scanWatchdogTimer = null;
+    var b = document.getElementById('tat-btn-scan');
+    if (b) { b.disabled = false; b.textContent = 'Scan'; }
+    if (found > 0) {
+      /* Results arrived but firmware never sent SCAN_DONE — treat as success */
+      tatSetPill('idle', 'Idle');
+      tatLog('i', 'Scan complete - ' + found + ' devices (no SCAN_DONE from firmware)');
+      bleRenderScanList();
+    } else {
+      tatSetPill('warning', 'Scan timeout');
+      tatLog('w', 'Scan watchdog expired — no results and no SCAN_DONE');
+    }
+  }, 22000);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -773,6 +900,7 @@ function bleHandleAsyncLine(line) {
   /* SCAN_DONE */
   var m = l.match(/^SCAN_DONE:(\d+)/i);
   if (m) {
+    bleClearScanWatchdog();
     tatState.ble.scanning = false;
     tatSetPill('idle', 'Idle');
     var btn = document.getElementById('tat-btn-scan');
@@ -1208,6 +1336,10 @@ function zbFind() {
 function zbResetState() {
   tatState.zb.nodes = {};
   tatState.zb.selectedNode = null;
+  tatState.zb.sensorData = {};
+  tatState.zb.tempProbeTs = {};
+  tatState.zb.verifyQueue = [];
+  tatState.zb.verifyRunning = false;
   tatState.zb.networkUp = false;
   tatState.zb.hexNative = false;
   zbSetNetBadge('off');
@@ -1424,6 +1556,55 @@ function zbSendDeleteNode(shortHex, ieee, timeout) {
 var ZB_VERIFY_PREFIX = 'DATN_AUTH_KEY:';
 var ZB_VERIFY_MAX_ATTEMPTS = 3;
 var ZB_SENSOR_DEFAULT_INTERVAL_S = 5;
+var ZB_VERIFY_RESPONSE_TIMEOUT_MS = 10000;
+var ZB_TEMP_AUTO_PROBE_ENABLED = false;
+var ZB_TEMP_RECOVERY_PROBE_COOLDOWN_MS = 10000;
+var ZB_TEMP_RECOVERY_STALE_MS = 10000;
+var ZB_TEMP_WATCHDOG_TICK_MS = 2000;
+
+function zbStartTempWatchdog() {
+  if (!ZB_TEMP_AUTO_PROBE_ENABLED) return;
+  if (_zbTempWatchdogTimer) return;
+  _zbTempWatchdogTimer = setInterval(function () {
+    try { zbRunTempWatchdog(); } catch (e) {}
+  }, ZB_TEMP_WATCHDOG_TICK_MS);
+}
+
+function zbStopTempWatchdog() {
+  if (!_zbTempWatchdogTimer) return;
+  clearInterval(_zbTempWatchdogTimer);
+  _zbTempWatchdogTimer = null;
+}
+
+function zbRunTempWatchdog() {
+  var keys = Object.keys(tatState.zb.nodes || {});
+  if (!keys.length) return;
+  for (var i = 0; i < keys.length; i++) {
+    var short = keys[i];
+    var node = tatState.zb.nodes[short];
+    if (!node || node.type !== 'sensor' || !node.verified || node.verifyFailed || node.deletePending) continue;
+    var sd = tatState.zb.sensorData[short];
+    if (!sd) {
+      sd = { temp: null, hum: null, count: 0, lastTs: 0, tempTs: 0, humTs: 0, onOff: false, level: 0 };
+      tatState.zb.sensorData[short] = sd;
+    }
+    zbMaybeProbeMissingTemp(short, sd, 'watchdog');
+  }
+}
+
+function zbLogVerifyQueue(prefix) {
+  var q = tatState.zb.verifyQueue || [];
+  var pending = [];
+  var nodeKeys = Object.keys(tatState.zb.nodes || {});
+  for (var i = 0; i < nodeKeys.length; i++) {
+    var node = tatState.zb.nodes[nodeKeys[i]];
+    if (node && node.verifyPendingResponse) pending.push('0x' + node.short);
+  }
+  var waiting = q.map(function (item) {
+    return '0x' + item.short;
+  }).join(' -> ');
+  tatLog('i', (prefix || 'Verify queue') + ' | waiting=[' + (waiting || 'empty') + '] pending=[' + (pending.join(', ') || 'none') + ']');
+}
 
 function zbScheduleVerify(short, ep, delayMs) {
   var n = tatState.zb.nodes[short];
@@ -1559,11 +1740,22 @@ function zbHandleVerifyTimeout(short, ep) {
   zbClearVerifyWait(short);
   if (n.verifyAttempts < ZB_VERIFY_MAX_ATTEMPTS) {
     tatLog('!', 'Verify response timeout for 0x' + short + ' — retrying');
-    tatState.zb.verifyQueue.push({ short: short, ep: ep || n.ep || ZB_SENSOR_EP });
+    var retryEp = ep || n.ep || ZB_SENSOR_EP;
+    var exists = false;
+    for (var i = 0; i < tatState.zb.verifyQueue.length; i++) {
+      if (tatState.zb.verifyQueue[i].short === short) {
+        tatState.zb.verifyQueue[i].ep = retryEp;
+        exists = true;
+        break;
+      }
+    }
+    if (!exists) tatState.zb.verifyQueue.push({ short: short, ep: retryEp });
+    zbLogVerifyQueue('Requeue verify timeout 0x' + short);
     if (!tatState.zb.verifyRunning) zbRunVerifyQueue();
     return;
   }
   zbRejectNode(short, 'verify timeout');
+  zbLogVerifyQueue('Verify reject 0x' + short);
   if (!tatState.zb.verifyRunning) zbRunVerifyQueue();
 }
 
@@ -1581,21 +1773,64 @@ function zbAddNode(short, ieee, ep) {
       verifyPendingResponse: false, verifyResponseTimer: null
     };
   } else {
-    if (ieee && ieee !== '????????????????') tatState.zb.nodes[short].ieee = ieee;
-    if (ep && ep !== '?') tatState.zb.nodes[short].ep = ep;
+    var old = tatState.zb.nodes[short];
+    if (ieee && ieee !== '????????????????') old.ieee = ieee;
+    if (ep && ep !== '?') old.ep = ep;
+    /* Node re-joined after fail/delete: allow verification flow again. */
+    if (old.verifyFailed || old.deletePending) {
+      old.verified = false;
+      old.verifyFailed = false;
+      old.deletePending = false;
+      old.verifyAttempts = 0;
+      old.verifyPendingResponse = false;
+      if (old.verifyTimer) {
+        clearTimeout(old.verifyTimer);
+        old.verifyTimer = null;
+      }
+      if (old.verifyResponseTimer) {
+        clearTimeout(old.verifyResponseTimer);
+        old.verifyResponseTimer = null;
+      }
+      tatState.zb.verifyQueue = tatState.zb.verifyQueue.filter(function (item) {
+        return item.short !== short;
+      });
+    }
   }
   zbRenderNodeList();
+}
+
+function zbResetVerifyState(short) {
+  var n = tatState.zb.nodes[short];
+  if (!n) return;
+  if (n.verifyTimer) {
+    clearTimeout(n.verifyTimer);
+    n.verifyTimer = null;
+  }
+  if (n.verifyResponseTimer) {
+    clearTimeout(n.verifyResponseTimer);
+    n.verifyResponseTimer = null;
+  }
+  n.verifyPendingResponse = false;
+  n.verifyFailed = false;
+  n.deletePending = false;
+  n.verified = false;
+  n.verifyAttempts = 0;
+  tatState.zb.verifyQueue = tatState.zb.verifyQueue.filter(function (item) {
+    return item.short !== short;
+  });
 }
 
 function zbHandleNodeJoin(short, ieee) {
   tatLog('EVT', 'Node join: 0x' + short + ' IEEE:' + ieee);
   zbAddNode(short, ieee, '?');
+  zbResetVerifyState(short);
   zbScheduleVerify(short, ZB_SENSOR_EP, 10000);
 }
 
 function zbHandleNodeAnnounce(short, ieee, ep) {
   tatLog('EVT', 'Node announce: 0x' + short + ' EP:' + ep);
   zbAddNode(short, ieee, ep);
+  zbResetVerifyState(short);
   zbScheduleVerify(short, ep || '01', 2000);
 }
 
@@ -1608,6 +1843,7 @@ function zbHandleNodeLeave(ieee) {
       if (tatState.zb.nodes[keys[i]].verifyResponseTimer) clearTimeout(tatState.zb.nodes[keys[i]].verifyResponseTimer);
       tatState.zb.verifyQueue = tatState.zb.verifyQueue.filter(function (item) { return item.short !== keys[i]; });
       delete tatState.zb.sensorData[keys[i]];
+      delete tatState.zb.tempProbeTs[keys[i]];
       delete tatState.zb.nodes[keys[i]];
       if (tatState.zb.selectedNode === keys[i]) {
         tatState.zb.selectedNode = null;
@@ -1893,9 +2129,14 @@ function zbQueueVerify(short, ep) {
   }
   if (n.verified || n.verifyFailed || n.deletePending || n.verifyPendingResponse) return;
   for (var i = 0; i < tatState.zb.verifyQueue.length; i++) {
-    if (tatState.zb.verifyQueue[i].short === short) return;
+    if (tatState.zb.verifyQueue[i].short === short) {
+      tatState.zb.verifyQueue[i].ep = ep || tatState.zb.verifyQueue[i].ep || n.ep || ZB_SENSOR_EP;
+      zbLogVerifyQueue('Update queued verify 0x' + short);
+      return;
+    }
   }
-  tatState.zb.verifyQueue.push({ short: short, ep: ep });
+  tatState.zb.verifyQueue.push({ short: short, ep: ep || n.ep || ZB_SENSOR_EP });
+  zbLogVerifyQueue('Enqueue verify 0x' + short);
   if (!tatState.zb.verifyRunning) zbRunVerifyQueue();
 }
 
@@ -1904,6 +2145,7 @@ function zbRunVerifyQueue() {
   if (q.verifyQueue.length === 0) { q.verifyRunning = false; return; }
   q.verifyRunning = true;
   var item = q.verifyQueue.shift();
+  zbLogVerifyQueue('Dequeue verify 0x' + item.short);
   var n = q.nodes[item.short];
   if (!n || n.verified || n.verifyFailed || n.deletePending || n.verifyPendingResponse) {
     q.verifyRunning = false;
@@ -1922,20 +2164,30 @@ function zbRunVerifyQueue() {
           setTimeout(zbRunVerifyQueue, 300);
           return;
         }
+        if (n.verified || n.verifyFailed || n.deletePending) {
+          q.verifyRunning = false;
+          setTimeout(zbRunVerifyQueue, 120);
+          return;
+        }
         n.verifyPendingResponse = true;
         if (n.verifyResponseTimer) clearTimeout(n.verifyResponseTimer);
         n.verifyResponseTimer = setTimeout(function () {
           zbHandleVerifyTimeout(item.short, item.ep);
-        }, 5000);
+        }, ZB_VERIFY_RESPONSE_TIMEOUT_MS);
+        tatLog('i', 'Verify waiting response 0x' + item.short + ' timeout=' + (ZB_VERIFY_RESPONSE_TIMEOUT_MS / 1000) + 's');
+        zbLogVerifyQueue('Continue verify while waiting 0x' + item.short);
         q.verifyRunning = false;
+        setTimeout(zbRunVerifyQueue, 120);
       })
       .catch(function () {
         q.verifyRunning = false;
         if (n.verifyAttempts < ZB_VERIFY_MAX_ATTEMPTS) {
           tatLog('!', 'Verify timeout for 0x' + item.short + ' — retrying');
           q.verifyQueue.push(item);
+          zbLogVerifyQueue('Requeue verify error 0x' + item.short);
         } else {
           zbRejectNode(item.short, 'verify timeout');
+          zbLogVerifyQueue('Verify reject 0x' + item.short);
         }
         setTimeout(zbRunVerifyQueue, 300);
       });
@@ -2159,13 +2411,25 @@ function zbHandleAsyncLine(line) {
   }
 }
 
-function zbHandleAttrReport(short, cluster, attr, value) {
-  if (!tatState.zb.sensorData[short]) tatState.zb.sensorData[short] = { temp: null, hum: null, count: 0, lastTs: 0, onOff: false, level: 0 };
+function zbHandleAttrReport(short, cluster, attr, value, source) {
+  if (!tatState.zb.sensorData[short]) tatState.zb.sensorData[short] = { temp: null, hum: null, count: 0, lastTs: 0, tempTs: 0, humTs: 0, onOff: false, level: 0 };
   var sd = tatState.zb.sensorData[short];
   if (cluster === '0006' && attr === '0000') { sd.onOff = value !== 0; sd.on = sd.onOff; }
   else if (cluster === '0008' && attr === '0000') { sd.level = Math.round(value / 2.54); }
-  else if (cluster === '0402' && attr === '0000') { sd.temp = value / 100.0; sd.count++; sd.lastTs = Date.now(); }
-  else if (cluster === '0405' && attr === '0000') { sd.hum  = value / 100.0; sd.count++; sd.lastTs = Date.now(); }
+  else if (cluster === '0402' && attr === '0000') {
+    sd.temp = value / 100.0;
+    sd.count++;
+    sd.lastTs = Date.now();
+    sd.tempTs = sd.lastTs;
+    tatLog('i', 'Temp update 0x' + short + ' = ' + sd.temp.toFixed(2) + 'C via ' + (source || 'unknown'));
+  }
+  else if (cluster === '0405' && attr === '0000') {
+    sd.hum  = value / 100.0;
+    sd.count++;
+    sd.lastTs = Date.now();
+    sd.humTs = sd.lastTs;
+    zbMaybeProbeMissingTemp(short, sd, 'humidity-report');
+  }
   if (tatState.zb.selectedNode === short) {
     var n = tatState.zb.nodes[short];
     if (n) {
@@ -2180,6 +2444,25 @@ function zbHandleAttrReport(short, cluster, attr, value) {
     var addr = '0x' + short + (node.type === 'led' ? ' / EP:' + ZB_BULB_EP : ' / EP:' + ZB_SENSOR_EP);
     tatBroadcastDeviceData('zb', type, short, node.name, addr, sd);
   }
+}
+
+function zbMaybeProbeMissingTemp(short, sd, reason) {
+  if (!ZB_TEMP_AUTO_PROBE_ENABLED) return;
+  var node = tatState.zb.nodes[short];
+  if (!node || node.type === 'led' || node.verifyFailed || node.deletePending) return;
+  var now = Date.now();
+  var tempMissing = (sd.temp === null || sd.temp === undefined);
+  var tempStale = (!tempMissing && sd.tempTs && (now - sd.tempTs > ZB_TEMP_RECOVERY_STALE_MS));
+  if (!tempMissing && !tempStale) return;
+  var lastProbe = tatState.zb.tempProbeTs[short] || 0;
+  if ((now - lastProbe) < ZB_TEMP_RECOVERY_PROBE_COOLDOWN_MS) return;
+  tatState.zb.tempProbeTs[short] = now;
+  tatLog('i', 'Temp missing/stale for 0x' + short + ' — probe read 0402/0000 (' + (reason || 'unknown') + ')');
+  zbEnqueue(function () {
+    return zbSendReadAttr(short, ZB_SENSOR_EP, '0402', '0000', 8000);
+  }).catch(function (err) {
+    tatLog('!', 'Temp probe failed 0x' + short + ': ' + (err && err.message ? err.message : String(err)));
+  });
 }
 
 function zbHandleZclAttrReport(data) {
@@ -2207,7 +2490,7 @@ function zbHandleZclAttrReport(data) {
     } else {
       break;
     }
-    zbHandleAttrReport(shortAddr, clusterId, attrId, value);
+    zbHandleAttrReport(shortAddr, clusterId, attrId, value, 'report');
   }
 }
 
@@ -2251,7 +2534,7 @@ function zbHandleZclReadAttrRsp(data) {
       break;
     }
     if (clusterId === '0000' && attrId === '0005') continue;
-    zbHandleAttrReport(shortAddr, clusterId, attrId, value);
+    zbHandleAttrReport(shortAddr, clusterId, attrId, value, 'read');
   }
 }
 
@@ -2359,6 +2642,7 @@ function lrLedOff() {
 
 function lrQueueLedCmd(hexCmd, label) {
   var prev = tatState.lr.pendingLedCmd;
+  tatState.lr.virtualSensorGate = false;
   tatState.lr.pendingLedCmd = {
     hexCmd: hexCmd,
     label: label,
@@ -2367,7 +2651,7 @@ function lrQueueLedCmd(hexCmd, label) {
   if (prev) {
     tatLog('i', 'Queued ' + label + ' (replaced ' + prev.label + ')');
   } else {
-    tatLog('i', 'Queued ' + label + ' (wait next SENSOR_DATA)');
+    tatLog('i', 'Queued ' + label + ' (wait SENSOR gate)');
   }
   tatToast('Queued: ' + label);
 }
@@ -2377,8 +2661,43 @@ function lrTrySendQueuedLedCmd(sensorSeq) {
   if (!pending) return;
   if (tatState.lr.txPending) return;
   tatState.lr.pendingLedCmd = null;
-  tatLog('i', 'Sending queued ' + pending.label + ' on SENSOR_DATA seq=' + sensorSeq);
+  tatLog('i', 'Sending queued ' + pending.label + ' on SENSOR gate seq=' + sensorSeq);
   lrSendLedCmd(pending.hexCmd, pending.label);
+}
+
+function lrHandleVirtualSensorGate(seq) {
+  if (!tatState.lr.pendingLedCmd) return;
+  tatState.lr.virtualSensorGate = true;
+  lrTrySendQueuedLedCmd(typeof seq === 'number' ? seq : -1);
+}
+
+function lrHandleJoinRequest(nodeIdHex, sourceTag) {
+  var nodeId = parseInt(String(nodeIdHex || '01'), 16);
+  if (isNaN(nodeId)) nodeId = 1;
+  tatState.lr.nodeId     = nodeId;
+  tatState.lr.nodeJoined = true;
+  tatState.lr.lastJoin   = tatFmtTime(new Date());
+  if (tatState.lr.ledState === '—') tatState.lr.ledState = 'OFF';
+  lrSetPill('joined', 'Joined');
+  tatSet('tat-lr-node-id', '0x' + ('00' + nodeId.toString(16).toUpperCase()).slice(-2));
+  tatSet('tat-lr-node-status', 'Joined');
+  tatSet('tat-lr-last-join', tatState.lr.lastJoin);
+  var btnOn  = document.getElementById('tat-btn-led-on');
+  var btnOff = document.getElementById('tat-btn-led-off');
+  if (btnOn)  btnOn.disabled  = false;
+  if (btnOff) btnOff.disabled = false;
+  tatLog('EVT', 'JOIN_REQUEST from nodeId=0x' + nodeId.toString(16).toUpperCase() + (sourceTag ? (' [' + sourceTag + ']') : ''));
+  tatToast('Node joined: 0x' + nodeId.toString(16).toUpperCase());
+  lrBroadcastNodeSnapshot();
+
+  /* Send JOIN_ACCEPT — debounce to prevent queue flooding from telemetry replay */
+  var _now = Date.now();
+  if (_now - _lrLastJoinAcceptTs >= 3000) {
+    _lrLastJoinAcceptTs = _now;
+    lrSendJoinAccept(nodeId);
+  } else {
+    tatLog('i', 'JOIN_ACCEPT debounced (' + Math.round((_now - _lrLastJoinAcceptTs)/1000) + 's since last)');
+  }
 }
 
 function lrSendLedCmd(hexCmd, label) {
@@ -2527,30 +2846,7 @@ function lrHandleP2PPacket(hex, rssi, snr) {
 
   if (b0 === 0xFF) {
     /* JOIN_REQUEST: [0xFF, nodeId, seq] */
-    var nodeId = hex.length >= 4 ? parseInt(hex.substr(2, 2), 16) : 1;
-    tatState.lr.nodeId     = nodeId;
-    tatState.lr.nodeJoined = true;
-    tatState.lr.lastJoin   = tatFmtTime(new Date());
-    if (tatState.lr.ledState === '—') tatState.lr.ledState = 'OFF';
-    lrSetPill('joined', 'Joined');
-    tatSet('tat-lr-node-id', '0x' + ('00' + nodeId.toString(16).toUpperCase()).slice(-2));
-    tatSet('tat-lr-node-status', 'Joined');
-    tatSet('tat-lr-last-join', tatState.lr.lastJoin);
-    var btnOn  = document.getElementById('tat-btn-led-on');
-    var btnOff = document.getElementById('tat-btn-led-off');
-    if (btnOn)  btnOn.disabled  = false;
-    if (btnOff) btnOff.disabled = false;
-    tatLog('EVT', 'JOIN_REQUEST from nodeId=0x' + nodeId.toString(16).toUpperCase() + ' RSSI=' + rssi);
-    tatToast('Node joined: 0x' + nodeId.toString(16).toUpperCase());
-    lrBroadcastNodeSnapshot();
-    /* Send JOIN_ACCEPT — debounce to prevent queue flooding from telemetry replay */
-    var _now = Date.now();
-    if (_now - _lrLastJoinAcceptTs >= 3000) {
-      _lrLastJoinAcceptTs = _now;
-      lrSendJoinAccept(nodeId);
-    } else {
-      tatLog('i', 'JOIN_ACCEPT debounced (' + Math.round((_now - _lrLastJoinAcceptTs)/1000) + 's since last)');
-    }
+    lrHandleJoinRequest(hex.length >= 4 ? hex.substr(2, 2) : '01', 'rx');
     return;
   }
 
@@ -2558,27 +2854,15 @@ function lrHandleP2PPacket(hex, rssi, snr) {
     /* SENSOR_DATA: [0x01, nodeId, seq, tHi, tLo, hHi, hLo, led?] */
     var nodeId2 = parseInt(hex.substr(2, 2), 16);
     var seq     = parseInt(hex.substr(4, 2), 16);
-    var tHi     = parseInt(hex.substr(6, 2), 16);
-    var tLo     = parseInt(hex.substr(8, 2), 16);
-    var hHi     = parseInt(hex.substr(10, 2), 16);
-    var hLo     = parseInt(hex.substr(12, 2), 16);
-    var tempRaw = (tHi << 8) | tLo;
-    var humRaw  = (hHi << 8) | hLo;
-    var temp    = (tempRaw / 100.0).toFixed(1);
-    var hum     = (humRaw / 100.0).toFixed(1);
-    tatState.lr.temp    = temp;
-    tatState.lr.hum     = hum;
     tatState.lr.nodeSeq = seq;
     tatState.lr.lastUp  = tatFmtTime(new Date());
     if (hex.length >= 16) {
       tatState.lr.ledState = parseInt(hex.substr(14, 2), 16) ? 'ON' : 'OFF';
     }
-    tatSet('tat-lr-temp',    temp + ' °C');
-    tatSet('tat-lr-hum',     hum + ' %');
     tatSet('tat-lr-seq',     String(seq));
     tatSet('tat-lr-last-up', tatState.lr.lastUp);
     lrSetPill('active', 'Active');
-    tatLog('EVT', 'SENSOR_DATA nodeId=0x' + nodeId2.toString(16).toUpperCase() + ' seq=' + seq + ' T=' + temp + '°C H=' + hum + '%');
+    tatLog('EVT', 'SENSOR_DATA nodeId=0x' + nodeId2.toString(16).toUpperCase() + ' seq=' + seq);
     lrTrySendQueuedLedCmd(seq);
     lrBroadcastNodeSnapshot();
     return;
@@ -2610,8 +2894,6 @@ function lrBroadcastNodeSnapshot() {
   if (tatState.lr.nodeId === null) return;
   var nodeHex = ('00' + tatState.lr.nodeId.toString(16).toUpperCase()).slice(-2);
   tatBroadcastDeviceData('lora', 'lora_node', nodeHex, 'LoRa Node 0x' + nodeHex, '', {
-    temp: tatState.lr.temp,
-    hum: tatState.lr.hum,
     seq: tatState.lr.nodeSeq,
     rssi: tatState.lr.rssi,
     snr: tatState.lr.snr,
@@ -2626,8 +2908,9 @@ function lrBroadcastNodeSnapshot() {
    ═══════════════════════════════════════════════════════════════════ */
 function tatBroadcastDeviceData(proto, type, id, name, addr, data) {
   try {
+    var slot = tatGetSlot(proto);
     window.dispatchEvent(new CustomEvent('da2_tat_event', {
-      detail: { proto: proto, type: type, id: id, name: name, addr: addr, slot: tatState.slot, data: data }
+      detail: { proto: proto, type: type, id: id, name: name, addr: addr, slot: slot, data: data }
     }));
   } catch (e) {}
 }

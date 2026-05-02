@@ -45,6 +45,7 @@ var _tatmLastRawTs      = 0;
 var _tatmLogLines       = 0;
 var _tatmBleScanByMac   = {};
 var _tatmBleConnByIdx   = {};
+var _tatmLrPendingMeta  = null;
 
 /* ═══════════════════════════════════════════════════════════════════
    ThingsBoard Lifecycle
@@ -272,15 +273,58 @@ function tatmHandleDeviceEvent(d) {
   tatmUpdateFooter();
 }
 
+function tatmNormalizeBleForwardLine(line) {
+  var l = String(line || '').trim();
+  var ci = l.indexOf('CFBG:');
+  if (ci > 0) l = l.substring(ci);
+  if (/^CFBG:OK:/i.test(l)) l = l.substring(8);
+  else if (/^CFBG:[0-9]+:EVT:/i.test(l)) l = l.replace(/^CFBG:[0-9]+:EVT:/i, '');
+  return l;
+}
+
+function tatmShouldForwardBleControlLine(line) {
+  var l = tatmNormalizeBleForwardLine(line);
+  return /^(SCAN_RESULT:|SCAN_DONE:|CONNECTED:|DISCONNECTING:|DISCONNECTED:|CHAR:|DISC_DONE:)/i.test(l);
+}
+
+function tatmMaybeForwardLoraControlSignal(line) {
+  var l = String(line || '').trim();
+
+  /* +TEST: RXLRPKT <len>, <rssi>, <snr>, "<hex>" */
+  var m = l.match(/\+TEST:\s*RXLRPKT\s+\d+,\s*-?\d+,\s*-?\d+,\s*"([0-9A-Fa-f]+)"/i);
+  if (!m) {
+    /* +TEST: RX "<hex>" */
+    m = l.match(/\+TEST:\s*RX\s*"([0-9A-Fa-f]+)"/i);
+  }
+  if (!m) return;
+
+  var hex = m[1].toUpperCase();
+  if (hex.length < 2) return;
+  var hdr = hex.substr(0, 2);
+
+  /* JOIN_REQUEST frame */
+  if (hdr === 'FF' && hex.length >= 4) {
+    tatmEmitControlEvent({ type: 'lrJoinRequest', nodeIdHex: hex.substr(2, 2) });
+    return;
+  }
+
+  /* SENSOR_DATA frame: only send a virtual gate trigger, not full payload */
+  if (hdr === '01' && hex.length >= 6) {
+    var seq = parseInt(hex.substr(4, 2), 16);
+    tatmEmitControlEvent({ type: 'lrSensorGate', seq: isNaN(seq) ? -1 : seq });
+  }
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    Raw telemetry line parser (fallback — no control widget running)
    ═══════════════════════════════════════════════════════════════════ */
 function tatmHandleRawLine(line, forwardToControl) {
   if (!line) return;
   if (forwardToControl) {
-    if (/CFLR:[0-9]+:EVT:/i.test(line) || /^\+TEST:/i.test(line) || /^\+MODE:/i.test(line) || /^\+VER:/i.test(line)) {
-      tatmEmitControlEvent({ type: 'lrRawLine', line: line });
+    if (tatmShouldForwardBleControlLine(line)) {
+      tatmEmitControlEvent({ type: 'bleRawLine', line: line });
     }
+    tatmMaybeForwardLoraControlSignal(line);
     tatmMaybeForwardZigbeeFrames(line);
   }
   var bleLine = String(line).trim();
@@ -345,9 +389,6 @@ function tatmHandleRawLine(line, forwardToControl) {
     var cluster = m[3].toUpperCase();
     var attr    = m[4].toUpperCase();
     var val     = parseInt(m[6], 16);
-    if (forwardToControl) {
-      tatmEmitControlEvent({ type: 'zbAttrReport', short: short, cluster: cluster, attr: attr, value: val });
-    }
     var dkey    = 'zb:' + short;
     var dev2    = tatmState.devices[dkey];
     var data2   = {};
@@ -360,6 +401,49 @@ function tatmHandleRawLine(line, forwardToControl) {
       name:  (dev2 && dev2.name) || ('ZB 0x' + short),
       addr:  '0x' + short, slot: '?', data: data2
     });
+    return;
+  }
+
+  /* LoRa P2P split metadata: +TEST: LEN:<len>, RSSI:<rssi>, SNR:<snr> */
+  m = line.match(/\+TEST:\s*LEN:(\d+),\s*RSSI:([\-\d]+),\s*SNR:([\-\d]+)/i);
+  if (m) {
+    _tatmLrPendingMeta = {
+      len: parseInt(m[1], 10),
+      rssi: m[2],
+      snr: m[3],
+      ts: Date.now()
+    };
+    return;
+  }
+
+  /* LoRa P2P split payload: +TEST: RX "<hex>" */
+  m = line.match(/\+TEST:\s*RX\s*"([0-9A-Fa-f]+)"/i);
+  if (m) {
+    var hexSplit = m[1].toUpperCase();
+    var meta = _tatmLrPendingMeta;
+    _tatmLrPendingMeta = null;
+    var rssiSplit = meta && meta.rssi !== undefined ? meta.rssi : '';
+    var snrSplit = meta && meta.snr !== undefined ? meta.snr : '';
+    if (hexSplit.length >= 14 && hexSplit.substr(0,2) === '01') {
+      var nodeIdSplit = parseInt(hexSplit.substr(2,2), 16);
+      var seqSplit = parseInt(hexSplit.substr(4,2), 16);
+      var tRawSplit = (parseInt(hexSplit.substr(6,2),16) << 8) | parseInt(hexSplit.substr(8,2),16);
+      var hRawSplit = (parseInt(hexSplit.substr(10,2),16) << 8) | parseInt(hexSplit.substr(12,2),16);
+      var ledStateSplit = hexSplit.length >= 16 ? (parseInt(hexSplit.substr(14,2),16) ? 'ON' : 'OFF') : '—';
+      tatmHandleDeviceEvent({
+        proto: 'lora', type: 'lora_node',
+        id:    nodeIdSplit.toString(16).toUpperCase(),
+        name:  'LoRa Node 0x' + ('00' + nodeIdSplit.toString(16).toUpperCase()).slice(-2),
+        addr:  '', slot: '?',
+        data:  {
+          temp: (tRawSplit/100.0).toFixed(1), hum: (hRawSplit/100.0).toFixed(1),
+          seq:  seqSplit,
+          rssi: rssiSplit ? (rssiSplit + ' dBm') : '—',
+          snr: snrSplit ? (snrSplit + ' dB') : '—',
+          ledState: ledStateSplit
+        }
+      });
+    }
     return;
   }
 

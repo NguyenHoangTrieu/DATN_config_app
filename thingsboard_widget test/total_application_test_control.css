@@ -160,6 +160,16 @@
   flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column;
 }
 
+.tat-tab-slotbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
 /* ── Dual panel layout ── */
 .tat-dual {
   flex: 1; display: flex; min-height: 0; overflow: hidden;

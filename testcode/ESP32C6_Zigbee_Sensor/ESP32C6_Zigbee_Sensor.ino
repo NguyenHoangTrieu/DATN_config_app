@@ -64,13 +64,12 @@ static float getSimulatedHumidity() {
     return HUMID_MIN_RH + (random(0, 3001) / 100.0f);
 }
 
-/* ─── Impossible reportable-change delta values ──────────────────────
-   Setting these to values that can never be reached prevents the Zigbee
-   stack from triggering change-based attribute reports even after binding.
-   655.35f → ZCL unit = 65535 (max uint16); humidity range is 0–100 %RH.
-   200.0f  → ZCL unit = 20000; temperature ZCL range is –40 to 125 °C.  ── */
-#define HUMID_DELTA_IMPOSSIBLE   655.35f
-#define TEMP_DELTA_IMPOSSIBLE    200.0f
+/* ─── Local reporting profile ─────────────────────────────────────────
+   Coordinator-side Configure Reporting may be rejected (status 0xFF), so
+   device applies a local report interval for BOTH temp (0402) and humid (0405).
+   Deltas are small but non-zero to avoid spam while still pushing regularly. */
+#define TEMP_DELTA_LOCAL_REPORT   0.10f
+#define HUMID_DELTA_LOCAL_REPORT  0.50f
 #define ATTR_UPDATE_INTERVAL_MIN_MS  100UL
 #define ATTR_UPDATE_INTERVAL_MAX_MS  60000UL
 #define DEBUG_HEARTBEAT_MS       10000
@@ -108,10 +107,22 @@ static bool          g_disconnectPending   = false;
    on ZigbeeTempSensor instead (both clusters 0x0402 + 0x0405 share EP 11) */
 ZigbeeTempSensor zbTempSensor(ZIGBEE_EP_TEMP);
 
-static void applyReportingSuppression() {
-   zbTempSensor.setReporting(0xFFFF, 0xFFFF, TEMP_DELTA_IMPOSSIBLE);
-   zbTempSensor.setHumidityReporting(0xFFFF, 0xFFFF, HUMID_DELTA_IMPOSSIBLE);
-   /* Keep local explicit push loop alive; suppression only disables stack auto-report. */
+static uint16_t msToReportSeconds(unsigned long intervalMs) {
+   unsigned long sec = (intervalMs + 999UL) / 1000UL;
+   if (sec < 1UL) sec = 1UL;
+   if (sec > 65535UL) sec = 65535UL;
+   return (uint16_t)sec;
+}
+
+static void applyLocalReportingProfile(unsigned long intervalMs) {
+   uint16_t reportSec = msToReportSeconds(intervalMs);
+   zbTempSensor.setReporting(reportSec, reportSec, TEMP_DELTA_LOCAL_REPORT);
+   zbTempSensor.setHumidityReporting(reportSec, reportSec, HUMID_DELTA_LOCAL_REPORT);
+   Serial.printf("[REPORT] Local profile applied: interval=%lu ms (~%us) temp_delta=%.2fC humid_delta=%.2f%%RH\n",
+                 intervalMs,
+                 (unsigned int)reportSec,
+                 TEMP_DELTA_LOCAL_REPORT,
+                 HUMID_DELTA_LOCAL_REPORT);
 }
 
 /* ─── Identify callback — widget writes intervalMs into IdentifyTime ─────── */
@@ -163,6 +174,7 @@ static void onIdentifyCallback(uint16_t time) {
    g_lastConfigRxMs = nowMs;
    g_attrUpdateIntervalMs = intervalMs;
    g_lastAttrUpdateMs = 0;
+   applyLocalReportingProfile(g_attrUpdateIntervalMs);
    Serial.printf("[CFG] RX#%lu uptime=%lums raw=%u%s -> interval=%lu ms\n",
                  (unsigned long)g_configRxCount,
                  nowMs,
@@ -218,12 +230,8 @@ void setup() {
        "DATN_AUTH_KEY". Keep manufacturer "Espressif" as required by SDK. */
     zbTempSensor.setManufacturerAndModel("Espressif", "DATN_AUTH_KEY:" DEVICE_NAME);
     /* Add humidity cluster (0x0405) to the same endpoint as temperature.
-       addHumiditySensor(min, max, tolerance, defaultValue) — all in %RH float.
-       tolerance=655.35f → ZCL unit = 65535 (max uint16): an impossible
-       reportable change — prevents the SDK from generating change-based
-       reports for humidity even after a binding is created by AUTO_FIND_TARGET.
-       (The normal spec value of 0.5 was causing 5 s auto-reports on bind.) */
-    zbTempSensor.addHumiditySensor(0.0, 100.0, HUMID_DELTA_IMPOSSIBLE, (HUMID_MIN_RH + HUMID_MAX_RH) / 2.0f);
+       Keep standard tolerance so stack accepts normal reporting behavior. */
+    zbTempSensor.addHumiditySensor(0.0, 100.0, 0.5f, (HUMID_MIN_RH + HUMID_MAX_RH) / 2.0f);
 
     /* NOTE: setReporting() / setHumidityReporting() MUST NOT be called before
        Zigbee.begin(). Those calls try to acquire the Zigbee OS mutex which has
@@ -246,8 +254,7 @@ void setup() {
         for (;;) delay(1000);   /* unreachable — factoryReset reboots */
     }
 
-   Serial.println("Silent mode: waits for auth verify, then JS widget Configure Reporting + IdentifyTime");
-   Serial.println("[DBG] Reporting suppression active (max=0xFFFF, impossible delta)");
+   Serial.println("Startup mode: widget verify + IdentifyTime drives local temp/humid reporting interval");
 
     Serial.println("Waiting to join coordinator network...");
     Serial.println("(Run MODULE_START_NETWORK + MODULE_SET_PERMIT_JOIN on coordinator)");
@@ -258,17 +265,18 @@ void setup() {
 
       Serial.printf("[REPORT] Local push loop interval @ %lu ms\n", g_attrUpdateIntervalMs);
 
-    /* ── Post-join: suppress all auto-reporting ────────────────────────
-       Layer 1: set impossible delta + max_interval=0xFFFF (no time-based
-       reporting). delta=0 was WRONG — it means "report on every attribute
-       write". We use impossible deltas instead.
-       This call may not stick if no binding exists yet (stack resets on
-       bind). Layer 2 (loop re-application every 5 s) handles that case.
-       Must be called AFTER Zigbee.begin() so the Zigbee OS mutex exists. */
-   applyReportingSuppression();
+   /* Apply local reporting for BOTH clusters so temperature self-reports
+      even when coordinator-side ConfigureReporting is rejected. */
+   applyLocalReportingProfile(g_attrUpdateIntervalMs);
 
-    /* Set initial humidity value */
-    zbTempSensor.setHumidity((HUMID_MIN_RH + HUMID_MAX_RH) / 2.0f);
+   /* Prime both attributes once right after join. */
+   zbTempSensor.setTemperature(getSimulatedTemp());
+   forceReportAttribute(ESP_ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT, ESP_ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_ID);
+   
+   delay(200);
+   
+   zbTempSensor.setHumidity(getSimulatedHumidity());
+   forceReportAttribute(ESP_ZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT, ESP_ZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_VALUE_ID);
 
     Serial.println();
     Serial.println("*** Joined Zigbee network! ***");
@@ -277,8 +285,31 @@ void setup() {
               (unsigned long)g_joinCount,
               (unsigned long)((millis() - g_bootMs) / 1000UL));
     Serial.println("Coordinator: run MODULE_AUTO_FIND_TARGET to bind");
-   Serial.println("Device is SILENT — verify first, then JS widget enables push reporting");
-   Serial.println("[DBG] Expect on widget: node status NEW -> verify OK -> Configure Reporting + IdentifyTime");
+   Serial.println("Device pushes both temp+humid by local profile after join");
+   Serial.println("[DBG] Expect on widget: verify OK -> IdentifyTime updates interval -> both clusters keep reporting");
+}
+
+/* ─── forceReportAttribute: Bypass binding and explicitly send to 0x0000 EP1 ─── */
+static void forceReportAttribute(uint16_t cluster_id, uint16_t attr_id) {
+    esp_zb_zcl_report_attr_cmd_t cmd;
+    memset(&cmd, 0, sizeof(cmd));
+    cmd.zcl_basic_cmd.dst_addr_u.addr_short = 0x0000;
+    cmd.zcl_basic_cmd.dst_endpoint = 1;
+    cmd.zcl_basic_cmd.src_endpoint = ZIGBEE_EP_TEMP;
+    
+    cmd.address_mode = ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT;
+    cmd.clusterID = cluster_id;
+    cmd.attributeID = attr_id;
+    cmd.direction = ESP_ZB_ZCL_CMD_DIRECTION_TO_CLI;
+    cmd.manuf_specific = 0;
+    cmd.dis_default_resp = 0;
+    
+    esp_zb_lock_acquire(portMAX_DELAY);
+    esp_err_t ret = esp_zb_zcl_report_attr_cmd_req(&cmd);
+    esp_zb_lock_release();
+    if (ret != ESP_OK) {
+        Serial.printf("[ERROR] forceReportAttribute failed for cluster 0x%04X (err %d)\n", cluster_id, ret);
+    }
 }
 
 /* ─── loop ───────────────────────────────────────────────────────── */
@@ -300,8 +331,8 @@ void loop() {
                     (unsigned long)g_joinCount,
                     (unsigned long)((millis() - g_bootMs) / 1000UL));
             g_disconnectPending = false;
-         applyReportingSuppression();
-             Serial.printf("[REPORT] Suppressed after rejoin; current interval @ %lu ms\n", g_attrUpdateIntervalMs);
+          applyLocalReportingProfile(g_attrUpdateIntervalMs);
+             Serial.printf("[REPORT] Rejoin profile applied; current interval @ %lu ms\n", g_attrUpdateIntervalMs);
         }
         lastConn = conn;
     }
@@ -340,15 +371,17 @@ void loop() {
 
         float tempC   = getSimulatedTemp();
         float humidRH = getSimulatedHumidity();
+        
+        /* Update and push Temperature */
         zbTempSensor.setTemperature(tempC);
+        forceReportAttribute(ESP_ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT, ESP_ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_ID);
+        
+        /* Small delay to prevent Zigbee APS queue overflow / MAC collisions */
+        delay(200);
+        
+        /* Update and push Humidity */
         zbTempSensor.setHumidity(humidRH);
-
-        /* Some Zigbee.h builds only emit the latest changed cluster with report().
-           Send both clusters explicitly to guarantee temp+humidity uplink. */
-        zbTempSensor.reportTemperature();
-        delay(20);
-        zbTempSensor.reportHumidity();
-        delay(20);
+        forceReportAttribute(ESP_ZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT, ESP_ZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_VALUE_ID);
         Serial.printf("[ATTR] #%lu Temp=%.1f°C  Humid=%.1f%%RH  (push interval @ %lu ms)\n",
                       (unsigned long)g_attrUpdateCount,
                       tempC,

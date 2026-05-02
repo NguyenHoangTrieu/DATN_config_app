@@ -27,11 +27,6 @@
       </div>
     </div>
     <div class="tat-hdr-right">
-      <label class="tat-slot-lbl">Stack</label>
-      <select id="tat-slot" class="tat-slot-sel">
-        <option value="0">0</option>
-        <option value="1">1</option>
-      </select>
       <div id="tat-pill" class="tat-pill" data-state="idle">
         <span class="tat-dot"></span>
         <span id="tat-pill-txt">Idle</span>
@@ -60,6 +55,13 @@
        BLE TAB
        ----------------------------------------------------------- -->
   <div id="tat-content-ble" class="tat-content">
+    <div class="tat-tab-slotbar">
+      <label class="tat-slot-lbl" for="tat-slot-ble">Stack</label>
+      <select id="tat-slot-ble" class="tat-slot-sel tat-tab-slot-sel">
+        <option value="0">0</option>
+        <option value="1">1</option>
+      </select>
+    </div>
     <div class="tat-dual">
 
       <!-- LEFT: Available Devices -->
@@ -145,6 +147,13 @@
        ZIGBEE TAB
        ----------------------------------------------------------- -->
   <div id="tat-content-zb" class="tat-content" style="display:none">
+    <div class="tat-tab-slotbar">
+      <label class="tat-slot-lbl" for="tat-slot-zb">Stack</label>
+      <select id="tat-slot-zb" class="tat-slot-sel tat-tab-slot-sel">
+        <option value="0">0</option>
+        <option value="1">1</option>
+      </select>
+    </div>
     <div class="tat-dual">
 
       <!-- LEFT: Network & Nodes -->
@@ -236,6 +245,13 @@
        LORA P2P TAB
        ----------------------------------------------------------- -->
   <div id="tat-content-lora" class="tat-content" style="display:none">
+    <div class="tat-tab-slotbar">
+      <label class="tat-slot-lbl" for="tat-slot-lora">Stack</label>
+      <select id="tat-slot-lora" class="tat-slot-sel tat-tab-slot-sel">
+        <option value="0">0</option>
+        <option value="1">1</option>
+      </select>
+    </div>
     <div class="tat-dual">
 
       <!-- LEFT: P2P Configuration -->
@@ -316,16 +332,6 @@
           <div class="tat-info-row"><span class="tat-info-lbl">Seq</span><span id="tat-lr-seq">--</span></div>
           <div class="tat-info-row"><span class="tat-info-lbl">Last join</span><span id="tat-lr-last-join">--</span></div>
           <div class="tat-info-row"><span class="tat-info-lbl">Last uplink</span><span id="tat-lr-last-up">--</span></div>
-        </div>
-        <div class="tat-sensor-cards" style="margin-top:8px">
-          <div class="tat-data-card">
-            <div class="tat-data-lbl">Temperature</div>
-            <div id="tat-lr-temp" class="tat-data-val">--</div>
-          </div>
-          <div class="tat-data-card">
-            <div class="tat-data-lbl">Humidity</div>
-            <div id="tat-lr-hum" class="tat-data-val">--</div>
-          </div>
         </div>
 
         <div class="tat-sec-hdr" style="margin-top:10px">LED CONTROL (Node GPIO 8)</div>
