@@ -1,0 +1,82 @@
+<div id="tbc-root" class="tbc-root">
+  <div class="tbc-header">
+    <div>
+      <div class="tbc-title">Gateway Throughput Benchmark Control</div>
+      <div class="tbc-sub">4 test cases: Zigbee, BLE DLE, LoRa SF7, Concurrency</div>
+    </div>
+    <div id="tbc-pill" class="tbc-pill idle">Idle</div>
+  </div>
+
+  <div class="tbc-grid">
+    <section class="tbc-card">
+      <h3>Test Window</h3>
+      <label>Duration (s)</label>
+      <input id="tbc-duration" type="number" min="5" max="120" value="15">
+      <label>BLE payload (B)</label>
+      <input id="tbc-ble-payload" type="number" min="20" max="244" value="244">
+      <label>Zigbee payload (B)</label>
+      <input id="tbc-zb-payload" type="number" min="10" max="99" value="99">
+      <label>LoRa payload (B)</label>
+      <input id="tbc-lora-payload" type="number" min="5" max="169" value="50">
+      <button id="tbc-save-cfg" class="tbc-btn secondary">Publish Config</button>
+    </section>
+
+    <section class="tbc-card">
+      <h3>BLE DLE Prep</h3>
+      <div class="tbc-row">
+        <button id="tbc-ble-scan" class="tbc-btn">Scan</button>
+        <button id="tbc-ble-connect" class="tbc-btn">Connect</button>
+      </div>
+      <label>Device</label>
+      <select id="tbc-ble-device">
+        <option value="">Scan first</option>
+      </select>
+      <div class="tbc-row">
+        <button id="tbc-ble-start" class="tbc-btn accent">Start BLE TX</button>
+        <button id="tbc-ble-stop" class="tbc-btn danger">Stop BLE TX</button>
+      </div>
+      <div id="tbc-ble-status" class="tbc-status">Disconnected</div>
+    </section>
+
+    <section class="tbc-card">
+      <h3>Zigbee Prep</h3>
+      <label>Zigbee slot</label>
+      <input id="tbc-zb-slot" type="number" min="0" max="1" value="0">
+      <div class="tbc-row">
+        <button id="tbc-zb-start" class="tbc-btn">Start Network</button>
+        <button id="tbc-zb-join" class="tbc-btn">Permit Join</button>
+      </div>
+      <div id="tbc-zb-status" class="tbc-status">Waiting for node join</div>
+    </section>
+
+    <section class="tbc-card">
+      <h3>LoRa P2P Prep</h3>
+      <label>LoRa slot</label>
+      <input id="tbc-lora-slot" type="number" min="0" max="1" value="1">
+      <label>RF config</label>
+      <input id="tbc-lora-rf" type="text" value="920,SF7,125,8,15,14,ON,OFF,OFF">
+      <div class="tbc-row">
+        <button id="tbc-lora-prepare" class="tbc-btn">Enter RX Mode</button>
+        <button id="tbc-lora-rx" class="tbc-btn secondary">Restart RX</button>
+      </div>
+      <div id="tbc-lora-status" class="tbc-status">Not prepared</div>
+    </section>
+  </div>
+
+  <section class="tbc-card tbc-case-card">
+    <h3>Run 4 Test Cases</h3>
+    <div class="tbc-cases">
+      <button class="tbc-case" data-case="zigbee">1. Zigbee Spam</button>
+      <button class="tbc-case" data-case="ble">2. BLE DLE</button>
+      <button class="tbc-case" data-case="lora">3. LoRa SF7</button>
+      <button class="tbc-case" data-case="concurrency">4. Concurrency</button>
+      <button id="tbc-stop-case" class="tbc-case stop">Stop Current Case</button>
+    </div>
+    <div id="tbc-case-status" class="tbc-status">No active test</div>
+  </section>
+
+  <section class="tbc-card">
+    <h3>Console</h3>
+    <div id="tbc-log" class="tbc-log"></div>
+  </section>
+</div>
