@@ -3,9 +3,12 @@
  *
  * Test profile:
  * - Zigbee End Device, endpoint 0x0B
- * - Sends one temperature report and one humidity report every 20 ms
- * - With widget-side effective payload size configured to 99 B per report,
- *   2 reports / 20 ms ~= 79.2 kbps effective throughput
+ * - Balanced default: sends 1 temperature + 1 humidity every 20 ms
+ * - Each ZCL attribute report produces ~40-50B at the E18 UART output
+ * - Expected UART traffic: 2 x ~45B / 20ms ≈ 4500 B/s ≈ 36 kbps raw bits
+ * - Actual app-layer through gateway (E18 UART 115200 bps = 11520 B/s limit):
+ *     theoretical max ≈ 92 kbps; this profile targets ~28-45 kbps stable
+ * - Benchmark counter ZB_RX measures raw bytes received over MCU<->E18 UART
  */
 
 #ifndef ZIGBEE_MODE_ED
@@ -18,12 +21,16 @@
 #define DEVICE_NAME            "DA2_ZB_BW"
 #define UPDATE_INTERVAL_MS     20UL
 #define REJOIN_TIMEOUT_MS      10000UL
+#define REPORT_PAIRS_PER_BURST 1
+#define INTER_REPORT_DELAY_MS  4UL
+#define POST_JOIN_WARMUP_MS    3000UL
 
 ZigbeeTempSensor g_sensor(ZB_ENDPOINT);
 
 uint32_t g_lastReportMs = 0;
 uint32_t g_reportCount = 0;
 uint32_t g_lostSinceMs = 0;
+uint32_t g_joinedAtMs = 0;
 bool g_lostPending = false;
 
 static float simTempC(void) {
@@ -48,11 +55,16 @@ static void sendBandwidthBurst(void) {
   g_sensor.setTemperature(tempC);
   g_sensor.setHumidity(humPct);
 
-  g_sensor.reportTemperature();
-  delay(2);
-  g_sensor.reportHumidity();
+  // Keep burst moderate to avoid Zigbee stack OOM (ESP_ERR_NO_MEM).
+  // If link is stable and no OOM appears, this can be increased later.
+  for (int i = 0; i < REPORT_PAIRS_PER_BURST; i++) {
+    g_sensor.reportTemperature();
+    delay(INTER_REPORT_DELAY_MS);
+    g_sensor.reportHumidity();
+    delay(INTER_REPORT_DELAY_MS);
+  }
 
-  g_reportCount += 2;
+  g_reportCount += (REPORT_PAIRS_PER_BURST * 2);
 }
 
 void setup() {
@@ -61,19 +73,20 @@ void setup() {
   randomSeed(esp_random());
 
   Serial.println("DA2 Zigbee Bandwidth Node");
-  Serial.printf("Endpoint: 0x%02X, interval: %lu ms, effective target: 79.2 kbps\n",
+  Serial.printf("Endpoint: 0x%02X, interval: %lu ms, burst: %u reports, mode: balanced\n",
                 ZB_ENDPOINT,
-                (unsigned long)UPDATE_INTERVAL_MS);
+                (unsigned long)UPDATE_INTERVAL_MS,
+                (unsigned)(REPORT_PAIRS_PER_BURST * 2));
 
   g_sensor.setManufacturerAndModel("DA2", "DATN_AUTH_KEY:" DEVICE_NAME);
   g_sensor.setMinMaxValue(-10.0f, 80.0f);
   g_sensor.setTolerance(0.1f);
   g_sensor.addHumiditySensor(0.0f, 100.0f, 655.35f, 60.0f);
-  suppressDefaultReporting();
 
   Zigbee.addEndpoint(&g_sensor);
 
-  if (!Zigbee.begin(ZIGBEE_END_DEVICE, true)) {
+  // Do not factory-reset on every boot; keeping network context shortens join time.
+  if (!Zigbee.begin(ZIGBEE_END_DEVICE, false)) {
     Serial.println("[ZB] Zigbee.begin failed");
     for (;;) delay(1000);
   }
@@ -85,6 +98,8 @@ void setup() {
   }
   Serial.println();
   Serial.println("[ZB] Joined");
+  g_joinedAtMs = millis();
+  suppressDefaultReporting();
   g_sensor.setHumidity(60.0f);
   g_sensor.setTemperature(25.0f);
   sendBandwidthBurst();
@@ -102,6 +117,7 @@ void loop() {
 
   if (connected && g_lostPending) {
     g_lostPending = false;
+    g_joinedAtMs = now;
     suppressDefaultReporting();
     Serial.println("[ZB] Rejoined");
   }
@@ -112,7 +128,8 @@ void loop() {
     for (;;) delay(1000);
   }
 
-  if (connected && (now - g_lastReportMs >= UPDATE_INTERVAL_MS)) {
+  if (connected && (now - g_joinedAtMs >= POST_JOIN_WARMUP_MS) &&
+      (now - g_lastReportMs >= UPDATE_INTERVAL_MS)) {
     g_lastReportMs = now;
     sendBandwidthBurst();
   }

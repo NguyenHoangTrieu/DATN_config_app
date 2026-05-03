@@ -1,4 +1,4 @@
-﻿/* =====================================================================
+/* =====================================================================
    DA2 Total Application Test Control Widget — JavaScript
    Type    : Control widget (requires controlApi / target device)
    Tabs    : BLE GATT | Zigbee | LoRa P2P
@@ -183,6 +183,12 @@ self.onInit = function () {
       var sc = self.ctx && self.ctx.stateController;
       var params = sc && sc.getStateParams && sc.getStateParams();
       var entityId = params && params.entityId;
+      if (!entityId && self.ctx.defaultSubscription && self.ctx.defaultSubscription.targetEntityId) {
+        entityId = {
+          entityType: self.ctx.defaultSubscription.targetEntityType || 'DEVICE',
+          id: self.ctx.defaultSubscription.targetEntityId
+        };
+      }
       if (entityId && entityId.id && self.ctx.telemetryWsService) {
         _tatTeleSubscriber = self.ctx.telemetryWsService.subscribe({
           entityType: entityId.entityType || 'DEVICE',
