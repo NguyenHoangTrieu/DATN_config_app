@@ -17,8 +17,8 @@
 #include <Arduino.h>
 #include <HardwareSerial.h>
 
-#define LORA_UART_TX_PIN   5
-#define LORA_UART_RX_PIN   6
+#define LORA_UART_TX_PIN   22
+#define LORA_UART_RX_PIN   23
 #define LORA_BAUD_DEFAULT  115200
 #define LORA_BAUD_FALLBACK 9600
 

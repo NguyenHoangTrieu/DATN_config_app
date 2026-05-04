@@ -22,6 +22,7 @@
 var TATM_STALE_MS      = 120000;   /* 2 minutes */
 var TATM_STALE_CHECK   = 30000;    /* poll every 30s */
 var TATM_LS_KEY        = 'da2_tatm_state';
+var TATM_CTRL_BRIDGE_KEY = 'da2_tat_ctrl_bridge';
 var TATM_MAX_DEVICES   = 64;
 var TATM_LOG_MAX       = 250;
 
@@ -284,7 +285,8 @@ function tatmNormalizeBleForwardLine(line) {
 
 function tatmShouldForwardBleControlLine(line) {
   var l = tatmNormalizeBleForwardLine(line);
-  return /^(SCAN_RESULT:|SCAN_DONE:|CONNECTED:|DISCONNECTING:|DISCONNECTED:|CHAR:|DISC_DONE:)/i.test(l);
+  if (/^NOTIFY:/i.test(l)) return false;
+  return /^(SCAN_RESULT:|SCAN_DONE:|CONNECTING:|CONNECTED:|DISCONNECTING:|DISCONNECTED:|CHAR:|DISC_DONE:|DESCR_WRITE_OK:|WRITE_OK:)/i.test(l);
 }
 
 function tatmMaybeForwardLoraControlSignal(line) {
@@ -308,10 +310,9 @@ function tatmMaybeForwardLoraControlSignal(line) {
     return;
   }
 
-  /* SENSOR_DATA frame: only send a virtual gate trigger, not full payload */
   if (hdr === '01' && hex.length >= 6) {
     var seq = parseInt(hex.substr(4, 2), 16);
-    tatmEmitControlEvent({ type: 'lrSensorGate', seq: isNaN(seq) ? -1 : seq });
+    tatmEmitControlEvent({ type: 'lrDataSeen', seq: isNaN(seq) ? -1 : seq });
   }
 }
 
@@ -473,9 +474,13 @@ function tatmHandleRawLine(line, forwardToControl) {
 }
 
 function tatmEmitControlEvent(detail) {
+  var payload = { detail: detail, ts: Date.now() };
   try {
     window.dispatchEvent(new CustomEvent('da2_tat_ctrl_event', { detail: detail }));
   } catch (e) {}
+  try {
+    localStorage.setItem(TATM_CTRL_BRIDGE_KEY, JSON.stringify(payload));
+  } catch (e2) {}
 }
 
 function tatmExtractZigbeeFrames(line) {

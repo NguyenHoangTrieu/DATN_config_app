@@ -33,13 +33,13 @@
 #include <math.h>   /* sinf() */
 
 /* ── Wiring ──────────────────────────────────────────────────────── */
-#define PIN_LORA_RX   6       /* ESP32-C3 RX ← Wio-E5 TX */
-#define PIN_LORA_TX   5       /* ESP32-C3 TX → Wio-E5 RX */
-#define LORA_BAUD     9600
+#define PIN_LORA_RX   23       /* ESP32 RX ← Wio-E5 TX */
+#define PIN_LORA_TX   22       /* ESP32 TX → Wio-E5 RX */
+#define LORA_BAUD     115200
 
-#define LED_PIN       8       /* built-in LED, active LOW */
-#define LED_ON()      digitalWrite(LED_PIN, LOW)
-#define LED_OFF()     digitalWrite(LED_PIN, HIGH)
+#define LED_PIN       2       /* built-in LED, active HIGH */
+#define LED_ON()      digitalWrite(LED_PIN, HIGH)
+#define LED_OFF()     digitalWrite(LED_PIN, LOW)
 
 /* ── Node identity ───────────────────────────────────────────────── */
 #define NODE_ID       0x01
@@ -54,7 +54,7 @@
 #define P2P_SF     "SF7"
 #define P2P_BW     125        /* kHz   */
 #define P2P_TXPR   12
-#define P2P_RXPR   12
+#define P2P_RXPR   15
 #define P2P_POW    14         /* dBm   */
 
 /* ── Packet type bytes ───────────────────────────────────────────── */
@@ -117,6 +117,53 @@ static bool atSend(const char *cmd, const char *expectStr, uint32_t timeoutMs)
     return found;
 }
 
+/** Send AT command, wait for either of two response markers.
+ *  Useful when the module may return either "TX DONE" or "+TEST: TX DONE". */
+static bool atSendAny(const char *cmd,
+                      const char *expectA,
+                      const char *expectB,
+                      uint32_t timeoutMs)
+{
+    while (LoRaSerial.available()) LoRaSerial.read();
+
+    Serial.print("[AT>>] "); Serial.println(cmd);
+    LoRaSerial.println(cmd);
+    LoRaSerial.flush();
+
+    uint32_t deadline = millis() + timeoutMs;
+    String   buf      = "";
+    bool     found    = false;
+
+    while (millis() < deadline) {
+        while (LoRaSerial.available()) {
+            char c = (char)LoRaSerial.read();
+            if (c == '\n') {
+                buf.trim();
+                if (buf.length() > 0) {
+                    Serial.print("[AT<<] "); Serial.println(buf);
+                    if ((expectA && buf.indexOf(expectA) >= 0) ||
+                        (expectB && buf.indexOf(expectB) >= 0)) {
+                        found = true;
+                    }
+                }
+                buf = "";
+            } else if (c != '\r') {
+                buf += c;
+            }
+        }
+        if (found) break;
+        yield();
+    }
+
+    if (!found) {
+        Serial.print("[AT] timeout waiting for: ");
+        Serial.print(expectA ? expectA : "(null)");
+        Serial.print(" | ");
+        Serial.println(expectB ? expectB : "(null)");
+    }
+    return found;
+}
+
 /** Enter RX mode (AT+TEST=RXLRPKT), then read for up to windowMs.
  *  If a "+TEST: RX \"hex\"" line is received, copy hex into hexOut
  *  and return true.  Exits early on match. */
@@ -173,12 +220,12 @@ static bool p2pRxWindow(uint32_t windowMs, String &hexOut)
 }
 
 /** Transmit a P2P packet.  hexStr must be uppercase hex without quotes.
- *  Waits up to AT_TX_MS for +TEST: TXLRPKT confirmation. */
+ *  Waits for real TX completion, not just the echoed TXLRPKT command line. */
 static bool p2pTx(const char *hexStr)
 {
     char cmd[48];
     snprintf(cmd, sizeof(cmd), "AT+TEST=TXLRPKT,\"%s\"", hexStr);
-    return atSend(cmd, "+TEST: TXLRPKT", AT_TX_MS);
+    return atSendAny(cmd, "TX DONE", "+TEST: TX DONE", AT_TX_MS);
 }
 
 /* ════════════════════════════════════════════════════════════════════

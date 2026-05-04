@@ -22,11 +22,11 @@
  */
 
 // ─── CHANGE THIS for each device (1, 2, or 3) ────────────────────────
-#define DEVICE_INDEX    2
+#define DEVICE_INDEX    4
 
 // ─── Pin / Timing ─────────────────────────────────────────────────────
 
-#define DEFAULT_NOTIFY_INTERVAL 3   // seconds
+#define DEFAULT_NOTIFY_INTERVAL 5   // seconds
 
 // ─── BLE identifiers ─────────────────────────────────────────────────
 #define SERVICE_UUID    ((uint16_t)0xAA10)

@@ -307,28 +307,6 @@ Thông lượng payload thực tế:
 $$R_{app,222B} = \frac{222 \times 8}{0{,}4344} \approx \mathbf{4{,}09 \text{ kbps}}$$
 
 Giá trị này khớp với số đo tại node phát ($\approx 3{,}9 \div 4{,}1$ kbps).
-
-**Tại sao Gateway lại thấy 8{,}3 đến 9{,}4 kbps?**
-
-Ở chiều RX, Wio-E5 trả về hai dòng cho mỗi gói nhận được:
-
-1. `+TEST: LEN:222, RSSI:..., SNR:...`
-2. `+TEST: RX <444 ký tự HEX>`
-
-Tổng kích thước UART RX mỗi gói xấp xỉ:
-
-$$L_{UART,RX} \approx 33 + 456 = \mathbf{489 \text{ byte}}$$
-
-Nếu lấy chu kỳ $T_{cycle,222B} \approx 434{,}4$ ms thì thông lượng raw UART RX stream là:
-
-$$R_{UART,RX} = \frac{489 \times 8}{0{,}4344} \approx \mathbf{9{,}0 \text{ kbps}}$$
-
-Đây chính là nguồn gốc của các số đo `LR_RX \approx 8{,}3 \div 9{,}4` kbps trên Gateway: bộ đếm benchmark hiện đếm **raw listener bytes**, không phải payload LoRa đã parse.
-
-Ngoài ra, `lora_handler_listen()` đọc bus theo **chunk 128 byte**, vì vậy một gói RX hoàn chỉnh (~489 byte UART) thường bị tách thành khoảng 4 chunk. Do đó trường `pkt=` trong benchmark firmware hiện tại phản ánh **số chunk listener đọc được**, không phải số frame LoRa thực tế.
-
-> **Kết luận:** Trong chế độ TEST/P2P, **Time-on-Air là nút thắt duy nhất** — duty cycle không áp dụng. Overhead AT command (~15 ms) đóng góp đáng kể với SF7/250 (chiếm 24% chu kỳ) và không đáng kể với SF12 (chiếm < 1% chu kỳ ≈ 2.317 ms).
-
 ---
 
 ### 2.3 BLE — Native ESP32-S3
