@@ -139,6 +139,11 @@ function tatResolveTargetEntityId() {
   return null;
 }
 
+function tatHasDatasourceTelemetryBinding() {
+  var ctx = self.ctx;
+  return !!(ctx && Array.isArray(ctx.data));
+}
+
 function tatToIntTs(value) {
   var parsed = parseInt(value, 10);
   return isNaN(parsed) || parsed <= 0 ? Date.now() : parsed;
@@ -300,7 +305,10 @@ self.onInit = function () {
     /* Subscribe to telemetry programmatically (no datasource needed) */
     try {
       var entityId = tatResolveTargetEntityId();
-      if (entityId && self.ctx.telemetryWsService) {
+      if (tatHasDatasourceTelemetryBinding()) {
+        _tatHasWsTele = false;
+        tatLog('i', 'Telemetry datasource active — skipping direct WS subscribe');
+      } else if (entityId && self.ctx.telemetryWsService && typeof self.ctx.telemetryWsService.subscribe === 'function') {
         var subscriber = {
           entityType: 'DEVICE',
           entityId:   entityId,
@@ -315,7 +323,8 @@ self.onInit = function () {
         tatLog('i', 'Telemetry WS subscribed');
       }
     } catch (se) {
-      tatLog('!', 'Telemetry subscribe: ' + (se && se.message ? se.message : se));
+      _tatHasWsTele = false;
+      tatLog('i', 'Telemetry direct subscribe unavailable — using datasource/bridge');
     }
 
     /* Bridge listener — receive structured events from monitor widget */
@@ -652,6 +661,7 @@ function tatBleCommandTimeout(verb, requestedMs) {
   var explicitShort = tatBleHasShortExplicitTimeout(requestedMs);
   switch (String(verb || '').toUpperCase()) {
     case 'CONNECT':
+      if (explicitShort) return baseMs;
       return Math.max(baseMs, 20000 + (links * 3000));
     case 'DISC':
       if (explicitShort) return baseMs;
@@ -919,7 +929,7 @@ function sendCFLR(func, params, timeout, options) {
   var cmd = 'CFML:CFLR:' + tatGetSlot('lora') + ':' + func + (params ? ':' + params : '');
   tatLog('TX', cmd);
   var hex = tatStrToHex(cmd);
-  if (String(func || '').toUpperCase() === 'MODULE_SEND_P2P_PKT' || opts.oneWay) {
+  if (opts.oneWay) {
     return tatSendRpcOneWay('sendCommand', hex, 1000).catch(function (err) {
       var msg = err && err.message ? err.message : String(err);
       if (!opts.silent) {
@@ -1213,6 +1223,36 @@ function bleFindConnectedIdxByMac(mac) {
   return null;
 }
 
+function bleFindScanResultByMac(mac) {
+  if (!mac) return null;
+  var target = String(mac).toUpperCase();
+  for (var i = 0; i < tatState.ble.scanResults.length; i++) {
+    var scan = tatState.ble.scanResults[i];
+    if (scan && scan.mac === target) return scan;
+  }
+  return null;
+}
+
+function bleProbeTimedOutConnect(mac) {
+  var scan = bleFindScanResultByMac(mac);
+  if (!scan) return Promise.resolve(false);
+
+  var probeIdx = parseInt(scan.idx, 10);
+  if (isNaN(probeIdx) || probeIdx < 0) return Promise.resolve(false);
+
+  bleUpsertConnectedDevice(probeIdx, scan.mac, 'PENDING', {
+    provisional: true,
+    keepConnecting: true
+  });
+
+  tatLog('i', 'Probe stalled connect via DISC idx=' + probeIdx + ' mac=' + scan.mac);
+  return bleAutoDiscover(probeIdx).then(function () {
+    var dev = tatState.ble.connected[probeIdx];
+    if (!dev) return false;
+    return !!(dev.discoverDone || Object.keys(dev.chars || {}).length > 0);
+  });
+}
+
 function bleConnectAttempt(mac, attempt) {
   var tryNo = attempt || 0;
   var macUpper = String(mac || '').toUpperCase();
@@ -1240,8 +1280,18 @@ function bleConnectAttempt(mac, attempt) {
       return;
     }
     if (tryNo < 1 && tatBleIsRpcTimeout(err)) {
-      tatLog('w', 'Connect response lost for ' + mac + ' — retrying once');
-      bleConnectAttempt(mac, tryNo + 1);
+      bleProbeTimedOutConnect(mac).then(function (recovered) {
+        if (recovered) {
+          delete tatState.ble.pendingConnects[macUpper];
+          bleSetConnectingState(mac, false);
+          tatLog('i', 'Recovered delayed connect for ' + mac + ' via DISC probe');
+          bleRenderGrid();
+          bleRenderScanList();
+          return;
+        }
+        tatLog('w', 'Connect response lost for ' + mac + ' — retrying once');
+        bleConnectAttempt(mac, tryNo + 1);
+      });
       return;
     }
     bleSetConnectingState(mac, false);
@@ -2291,7 +2341,9 @@ function zbSendDeleteNode(shortHex, ieee, timeout) {
 var ZB_VERIFY_PREFIX = 'DATN_AUTH_KEY:';
 var ZB_VERIFY_MAX_ATTEMPTS = 3;
 var ZB_SENSOR_DEFAULT_INTERVAL_S = 5;
-var ZB_VERIFY_RESPONSE_TIMEOUT_MS = 4000;
+var ZB_VERIFY_RESPONSE_TIMEOUT_MS = 8000;
+var ZB_VERIFY_JOIN_SETTLE_MS = 10000;
+var ZB_VERIFY_ANNOUNCE_SETTLE_MS = 6000;
 var ZB_TEMP_AUTO_PROBE_ENABLED = false;
 var ZB_TEMP_RECOVERY_PROBE_COOLDOWN_MS = 10000;
 var ZB_TEMP_RECOVERY_STALE_MS = 10000;
@@ -2349,6 +2401,20 @@ function zbScheduleVerifyRun(delayMs) {
   }, delayMs || 0);
 }
 
+function zbResolveVerifyDelayMs(short, requestedDelayMs) {
+  var delayMs = requestedDelayMs || 0;
+  var n = tatState.zb.nodes[short];
+  if (!n) return delayMs > 0 ? delayMs : 0;
+  var now = Date.now();
+  if (n.lastJoinMs) {
+    var remainingJoinMs = ZB_VERIFY_JOIN_SETTLE_MS - (now - n.lastJoinMs);
+    if (remainingJoinMs > delayMs) delayMs = remainingJoinMs;
+  } else if (delayMs < ZB_VERIFY_ANNOUNCE_SETTLE_MS) {
+    delayMs = ZB_VERIFY_ANNOUNCE_SETTLE_MS;
+  }
+  return delayMs > 0 ? delayMs : 0;
+}
+
 function zbGetVerifyBlocker() {
   var nodeKeys = Object.keys(tatState.zb.nodes || {});
   var i;
@@ -2367,12 +2433,13 @@ function zbScheduleVerify(short, ep, delayMs) {
   var n = tatState.zb.nodes[short];
   if (!n || n.verified || n.verifyFailed || n.deletePending) return;
   if (n.verifyTimer) clearTimeout(n.verifyTimer);
+  var effectiveDelayMs = zbResolveVerifyDelayMs(short, delayMs);
   n.verifyTimer = setTimeout(function () {
     var latest = tatState.zb.nodes[short];
     if (!latest || latest.verified || latest.verifyFailed || latest.deletePending) return;
     latest.verifyTimer = null;
     zbQueueVerify(short, ep || latest.ep || ZB_SENSOR_EP);
-  }, delayMs || 0);
+  }, effectiveDelayMs);
 }
 
 function zbRejectNode(short, reason) {
@@ -2535,6 +2602,7 @@ function zbAddNode(short, ieee, ep) {
       short: short, ieee: ieee, ep: ep || '?',
       name: '0x' + short, type: 'unknown',
       nodeOrder: tatState.zb.nextNodeOrder++,
+      lastJoinMs: 0,
       verified: false, verifyFailed: false, verifyAttempts: 0,
       deletePending: false, reportConfigured: false, reportPending: false,
       reportIntervalSec: ZB_SENSOR_DEFAULT_INTERVAL_S, verifyTimer: null,
@@ -2592,14 +2660,15 @@ function zbHandleNodeJoin(short, ieee) {
   tatLog('EVT', 'Node join: 0x' + short + ' IEEE:' + ieee);
   zbAddNode(short, ieee, '?');
   zbResetVerifyState(short);
-  zbScheduleVerify(short, ZB_SENSOR_EP, 10000);
+  if (tatState.zb.nodes[short]) tatState.zb.nodes[short].lastJoinMs = Date.now();
+  zbScheduleVerify(short, ZB_SENSOR_EP, ZB_VERIFY_JOIN_SETTLE_MS);
 }
 
 function zbHandleNodeAnnounce(short, ieee, ep) {
   tatLog('EVT', 'Node announce: 0x' + short + ' EP:' + ep);
   zbAddNode(short, ieee, ep);
   zbResetVerifyState(short);
-  zbScheduleVerify(short, ep || '01', 2000);
+  zbScheduleVerify(short, ep || '01', ZB_VERIFY_ANNOUNCE_SETTLE_MS);
 }
 
 function zbDropNodeLocal(short) {
@@ -3399,7 +3468,7 @@ function lrStartRx() {
     tatState.lr.rxActive = true;
     lrSetRxBadge(true);
     tatLog('i', 'RX mode active');
-    return sendCFLR('MODULE_ENTER_P2P_RX', '', 5000, { oneWay: true })
+    return sendCFLR('MODULE_ENTER_P2P_RX', '', 5000)
       .catch(function () { tatState.lr.rxActive = false; lrSetRxBadge(false); });
   });
 }
@@ -3504,7 +3573,7 @@ function lrSendLedCmd(hexCmd, label) {
     tatState.lr.txPending = true;
     tatState.lr.rxActive = false;
     lrSetRxBadge(false);
-    return sendCFLR('MODULE_SEND_P2P_PKT', '"' + hexCmd + '"', 8000, { oneWay: true })
+    return sendCFLR('MODULE_SEND_P2P_PKT', '"' + hexCmd + '"', 8000)
       .then(function () {
         tatState.lr.lastCmd = hexCmd === '10' ? 'LED ON' : 'LED OFF';
         tatState.lr.ledState = hexCmd === '10' ? 'ON' : 'OFF';
@@ -3512,7 +3581,7 @@ function lrSendLedCmd(hexCmd, label) {
         tatSet('tat-lr-last-tx', label + ' @ ' + tatState.lr.lastTx);
         tatToast('Sent: ' + label);
         lrBroadcastNodeSnapshot();
-        return sendCFLR('MODULE_ENTER_P2P_RX', '', 5000, { oneWay: true })
+        return sendCFLR('MODULE_ENTER_P2P_RX', '', 5000)
           .then(function (resp) {
             tatState.lr.rxActive = true;
             lrSetRxBadge(true);
@@ -3534,12 +3603,12 @@ function lrSendJoinAccept(nodeId) {
   lrEnqueue(function () {
      tatState.lr.rxActive = false;
      lrSetRxBadge(false);
-     return sendCFLR('MODULE_SEND_P2P_PKT', '"FE' + nodeIdHex + '"', 8000, { oneWay: true })
+     return sendCFLR('MODULE_SEND_P2P_PKT', '"FE' + nodeIdHex + '"', 8000)
        .then(function () {
          tatState.lr.lastCmd = 'JOIN_ACCEPT';
          tatLog('i', 'JOIN_ACCEPT sent → nodeId=0x' + nodeIdHex);
          lrBroadcastNodeSnapshot();
-         return sendCFLR('MODULE_ENTER_P2P_RX', '', 5000, { oneWay: true })
+         return sendCFLR('MODULE_ENTER_P2P_RX', '', 5000)
            .then(function (resp) {
              tatState.lr.rxActive = true;
              lrSetRxBadge(true);
