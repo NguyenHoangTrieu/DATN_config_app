@@ -54,7 +54,7 @@
 #define P2P_SF     "SF7"
 #define P2P_BW     125        /* kHz   */
 #define P2P_TXPR   12
-#define P2P_RXPR   15
+#define P2P_RXPR   12
 #define P2P_POW    14         /* dBm   */
 
 /* ── Packet type bytes ───────────────────────────────────────────── */

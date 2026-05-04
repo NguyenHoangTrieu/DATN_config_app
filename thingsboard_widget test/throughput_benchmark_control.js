@@ -1,3 +1,7 @@
+var TBC_LORA_RF_DEFAULT = '868,SF7,125,12,12,14,ON,OFF,OFF';
+var TBC_LORA_RF_LEGACY = '920,SF7,125,8,15,14,ON,OFF,OFF';
+var TBC_LORA_RF_PREV_DEFAULT = '868,SF7,125,12,15,14,ON,OFF,OFF';
+
 var tbcState = {
   durationSec: 15,
   payloadBytes: { ble: 244, zb: 99, lora: 50 },
@@ -10,7 +14,9 @@ var tbcState = {
     handles: { bb11: null, bb12: null, bb13: null, bb14: null, cccd12: null }
   },
   zb: { slot: '0' },
-  lora: { slot: '1', rfConfig: '920,SF7,125,8,15,14,ON,OFF,OFF', ready: false },
+  lora: { slot: '1', rfConfig: TBC_LORA_RF_DEFAULT, ready: false },
+  loraRxRestartInFlight: false,
+  loraAutoRearm: true,
   activeCase: null,
   teleSub: null,
   blePendingRpc: null,
@@ -92,7 +98,12 @@ function tbcRestore() {
     if (saved.payloadBytes) tbcState.payloadBytes = saved.payloadBytes;
     if (saved.zbSlot !== undefined) tbcState.zb.slot = String(saved.zbSlot);
     if (saved.loraSlot !== undefined) tbcState.lora.slot = String(saved.loraSlot);
-    if (saved.rfConfig) tbcState.lora.rfConfig = saved.rfConfig;
+    if (saved.rfConfig) {
+      var rf = String(saved.rfConfig).trim();
+      tbcState.lora.rfConfig = (rf === TBC_LORA_RF_LEGACY || rf === TBC_LORA_RF_PREV_DEFAULT)
+        ? TBC_LORA_RF_DEFAULT
+        : rf;
+    }
   } catch (e) {}
 }
 
@@ -329,9 +340,18 @@ function tbcHandleLine(line) {
     return;
   }
 
-  if (/\+TEST:\s*RXLRPKT/i.test(line) || /\+TEST:\s*RFCFG/i.test(line) || /\+MODE:\s*TEST/i.test(line)) {
+  var isLoraRxData = /\+TEST:\s*RX\s*"[0-9A-Fa-f]+"/i.test(line);
+  if (isLoraRxData || /\+TEST:\s*RXLRPKT/i.test(line) || /\+TEST:\s*RFCFG/i.test(line) || /\+MODE:\s*TEST/i.test(line)) {
     tbcState.lora.ready = true;
     tbcSetText('tbc-lora-status', 'RX ready / TEST mode');
+    if (isLoraRxData && tbcState.loraAutoRearm && !tbcState.loraRxRestartInFlight) {
+      tbcState.loraRxRestartInFlight = true;
+      setTimeout(function () {
+        tbcLoraRestartRx()
+          .catch(function () {})
+          .finally(function () { tbcState.loraRxRestartInFlight = false; });
+      }, 5);
+    }
   }
 }
 
@@ -446,29 +466,61 @@ function tbcZbPermitJoin() {
 function tbcLoraPrepare() {
   tbcReadUi();
   tbcSetText('tbc-lora-status', 'Preparing TEST mode...');
-  return tbcRpc('CFML:CFLR:' + tbcState.lora.slot + ':MODULE_ENTER_P2P_MODE', 15000)
-    .then(function () {
-      return tbcRpc('CFML:CFLR:' + tbcState.lora.slot + ':MODULE_SET_P2P_CONFIG:' + tbcState.lora.rfConfig, 10000);
-    })
-    .then(function () {
-      return tbcRpc('CFML:CFLR:' + tbcState.lora.slot + ':MODULE_ENTER_P2P_RX', 8000);
-    })
-    .then(function () {
-      tbcState.lora.ready = true;
-      tbcSetText('tbc-lora-status', 'LoRa RX armed');
-      tbcLog('LoRa TEST/RX ready');
-    })
-    .catch(function (e) {
+  var preferred = String(tbcState.lora.slot || '1');
+  var fallback = preferred === '1' ? '0' : '1';
+
+  function doPrepare(slot) {
+    return tbcRpc('CFML:CFLR:' + slot + ':MODULE_ENTER_P2P_MODE', 15000)
+      .then(function () {
+        return tbcRpc('CFML:CFLR:' + slot + ':MODULE_SET_P2P_CONFIG:' + tbcState.lora.rfConfig, 12000);
+      })
+      .then(function () {
+        return tbcRpc('CFML:CFLR:' + slot + ':MODULE_ENTER_P2P_RX', 8000)
+          .catch(function () {
+            // Some module profiles keep RX active but don't emit immediate ACK for RXLRPKT.
+            return '';
+          });
+      })
+      .then(function () {
+        tbcState.lora.slot = slot;
+        tbcSetVal('tbc-lora-slot', slot);
+        tbcState.lora.ready = true;
+        tbcSetText('tbc-lora-status', 'LoRa RX armed (slot ' + slot + ')');
+        tbcLog('LoRa TEST/RX ready on slot ' + slot);
+      });
+  }
+
+  return doPrepare(preferred).catch(function (e1) {
+    tbcLog('LoRa prepare failed on slot ' + preferred + ', retry slot ' + fallback);
+    return doPrepare(fallback).catch(function (e2) {
       tbcSetText('tbc-lora-status', 'LoRa prepare failed');
-      tbcLog('LoRa prepare failed: ' + (e && e.message ? e.message : e));
-      throw e;
+      tbcLog('LoRa prepare failed: ' + (e2 && e2.message ? e2.message : e2));
+      throw (e2 || e1);
     });
+  });
 }
 
 function tbcLoraRestartRx() {
   tbcReadUi();
-  return tbcRpc('CFML:CFLR:' + tbcState.lora.slot + ':MODULE_ENTER_P2P_RX', 8000)
-    .then(function () { tbcState.lora.ready = true; tbcSetText('tbc-lora-status', 'RX restarted'); });
+  var preferred = String(tbcState.lora.slot || '1');
+  var fallback = preferred === '1' ? '0' : '1';
+  return tbcRpc('CFML:CFLR:' + preferred + ':MODULE_ENTER_P2P_RX', 8000)
+    .then(function () {
+      tbcState.lora.slot = preferred;
+      tbcSetVal('tbc-lora-slot', preferred);
+      tbcState.lora.ready = true;
+      tbcSetText('tbc-lora-status', 'RX restarted (slot ' + preferred + ')');
+    })
+    .catch(function () {
+      return tbcRpc('CFML:CFLR:' + fallback + ':MODULE_ENTER_P2P_RX', 8000)
+        .then(function () {
+          tbcState.lora.slot = fallback;
+          tbcSetVal('tbc-lora-slot', fallback);
+          tbcState.lora.ready = true;
+          tbcSetText('tbc-lora-status', 'RX restarted (slot ' + fallback + ')');
+          tbcLog('Switched LoRa slot to ' + fallback + ' after RX restart failure on ' + preferred);
+        });
+    });
 }
 
 function tbcRunCase(caseId) {
@@ -518,8 +570,12 @@ function tbcStopCase() {
   tbcState.activeCase = null;
 }
 
-function tbcRpcIsDataNoise(decoded) {
+function tbcRpcIsDataNoise(decoded, cmd) {
   decoded = String(decoded || '');
+  cmd = String(cmd || '');
+  if (/^CFML:CFLR:\d+:MODULE_ENTER_P2P_RX/i.test(cmd) && /\+TEST:\s*RXLRPKT/i.test(decoded)) {
+    return false;
+  }
   return /BENCH:/i.test(decoded) ||
     /CFBG:OK:NOTIFY:/i.test(decoded) ||
     /(^|\x1E)RPT:[0-9A-Fa-f]/i.test(decoded) ||
@@ -543,7 +599,7 @@ function tbcRpc(cmd, timeoutMs) {
         var lines = tbcSplit(decoded);
         for (var i = 0; i < lines.length; i++) tbcHandleLine(lines[i]);
 
-        if (tbcRpcIsDataNoise(decoded)) {
+        if (tbcRpcIsDataNoise(decoded, cmd)) {
           return;
         }
 

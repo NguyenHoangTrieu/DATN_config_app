@@ -192,7 +192,12 @@ $$ToA_{SF7/250} = 6{,}27 + 83 \times 0{,}512 = 6{,}27 + 42{,}50 = \mathbf{48{,}8
 
 #### 2.2.2 Overhead AT Command UART và Giới hạn Payload
 
-Trong chế độ TEST/P2P, gateway nhận bằng `AT+TEST=RXLRPKT` (nhận liên tục, không gửi). Node phát lệnh:
+Trong chế độ TEST/P2P, gateway nhận bằng `AT+TEST=RXLRPKT` (nhận liên tục, không gửi). Có hai biến thể quan trọng:
+
+1. **Baseline cũ** dùng chuỗi HEX có dấu cách, ví dụ `"AA BB CC ..."`.
+2. **Benchmark max-throughput hiện tại** dùng chuỗi HEX liền nhau, ví dụ `"AABBCC..."` với payload 222 byte.
+
+Với biến thể baseline cũ, node phát lệnh:
 
 ```
 AT+TEST=TXLRPKT,"AA BB CC DD ..."
@@ -204,7 +209,7 @@ Phân tích kích thước command:
 - Hậu tố: `"\r\n` = 3 ký tự
 - **Tổng command**: $19 + (3 \times PL - 1) + 3 = 3 \times PL + 21$ ký tự
 
-**Giới hạn 528 ký tự (Wio-E5 AT command buffer):**
+**Giới hạn 528 ký tự (Wio-E5 AT command buffer, trường hợp có dấu cách):**
 
 $$3 \times PL_{max} + 21 \leq 528 \implies PL_{max} = \left\lfloor \frac{507}{3} \right\rfloor = \mathbf{169 \text{ byte}}$$
 
@@ -219,6 +224,39 @@ $$T_{AT,RX} = \frac{15 \times 10}{115.200} \approx 1{,}3 \text{ ms}$$
 **Tổng overhead AT command:**
 
 $$\boxed{T_{AT,overhead} \approx 14{,}8 + 1{,}3 \approx 15 \text{ ms}}$$
+
+**Benchmark max-throughput hiện tại (payload 222 byte, HEX liền nhau):**
+
+Node phát dùng lệnh:
+
+```
+AT+TEST=TXLRPKT,"AABBCCDDEEFF..."
+```
+
+Kích thước command khi không có dấu cách:
+- Prefix `AT+TEST=TXLRPKT,"` = 17 ký tự
+- Payload HEX = $2 \times PL$ ký tự
+- Hậu tố `"\r\n` = 3 ký tự
+
+$$L_{AT,TX}^{compact} = 17 + 2PL + 3 = 20 + 2PL$$
+
+Với $PL = 222$ byte:
+
+$$L_{AT,TX}^{compact} = 20 + 2 \times 222 = 464 \text{ ký tự}$$
+
+$$T_{AT,TX}^{compact} = \frac{464 \times 10}{115.200} \approx 40{,}3 \text{ ms}$$
+
+Wio-E5 còn echo lại chính dòng `+TEST: TXLRPKT "..."` trước khi trả `TX DONE`. Dòng echo này có kích thước xấp xỉ 463 ký tự:
+
+$$T_{AT,echo} \approx \frac{463 \times 10}{115.200} \approx 40{,}2 \text{ ms}$$
+
+Phản hồi `+TEST: TX DONE\r\n` khoảng 16 ký tự:
+
+$$T_{AT,done} \approx \frac{16 \times 10}{115.200} \approx 1{,}4 \text{ ms}$$
+
+Do đó overhead UART hiệu dụng trong firmware benchmark hiện tại là:
+
+$$\boxed{T_{AT,overhead}^{compact} \approx 40{,}3 + 40{,}2 + 1{,}4 = 81{,}9 \text{ ms}}$$
 
 #### 2.2.3 Thông lượng Ứng dụng Thực tế
 
@@ -241,6 +279,53 @@ $$T_{cycle,SF7/250} = 15 + 48{,}8 = 63{,}8 \text{ ms}$$
 $$R_{app,SF7/250} = \frac{50 \times 8}{0{,}0638} \approx 6.270 \text{ bps} \approx \mathbf{6{,}1 \text{ kbps}}$$
 
 $$\eta_{SF7/250} = \frac{6{,}1}{10{,}94} \approx 56\%$$
+
+**Trường hợp benchmark hiện tại — SF7 / BW = 125 kHz, $PL = 222$ byte, TXPR = RXPR = 12:**
+
+Thời gian một symbol:
+
+$$T_s = \frac{2^7}{125.000} = 1{,}024 \text{ ms}$$
+
+Preamble 12 symbol:
+
+$$T_{pre,12} = (12 + 4{,}25) \times 1{,}024 = 16{,}64 \text{ ms}$$
+
+Số symbol payload:
+
+$$n_{payload} = \left\lceil \frac{8 \times 222 - 4 \times 7 + 28 + 16}{4 \times 7} \right\rceil \times 5 + 8 = \left\lceil \frac{1792}{28} \right\rceil \times 5 + 8 = 328$$
+
+Time-on-Air:
+
+$$ToA_{SF7/125,222B} = 16{,}64 + 328 \times 1{,}024 = \mathbf{352{,}5 \text{ ms}}$$
+
+Chu kỳ phát hiệu dụng của node benchmark hiện tại:
+
+$$T_{cycle,222B} = T_{AT,overhead}^{compact} + ToA = 81{,}9 + 352{,}5 = \mathbf{434{,}4 \text{ ms}}$$
+
+Thông lượng payload thực tế:
+
+$$R_{app,222B} = \frac{222 \times 8}{0{,}4344} \approx \mathbf{4{,}09 \text{ kbps}}$$
+
+Giá trị này khớp với số đo tại node phát ($\approx 3{,}9 \div 4{,}1$ kbps).
+
+**Tại sao Gateway lại thấy 8{,}3 đến 9{,}4 kbps?**
+
+Ở chiều RX, Wio-E5 trả về hai dòng cho mỗi gói nhận được:
+
+1. `+TEST: LEN:222, RSSI:..., SNR:...`
+2. `+TEST: RX <444 ký tự HEX>`
+
+Tổng kích thước UART RX mỗi gói xấp xỉ:
+
+$$L_{UART,RX} \approx 33 + 456 = \mathbf{489 \text{ byte}}$$
+
+Nếu lấy chu kỳ $T_{cycle,222B} \approx 434{,}4$ ms thì thông lượng raw UART RX stream là:
+
+$$R_{UART,RX} = \frac{489 \times 8}{0{,}4344} \approx \mathbf{9{,}0 \text{ kbps}}$$
+
+Đây chính là nguồn gốc của các số đo `LR_RX \approx 8{,}3 \div 9{,}4` kbps trên Gateway: bộ đếm benchmark hiện đếm **raw listener bytes**, không phải payload LoRa đã parse.
+
+Ngoài ra, `lora_handler_listen()` đọc bus theo **chunk 128 byte**, vì vậy một gói RX hoàn chỉnh (~489 byte UART) thường bị tách thành khoảng 4 chunk. Do đó trường `pkt=` trong benchmark firmware hiện tại phản ánh **số chunk listener đọc được**, không phải số frame LoRa thực tế.
 
 > **Kết luận:** Trong chế độ TEST/P2P, **Time-on-Air là nút thắt duy nhất** — duty cycle không áp dụng. Overhead AT command (~15 ms) đóng góp đáng kể với SF7/250 (chiếm 24% chu kỳ) và không đáng kể với SF12 (chiếm < 1% chu kỳ ≈ 2.317 ms).
 
@@ -308,7 +393,9 @@ $$\eta_{RS485} = \frac{10}{10+4} \approx 71{,}4\%$$
 | Giao thức | $R_{PHY}$ | $R_{app}$ thực tế | $\eta$ | Nút thắt chính |
 | :--- | :---: | :---: | :---: | :--- |
 | **Zigbee** | $250 \text{ kbps}$ | $\approx 80 \text{ kbps}$ | $32\%$ | UART 115.200 bps (10,5 ms/frame HEX) |
-| **LoRa SF7/125 (P2P)** | $5{,}47 \text{ kbps}$ | $\approx 3{,}5 \text{ kbps}$ | $64\%$ | $\text{ToA} \approx 97{,}5 \text{ ms/gói}$ |
+| **LoRa SF7/125 (P2P, 50 B baseline)** | $5{,}47 \text{ kbps}$ | $\approx 3{,}5 \text{ kbps}$ | $64\%$ | $\text{ToA} \approx 97{,}5 \text{ ms/gói}$ |
+| **LoRa SF7/125 (P2P, 222 B benchmark)** | $5{,}47 \text{ kbps}$ | $\approx 4{,}1 \text{ kbps}$ | $75\%$ | $\text{ToA} \approx 352{,}5 \text{ ms/gói} +$ UART echo |
+| **LoRa SF7/125 (Gateway raw RX counter)** | $5{,}47 \text{ kbps}$ | $\approx 8{,}3 \div 9{,}4 \text{ kbps}$ | — | Đếm raw UART RX stream, không phải payload LoRa |
 | **LoRa SF7/250 (P2P)** | $10{,}94 \text{ kbps}$ | $\approx 6{,}1 \text{ kbps}$ | $56\%$ | $\text{ToA} \approx 48{,}8 \text{ ms/gói}$ |
 | **LoRa SF12/125 (P2P)** | $0{,}29 \text{ kbps}$ | $\approx 0{,}18 \text{ kbps}$ | $62\%$ | $\text{ToA} \approx 2.302 \text{ ms/gói}$ |
 | **BLE (không DLE)** | $1.000 \text{ kbps}$ | $\approx 8 \text{ kbps}$ | $0{,}8\%$ | MTU = 20 byte, $CI = 20 \text{ ms}$ |
@@ -528,9 +615,14 @@ Tốc độ tối đa trước khi overflow CC2530:
 
 $$R_{CC2530,max} \approx \frac{3.192 \text{ byte}}{1 \text{ entry} \times T_{process}} \implies \text{giới hạn thực tế tại } N = 20 \text{ node (Z-Stack default)}$$
 
-### 5.4 Giới hạn Payload LoRa AT Command
+### 5.4 Cách diễn giải Benchmark LoRa tại Gateway
 
-Command `AT+TEST=TXLRPKT` giới hạn 528 ký tự → payload tối đa **169 byte** theo tính toán Mục 2.2.2, thấp hơn giới hạn vật lý radio LoRa 255 byte. Điều này không ảnh hưởng kịch bản kiểm thử (50 byte payload) nhưng cần lưu ý khi tăng kích thước gói.
+Trong firmware hiện tại, `LR_RX` và `LR_FWD` được tăng theo số byte listener đọc được từ UART module trước khi parse payload. Vì vậy:
+
+- Số `kbps` ở Gateway là **raw UART stream throughput**.
+- Số `pkt` ở Gateway là **số chunk listener**, không phải số frame LoRa vật lý.
+
+Điều này giải thích vì sao bài test payload 222 byte có thể cho `LR_RX \approx 8{,}3 \div 9{,}4` kbps trong khi node phát chỉ đạt `\approx 4{,}0` kbps payload thực tế.
 
 ### 5.5 Không đồng bộ LDRO — LoRa SF ≥ 11
 
@@ -556,16 +648,15 @@ WAN MCU trong khi flash write FOTA bị block ≈ 100 ms → SPI buffer tràn 7,
 
 Từng node (Zigbee, LoRa, BLE) gửi dữ liệu liên tục với tốc độ tối đa.
 
-**Cấu hình LoRa TEST/P2P** (thực hiện trên cả node phát lẫn Gateway thu, tần số AS923 — Việt Nam):
+**Cấu hình LoRa TEST/P2P** (thực hiện trên cả node phát lẫn Gateway thu cho bài benchmark max-throughput hiện tại):
 
 ```
 AT+MODE=TEST
-AT+LW=LDRO,ON
-AT+TEST=RFCFG,920,SF7,125,8,15,14,ON,OFF,OFF
+AT+TEST=RFCFG,868,SF7,125,12,12,14,ON,OFF,OFF
 AT+TEST=RXLRPKT
 ```
 
-Node phát gửi liên tiếp `AT+TEST=TXLRPKT,"00 AA BB..."` và chờ `+TEST: TX DONE` trước khi gửi tiếp.
+Node phát gửi liên tiếp `AT+TEST=TXLRPKT,"001122..."` và chờ `+TEST: TX DONE` trước khi gửi tiếp.
 
 **Chỉ số đánh giá:** Thông lượng thực đo (byte/s tại LAN MCU và tại server), PDR, mã lỗi phần cứng (`0x11`, `0x18` cho Zigbee), RSSI và SNR cho LoRa.
 
@@ -574,7 +665,8 @@ Node phát gửi liên tiếp `AT+TEST=TXLRPKT,"00 AA BB..."` và chờ `+TEST: 
 | Giao thức | Thông lượng vào LAN MCU | PDR kỳ vọng |
 | :--- | :---: | :---: |
 | **Zigbee** | $\approx 80 \text{ kbps}$ | $> 95\%$ |
-| **LoRa SF7/125 (P2P)** | $\approx 3{,}5 \text{ kbps}$ | $> 99\%$ |
+| **LoRa SF7/125 (P2P, payload 222 B)** | $\approx 4{,}0 \text{ kbps}$ | $> 99\%$ |
+| **LoRa SF7/125 (Gateway LR\_RX)** | $\approx 8{,}3 \div 9{,}4 \text{ kbps}$ | $> 99\%$ |
 | **LoRa SF7/250 (P2P)** | $\approx 6{,}1 \text{ kbps}$ | $> 99\%$ |
 | **BLE (DLE bật)** | $\approx 97{,}6 \text{ kbps}$ | $> 99\%$ |
 

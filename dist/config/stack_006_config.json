@@ -6,7 +6,7 @@
     "module_communication": {
         "port_type": "uart",
         "parameters": {
-            "baudrate": 9600,
+            "baudrate": 115200,
             "parity": "none",
             "stopbit": 1
         }
