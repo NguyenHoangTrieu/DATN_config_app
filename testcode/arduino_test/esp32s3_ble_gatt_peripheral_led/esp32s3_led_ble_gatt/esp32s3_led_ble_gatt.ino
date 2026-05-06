@@ -41,7 +41,7 @@
 #define NOTIFY_INTERVAL 2000    // ms between FFF1 counter notifications
 
 // ─── BLE identifiers ──────────────────────────────────────────────────────────
-#define DEVICE_NAME     "DA2_LED_GATT_3"
+#define DEVICE_NAME     "DA2_LED_GATT_4"
 #define SERVICE_UUID    ((uint16_t)0xFFF0)
 #define CHAR_FFF1_UUID  "0000FFF1-0000-1000-8000-00805F9B34FB"  // READ | NOTIFY
 #define CHAR_FFF2_UUID  "0000FFF2-0000-1000-8000-00805F9B34FB"  // READ | WRITE | NOTIFY
