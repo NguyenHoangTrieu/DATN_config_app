@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Firmware &amp; Software Design — DA2 IoT Gateway</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --wan: #1565C0;
+      --lan: #2E7D32;
+      --mid: #6A1B9A;
+      --bsp: #E65100;
+      --drv: #37474F;
+      --bg:  #FAFAFA;
+      --border: #DEE2E6;
+      --header-bg: #263238;
+      --header-fg: #ECEFF1;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      font-size: 13px;
+      background: var(--bg);
+      color: #212529;
+      padding: 24px;
+      line-height: 1.55;
+    }
+    h1 { font-size: 1.5rem; color: var(--header-bg); margin-bottom: 6px; }
+    h2 { font-size: 1.15rem; color: var(--header-bg); margin: 32px 0 10px; border-bottom: 2px solid var(--header-bg); padding-bottom: 4px; }
+    h3 { font-size: 1rem; color: #37474F; margin: 22px 0 8px; }
+    p  { margin-bottom: 8px; }
+    .subtitle { color: #607D8B; margin-bottom: 20px; font-size: 0.9rem; }
+
+    /* ── Universal table ── */
+    table { border-collapse: collapse; width: 100%; margin: 10px 0 20px; font-size: 12.5px; }
+    th { background: var(--header-bg); color: var(--header-fg); padding: 7px 10px; text-align: left; }
+    td { border: 1px solid var(--border); padding: 6px 10px; vertical-align: top; }
+    tr:nth-child(even) td { background: #F0F4F8; }
+    .tag { display:inline-block; padding:1px 6px; border-radius:3px; font-size:11px; font-weight:600; color:#fff; }
+    .tag-app  { background:#1565C0; }
+    .tag-mid  { background:#6A1B9A; }
+    .tag-bsp  { background:#E65100; }
+    .tag-drv  { background:#37474F; }
+    .tag-wan  { background:#0277BD; }
+    .tag-lan  { background:#2E7D32; }
+
+    /* ── Layered architecture blocks ── */
+    .arch-grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; margin:12px 0 24px; }
+    .arch-card { border:1px solid var(--border); border-radius:6px; overflow:hidden; }
+    .arch-card-title { padding:8px 14px; font-weight:700; font-size:0.9rem; color:#fff; }
+    .arch-card.wan .arch-card-title { background: var(--wan); }
+    .arch-card.lan .arch-card-title { background: var(--lan); }
+    .layer { padding:6px 14px 6px; }
+    .layer-label { font-weight:700; font-size:11px; letter-spacing:.5px; text-transform:uppercase; }
+    .layer.app   { background:#E3F2FD; }
+    .layer.mid   { background:#F3E5F5; }
+    .layer.bsp   { background:#FFF3E0; }
+    .layer.drv   { background:#ECEFF1; }
+    .layer ul    { margin:3px 0 4px 16px; }
+    .layer ul li { font-size:12px; }
+
+    /* ── Flow boxes ── */
+    .flow-wrap { display:flex; flex-direction:column; gap:0; align-items:center; width:100%; max-width:780px; margin:0 auto 20px; }
+    .flow-step { display:flex; align-items:stretch; width:100%; gap:0; }
+    .flow-num  { background:var(--header-bg); color:#fff; font-weight:700; font-size:13px;
+                 display:flex; align-items:center; justify-content:center;
+                 min-width:36px; border-radius:3px 0 0 3px; }
+    .flow-body { flex:1; border:1px solid var(--border); border-left:none; border-radius:0 3px 3px 0;
+                 padding:7px 12px; background:#fff; }
+    .flow-actor { font-weight:700; font-size:11px; color:#607D8B; display:inline-block; margin-right:6px; }
+    .flow-arrow { text-align:center; font-size:18px; color:#90A4AE; line-height:1.2; margin:2px 0; }
+
+    /* ── Priority badge ── */
+    .pri { display:inline-block; width:20px; height:20px; border-radius:50%; text-align:center;
+           line-height:20px; font-size:11px; font-weight:700; color:#fff; }
+    .pri6 { background:#B71C1C; }
+    .pri5 { background:#E53935; }
+    .pri4 { background:#FB8C00; }
+    .pri3 { background:#F9A825; color:#333; }
+    .pri2 { background:#66BB6A; }
+
+    /* ── Frame format visual ── */
+    .frame-vis { display:flex; align-items:stretch; border:2px solid #455A64; border-radius:4px;
+                 overflow:hidden; margin:12px 0; font-size:11px; font-weight:600; }
+    .frame-vis > div { padding:8px 6px; text-align:center; color:#fff; display:flex;
+                       flex-direction:column; justify-content:center; gap:3px; }
+    .fv-header { background:#1565C0; flex:0 0 80px; }
+    .fv-type   { background:#4527A0; flex:0 0 60px; }
+    .fv-hid    { background:#2E7D32; flex:0 0 80px; }
+    .fv-seq    { background:#558B2F; flex:0 0 70px; }
+    .fv-len    { background:#E65100; flex:0 0 80px; }
+    .fv-pay    { background:#1976D2; flex:1; }
+    .fv-crc    { background:#BF360C; flex:0 0 60px; }
+    .fv-size   { font-size:9px; opacity:.85; }
+
+    /* ── Mermaid wrapper ── */
+    .mermaid-wrap { background:#fff; border:1px solid var(--border); border-radius:6px;
+                    padding:16px; margin:10px 0 22px; overflow-x:auto; }
+    .mermaid { font-size:13px; }
+
+    /* ── Comparison badge ── */
+    .good { color:#2E7D32; font-weight:700; }
+    .warn { color:#E65100; font-weight:700; }
+
+    /* ── Section nav ── */
+    .toc { background:#ECEFF1; border-radius:6px; padding:12px 18px; margin-bottom:24px; font-size:12.5px; }
+    .toc a { color:var(--wan); text-decoration:none; }
+    .toc a:hover { text-decoration:underline; }
+    .toc ol { margin-left:18px; }
+    .toc li { margin:3px 0; }
+  </style>
+</head>
+<body>
+
+<h1>Firmware &amp; Software Design — DA2 Modular IoT Gateway</h1>
+<p class="subtitle">Tài liệu minh họa bổ trợ cho Chương 4 — Thiết kế Firmware và Software (v2.1.1)</p>
+
+<nav class="toc">
+  <strong>Nội dung:</strong>
+  <ol>
+    <li><a href="#s1">Kiến trúc phân lớp (Layered Architecture)</a></li>
+    <li><a href="#s2">Task Architecture — Danh sách task và ưu tiên</a></li>
+    <li><a href="#s3">Luồng dữ liệu Uplink &amp; Downlink</a></li>
+    <li><a href="#s4">Giao tiếp nội bộ LAN ↔ WAN — SPI Frame Format</a></li>
+    <li><a href="#s5">Internet Fallback &amp; Server Protocol Selection</a></li>
+    <li><a href="#s6">Module Base Setting — JSON Config System</a></li>
+    <li><a href="#s7">Cơ chế FOTA Dual-MCU</a></li>
+    <li><a href="#s8">So sánh thông lượng giao thức LAN</a></li>
+  </ol>
+</nav>
+
+<!-- ═══════════════════════════════════════════════════════ SECTION 1 -->
+<h2 id="s1">1. Kiến trúc phân lớp (Layered Architecture)</h2>
+<p>Phần mềm được chia thành bốn tầng: <strong>Application → Middleware → BSP → Driver</strong>, độc lập giữa WAN-MCU và LAN-MCU.</p>
+
+<div class="arch-grid">
+  <!-- WAN -->
+  <div class="arch-card wan">
+    <div class="arch-card-title">⬆ WAN-MCU (DA2_esp) — Internet &amp; Cloud</div>
+    <div class="layer app">
+      <div class="layer-label" style="color:#1565C0;">Application</div>
+      <ul>
+        <li>Config Handler (WF/MQ/LT/IN/SV/HP/CP/FW)</li>
+        <li>Server Comm Handler (MQTT / HTTP / CoAP)</li>
+        <li>MCU LAN Handler (SPI Slave — inter-MCU)</li>
+        <li>Internet Comm Handler (WiFi / LTE / Ethernet)</li>
+        <li>Internet Monitor Handler</li>
+        <li>Data Comm Handler (USB/UART — PC App)</li>
+        <li>Web Config Handler (AP/STA Portal)</li>
+        <li>FOTA Handler (điều phối cập nhật dual-MCU)</li>
+        <li>HMI Task (màn hình TFT)</li>
+      </ul>
+    </div>
+    <div class="layer mid">
+      <div class="layer-label" style="color:#6A1B9A;">Middleware</div>
+      <ul>
+        <li>FreeRTOS — Scheduler, Queue, Semaphore</li>
+        <li>ESP-IDF WiFi / LTE / Ethernet Stack</li>
+        <li>MQTT / HTTP / CoAP Stack</li>
+        <li>NVS (Non-Volatile Storage)</li>
+        <li>TLS / DTLS</li>
+      </ul>
+    </div>
+    <div class="layer bsp">
+      <div class="layer-label" style="color:#E65100;">BSP</div>
+      <ul>
+        <li>QSPI Driver (inter-MCU SPI Slave)</li>
+        <li>UART / USB Driver (PC App)</li>
+        <li>W5500 Ethernet Driver</li>
+        <li>LTE Modem Driver (SIM7600 / A7600)</li>
+      </ul>
+    </div>
+    <div class="layer drv">
+      <div class="layer-label" style="color:#37474F;">Driver</div>
+      <ul><li>ESP32-S3 Hardware: GPIO, SPI, UART, USB, I2C, ADC</li></ul>
+    </div>
+  </div>
+
+  <!-- LAN -->
+  <div class="arch-card lan">
+    <div class="arch-card-title">⬇ LAN-MCU (DA2_esp_LAN) — Local Networks</div>
+    <div class="layer app">
+      <div class="layer-label" style="color:#2E7D32;">Application</div>
+      <ul>
+        <li>MCU WAN Handler (SPI Master — inter-MCU)</li>
+        <li>Config Handler (module commands dispatcher)</li>
+        <li>Zigbee Handler Task (E180-ZG120B)</li>
+        <li>LoRa Handler Task (Wio-E5, P2P mode)</li>
+        <li>BLE Handler Task (GATT Central + Native)</li>
+        <li>RS-485 Handler (Modbus RTU)</li>
+        <li>FOTA LAN Handler (self-OTA via WAN AP)</li>
+        <li>Module Monitor Task (health check)</li>
+        <li>Benchmark (throughput measurement)</li>
+      </ul>
+    </div>
+    <div class="layer mid">
+      <div class="layer-label" style="color:#6A1B9A;">Middleware</div>
+      <ul>
+        <li>FreeRTOS — Scheduler, Queue, Semaphore</li>
+        <li>Module Config Controller (JSON dispatcher)</li>
+        <li>JSON Config Parser (AT template engine)</li>
+        <li>Storage Handler (SD Card store-and-forward)</li>
+      </ul>
+    </div>
+    <div class="layer bsp">
+      <div class="layer-label" style="color:#E65100;">BSP</div>
+      <ul>
+        <li>SPI Master Driver (inter-MCU)</li>
+        <li>Module UART / SPI / I2C / USB Driver</li>
+        <li>SD Card SDIO 4-bit Driver</li>
+        <li>RS-485 Transceiver Driver</li>
+      </ul>
+    </div>
+    <div class="layer drv">
+      <div class="layer-label" style="color:#37474F;">Driver</div>
+      <ul><li>ESP32-S3 Hardware: GPIO, SPI, UART, I2C, SDIO, USB</li></ul>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ SECTION 2 -->
+<h2 id="s2">2. Task Architecture — Danh sách task và ưu tiên</h2>
+
+<h3>WAN-MCU Tasks</h3>
+<table>
+  <thead><tr><th>Task</th><th>Priority</th><th>Vai trò</th><th>Kích hoạt</th></tr></thead>
+  <tbody>
+    <tr><td>MCU LAN Uplink Task</td><td><span class="pri pri6">6</span></td><td>Nhận data từ LAN qua SPI Slave → đẩy vào queue Server</td><td>SPI interrupt</td></tr>
+    <tr><td>MCU LAN Downlink Task</td><td><span class="pri pri5">5</span></td><td>Gửi lệnh/config từ WAN xuống LAN qua SPI</td><td>GPIO handshake assert</td></tr>
+    <tr><td>MQTT Handler Task</td><td><span class="pri pri4">4</span></td><td>Publish telemetry; Subscribe RPC từ ThingsBoard</td><td>MQTT event</td></tr>
+    <tr><td>HTTP/CoAP Handler Task</td><td><span class="pri pri4">4</span></td><td>Xử lý REST API và CoAP Observe</td><td>HTTP request</td></tr>
+    <tr><td>Config Handler Task</td><td><span class="pri pri3">3</span></td><td>Xử lý lệnh cấu hình từ UART/USB/Web/MQTT</td><td>Config queue</td></tr>
+    <tr><td>Internet Monitor Task</td><td><span class="pri pri3">3</span></td><td>Kiểm tra kết nối; kích hoạt Fallback</td><td>Định kỳ 5s</td></tr>
+    <tr><td>Web Config Handler Task</td><td><span class="pri pri3">3</span></td><td>Phục vụ HTTP trên AP/STA Web Portal</td><td>HTTP request</td></tr>
+    <tr><td>FOTA Handler Task</td><td><span class="pri pri2">2</span></td><td>Điều phối FOTA; kích hoạt Wi-Fi AP cho LAN</td><td>Lệnh Server</td></tr>
+    <tr><td>HMI Task</td><td><span class="pri pri2">2</span></td><td>Cập nhật màn hình TFT</td><td>Sự kiện hệ thống</td></tr>
+    <tr><td>Data Communication Task</td><td><span class="pri pri2">2</span></td><td>Xử lý lệnh từ PC App qua USB/UART</td><td>UART interrupt</td></tr>
+  </tbody>
+</table>
+
+<h3>LAN-MCU Tasks</h3>
+<table>
+  <thead><tr><th>Task</th><th>Priority</th><th>Vai trò</th><th>Kích hoạt</th></tr></thead>
+  <tbody>
+    <tr><td>MCU WAN Uplink Task</td><td><span class="pri pri6">6</span></td><td>Đóng gói data batch mỗi 10ms, gửi lên WAN qua SPI Master</td><td>Định kỳ 10ms</td></tr>
+    <tr><td>MCU WAN Downlink Task</td><td><span class="pri pri5">5</span></td><td>Nhận lệnh từ WAN; phân phối đến handler giao thức</td><td>GPIO interrupt từ WAN</td></tr>
+    <tr><td>Zigbee Handler Task</td><td><span class="pri pri4">4</span></td><td>Thu thập và xác thực data từ module Zigbee</td><td>UART interrupt</td></tr>
+    <tr><td>LoRa Handler Task</td><td><span class="pri pri4">4</span></td><td>Thu thập data từ module LoRa (P2P mode)</td><td>UART interrupt</td></tr>
+    <tr><td>BLE Handler Task</td><td><span class="pri pri4">4</span></td><td>Quản lý kết nối BLE GATT/Native Mesh</td><td>BLE event</td></tr>
+    <tr><td>RS-485 Handler Task</td><td><span class="pri pri4">4</span></td><td>Giao tiếp Modbus RTU với sensor</td><td>UART interrupt</td></tr>
+    <tr><td>Config Handler Task</td><td><span class="pri pri3">3</span></td><td>Xử lý cấu hình module; nạp JSON preset</td><td>Command queue</td></tr>
+    <tr><td>Module Monitor Task</td><td><span class="pri pri2">2</span></td><td>Kiểm tra health module; báo cáo lên WAN</td><td>Định kỳ 30s</td></tr>
+    <tr><td>FOTA LAN Task</td><td><span class="pri pri2">2</span></td><td>Tự update firmware qua Wi-Fi AP của WAN</td><td>Lệnh từ WAN</td></tr>
+  </tbody>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════ SECTION 3 -->
+<h2 id="s3">3. Luồng dữ liệu Uplink &amp; Downlink</h2>
+
+<h3>Luồng Uplink: Sensor → LAN-MCU → WAN-MCU → Cloud</h3>
+<div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+    participant S as Sensor Node<br/>(Zigbee/LoRa/BLE)
+    participant LAN as LAN-MCU
+    participant WAN as WAN-MCU
+    participant CLD as Cloud Server
+
+    S->>LAN: Gửi dữ liệu (UART/SPI/BLE)
+    LAN->>LAN: Validation + Parsing + Normalization
+    LAN->>LAN: Đóng gói DT frame (Header + Handler ID + CRC)
+    LAN->>WAN: Gửi DT frame qua SPI Master (10ms batch)
+    WAN->>WAN: Kiểm tra CRC + Sequence Number
+    alt CRC hợp lệ
+        WAN-->>LAN: ACK (OK + Internet Status)
+        WAN->>CLD: Publish MQTT / HTTP POST / CoAP PUT
+        CLD-->>WAN: Server ACK
+    else CRC lỗi
+        WAN-->>LAN: NACK → LAN retry
+    end
+</div>
+</div>
+
+<h3>Luồng Downlink: Cloud → WAN-MCU → LAN-MCU → Sensor</h3>
+<div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+    participant CLD as Cloud Server
+    participant WAN as WAN-MCU
+    participant GPIO as GPIO Handshake Pin
+    participant LAN as LAN-MCU
+    participant S as Sensor/Actuator
+
+    CLD->>WAN: RPC Command (MQTT/HTTP)
+    WAN->>WAN: Phân tích payload, xác định Handler ID đích
+    WAN->>WAN: Đóng gói CF frame → downlink queue
+    WAN->>GPIO: Assert GPIO Handshake (LOW→HIGH)
+    GPIO->>LAN: Rising edge interrupt (ISR)
+    LAN->>WAN: Khởi tạo SPI session để đọc CF frame
+    WAN-->>LAN: Gửi CF frame (Header CF + Handler ID + Command)
+    LAN->>LAN: Kiểm tra CRC + Sequence Number
+    alt Hợp lệ
+        LAN-->>WAN: ACK OK
+        LAN->>S: Dispatch lệnh đến handler giao thức
+        S-->>LAN: Phản hồi trạng thái
+        LAN->>WAN: Gửi kết quả qua DT frame
+        WAN->>CLD: Forward kết quả lên Server
+    else Lỗi
+        LAN-->>WAN: NACK → WAN retry (tối đa 3 lần)
+    end
+</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ SECTION 4 -->
+<h2 id="s4">4. Giao tiếp nội bộ LAN ↔ WAN — SPI Frame Format</h2>
+
+<h3>Cấu trúc khung tin</h3>
+<div class="frame-vis">
+  <div class="fv-header"><div>Header</div><div class="fv-size">2 bytes</div><div style="font-size:10px">DT/CF/DQ/CQ/RT</div></div>
+  <div class="fv-type"><div>Frame Type</div><div class="fv-size">1 byte</div><div style="font-size:10px">0x01–0x08</div></div>
+  <div class="fv-hid"><div>Handler ID</div><div class="fv-size">3 bytes</div><div style="font-size:10px">ZIG/LOR/BLE/RS4</div></div>
+  <div class="fv-seq"><div>Seq. Num</div><div class="fv-size">2 bytes</div><div style="font-size:10px">0–65535</div></div>
+  <div class="fv-len"><div>Pay. Len</div><div class="fv-size">2 bytes</div><div style="font-size:10px">0–2048</div></div>
+  <div class="fv-pay"><div>Payload</div><div class="fv-size">N bytes</div><div style="font-size:10px">JSON / Raw data</div></div>
+  <div class="fv-crc"><div>CRC-16</div><div class="fv-size">2 bytes</div></div>
+</div>
+
+<h3>Phân loại khung tin</h3>
+<table>
+  <thead><tr><th>Header</th><th>Tên</th><th>Hướng</th><th>Mô tả</th></tr></thead>
+  <tbody>
+    <tr><td><code>DT</code></td><td>Data Frame</td><td>LAN → WAN</td><td>Dữ liệu cảm biến đã chuẩn hóa</td></tr>
+    <tr><td><code>CF</code></td><td>Command Frame</td><td>WAN → LAN</td><td>Lệnh điều khiển từ Server / Config</td></tr>
+    <tr><td><code>DQ</code></td><td>Data Query</td><td>WAN → LAN</td><td>Yêu cầu truy vấn dữ liệu từ LAN</td></tr>
+    <tr><td><code>CQ</code></td><td>Config Query</td><td>WAN → LAN</td><td>Yêu cầu đọc cấu hình hiện tại của LAN</td></tr>
+    <tr><td><code>RT</code></td><td>RTC Response</td><td>WAN → LAN</td><td>Đồng bộ thời gian (mỗi 1s)</td></tr>
+    <tr><td><code>ACK</code></td><td>Acknowledgment</td><td>Hai chiều</td><td>Xác nhận (OK / No Internet / Error)</td></tr>
+  </tbody>
+</table>
+
+<h3>Handler ID — Định danh giao thức</h3>
+<table>
+  <thead><tr><th>Handler ID</th><th>Giao thức</th><th>Module thực tế</th></tr></thead>
+  <tbody>
+    <tr><td><code>ZIG</code></td><td>Zigbee</td><td>E180-ZG120B (CC2530)</td></tr>
+    <tr><td><code>LOR</code></td><td>LoRa P2P</td><td>Wio-E5 (STM32WLE5JC)</td></tr>
+    <tr><td><code>BLE</code></td><td>BLE (AT module via UART)</td><td>STM32WB55, HC-05</td></tr>
+    <tr><td><code>BLN</code></td><td>BLE Native Mesh Provisioner</td><td>ESP32-S3 (built-in)</td></tr>
+    <tr><td><code>BLG</code></td><td>BLE GATT Central</td><td>ESP32-S3 (built-in)</td></tr>
+    <tr><td><code>RS4</code></td><td>RS-485 Modbus RTU</td><td>External transceiver</td></tr>
+    <tr><td><code>CAN</code></td><td>CAN Bus</td><td>Dự phòng (chưa triển khai)</td></tr>
+  </tbody>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════ SECTION 5 -->
+<h2 id="s5">5. Internet Fallback &amp; Server Protocol Selection</h2>
+
+<h3>Cơ chế Internet Fallback (Thứ tự ưu tiên)</h3>
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart TD
+    START([Khởi động WAN-MCU]) --> ETH{Ethernet W5500\nphát hiện link?}
+    ETH -->|Có| USE_ETH[Sử dụng Ethernet\nƯu tiên 1]
+    ETH -->|Không| WIFI{Wi-Fi kết nối\nthành công?}
+    WIFI -->|Có| USE_WIFI[Sử dụng Wi-Fi\nƯu tiên 2]
+    WIFI -->|Không| LTE{LTE modem\nkhả dụng?}
+    LTE -->|Có| USE_LTE[Sử dụng LTE\nƯu tiên 3]
+    LTE -->|Không| NO_NET[Chế độ offline\nStore & Forward]
+    USE_ETH --> MONITOR{Internet Monitor\nchuẩn đoán định kỳ 5s}
+    USE_WIFI --> MONITOR
+    USE_LTE --> MONITOR
+    NO_NET --> MONITOR
+    MONITOR -->|Link mất| ETH
+</div>
+</div>
+
+<h3>So sánh giao thức Server</h3>
+<table>
+  <thead><tr><th>Tham số</th><th>MQTT</th><th>HTTP</th><th>CoAP</th></tr></thead>
+  <tbody>
+    <tr><td>Giao thức truyền tải</td><td>TCP + TLS</td><td>HTTPS (TCP)</td><td>UDP + DTLS</td></tr>
+    <tr><td>Kiểu kết nối</td><td>Persistent</td><td>Request-Response</td><td>Request-Response / Observe</td></tr>
+    <tr><td>Uplink (Telemetry)</td><td>PUBLISH</td><td>HTTP POST</td><td>PUT</td></tr>
+    <tr><td>Downlink (Command)</td><td>SUBSCRIBE</td><td>Long polling</td><td>OBSERVE</td></tr>
+    <tr><td>Overhead</td><td><span class="good">Thấp (2 byte header)</span></td><td><span class="warn">Cao (HTTP headers)</span></td><td><span class="good">Thấp (4 byte header)</span></td></tr>
+    <tr><td>Phù hợp với</td><td>ThingsBoard, EMQX</td><td>Mọi REST API</td><td>Thiết bị NB-IoT, LoRaWAN</td></tr>
+    <tr><td>Mã cấu hình</td><td><code>MQ</code></td><td><code>HP</code></td><td><code>CP</code></td></tr>
+  </tbody>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════ SECTION 6 -->
+<h2 id="s6">6. Module Base Setting — JSON Config System</h2>
+
+<h3>Vấn đề: Không đồng nhất cú pháp lệnh AT</h3>
+<table>
+  <thead><tr><th>Chức năng chuẩn hóa</th><th>HC-05</th><th>ESP32 (AT)</th><th>nRF52 (Uble)</th><th>STM32WB55</th></tr></thead>
+  <tbody>
+    <tr><td>Đặt tên thiết bị</td><td><code>AT+NAME=</code></td><td><code>AT+BLENAME=</code></td><td><code>AT+UBTLN=</code></td><td><code>AT+LOCALNAME=</code></td></tr>
+    <tr><td>Quét thiết bị lân cận</td><td><code>AT+INQ</code></td><td><code>AT+BLESCAN=1</code></td><td><code>AT+UBTSCAN</code></td><td><code>AT+BLESCAN</code></td></tr>
+    <tr><td>Kết nối thiết bị</td><td><code>AT+LINK=</code></td><td><code>AT+BLECONN=</code></td><td><code>AT+UBTACLC=</code></td><td><code>AT+CONNECT=</code></td></tr>
+    <tr><td>Ngắt kết nối</td><td><code>AT+DISC</code></td><td><code>AT+BLEDISCONN</code></td><td><code>AT+UBTACLDC</code></td><td><code>AT+DISCONNECT</code></td></tr>
+    <tr><td>Reset phần mềm</td><td><code>AT+RESET</code></td><td><code>AT+RST</code></td><td><code>AT+CPWROFF</code></td><td><code>AT+RESET</code></td></tr>
+  </tbody>
+</table>
+
+<h3>Giải pháp: Cấu trúc JSON Preset</h3>
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart LR
+    subgraph JSON["JSON Preset File"]
+        direction TB
+        J1[comm_type: UART]
+        J2[baud_rate: 115200]
+        J3["functions[0]:\n  name: MODULE_SCAN\n  cmd_template: AT+BLESCAN={dur}\n  timeout_ms: 3000"]
+        J4["functions[1]:\n  name: MODULE_CONNECT\n  cmd_template: AT+BLECONN={addr}\n  pre_gpio: RST_HIGH"]
+    end
+    subgraph FW["Firmware (invariant)"]
+        direction TB
+        F1[Nhận tên chức năng\nchuẩn hóa từ Server]
+        F2[Tra cứu template\ntrong JSON]
+        F3[Ghép tham số\nvào template]
+        F4[Thực thi lệnh\nxuống module]
+    end
+    JSON --> FW
+    style JSON fill:#E8F5E9,stroke:#2E7D32
+    style FW fill:#E3F2FD,stroke:#1565C0
+</div>
+</div>
+
+<h3>Luồng hoạt động Module Base Setting</h3>
+<table>
+  <thead><tr><th>Giai đoạn</th><th>Bước</th><th>Thành phần</th><th>Hành động</th></tr></thead>
+  <tbody>
+    <tr><td rowspan="4" style="background:#E8F5E9;font-weight:700">Nạp cấu hình</td>
+        <td>1</td><td>PC App / Server</td><td>Gửi JSON preset qua lệnh <code>ML</code></td></tr>
+    <tr><td>2</td><td>WAN-MCU</td><td>Đóng gói CF frame, forward xuống LAN-MCU qua SPI</td></tr>
+    <tr><td>3</td><td>LAN-MCU / JSON Parser</td><td>Phân tích JSON, lưu vào bộ nhớ runtime</td></tr>
+    <tr><td>4</td><td>Module Config Controller</td><td>Cập nhật bảng ánh xạ slot → handler</td></tr>
+    <tr><td rowspan="8" style="background:#E3F2FD;font-weight:700">Thực thi lệnh</td>
+        <td>5</td><td>Server</td><td>Gửi <code>ZIG:MODULE_SCAN</code> qua MQTT RPC</td></tr>
+    <tr><td>6</td><td>WAN-MCU</td><td>Đóng gói CF frame với Handler ID = <code>ZIG</code></td></tr>
+    <tr><td>7</td><td>LAN-MCU</td><td>Nhận qua GPIO handshake, tra cứu <code>MODULE_SCAN</code></td></tr>
+    <tr><td>8</td><td>JSON Engine</td><td>Lệnh tĩnh → trích xuất trực tiếp; Lệnh động → ghép tham số</td></tr>
+    <tr><td>9</td><td>GPIO Controller</td><td>Kích hoạt chuỗi <code>pre_gpio</code> nếu được định nghĩa</td></tr>
+    <tr><td>10</td><td>LAN-MCU</td><td>Gửi lệnh AT hoàn chỉnh xuống module vật lý</td></tr>
+    <tr><td>11</td><td>LAN-MCU</td><td>Đọc phản hồi module; kiểm tra với response pattern</td></tr>
+    <tr><td>12</td><td>WAN-MCU → Server</td><td>Forward kết quả OK/FAIL + data ngược lên Server</td></tr>
+  </tbody>
+</table>
+
+<h3>Preset đã chuẩn bị cho kiểm thử</h3>
+<table>
+  <thead><tr><th>File JSON</th><th>Module</th><th>Giao thức</th><th>Giao tiếp vật lý</th></tr></thead>
+  <tbody>
+    <tr><td><code>zigbee_e180_zg120b.json</code></td><td>E180-ZG120B</td><td>Zigbee (Ebyte AT)</td><td>UART 115200 bps</td></tr>
+    <tr><td><code>ble_stm32wb55.json</code></td><td>NUCLEO-WB55RG</td><td>BLE GATT Central</td><td>UART 115200 bps</td></tr>
+    <tr><td><code>lora_wio_e5.json</code></td><td>Seeed Wio-E5</td><td>LoRa P2P (TEST mode)</td><td>UART 9600 bps</td></tr>
+    <tr><td><code>stack_id_map.json</code></td><td>—</td><td>—</td><td>Ánh xạ slot hardware → preset</td></tr>
+  </tbody>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════ SECTION 7 -->
+<h2 id="s7">7. Cơ chế FOTA Dual-MCU</h2>
+<p>Quy trình cập nhật firmware từ xa được thiết kế tuần tự: <strong>LAN-MCU cập nhật trước</strong>, sau đó mới đến <strong>WAN-MCU</strong>, đảm bảo luôn có MCU có thể điều phối và xử lý lỗi.</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+    participant SVR as Cloud Server
+    participant WAN as WAN-MCU
+    participant AP as Wi-Fi AP (WAN)
+    participant LAN as LAN-MCU
+
+    SVR->>WAN: Lệnh FOTA (URL firmware LAN + WAN)
+    WAN->>WAN: Đánh dấu FOTA mode
+    WAN->>LAN: Forward URL firmware LAN qua SPI (CF frame)
+    WAN->>AP: Kích hoạt Wi-Fi AP mode
+    LAN->>AP: Kết nối Wi-Fi STA vào AP của WAN
+    LAN->>LAN: Tải firmware LAN qua HTTPS
+    LAN->>LAN: Kiểm tra SHA256 hash
+    LAN->>LAN: Ghi vào partition OTA, khởi động lại
+    LAN-->>WAN: Handshake "LAN FOTA DONE"
+    WAN->>WAN: Tải firmware WAN qua HTTPS
+    WAN->>WAN: Kiểm tra hash, ghi flash, khởi động lại
+    WAN->>SVR: Báo cáo FOTA status (OK/FAIL + version mới)
+</div>
+</div>
+
+<table>
+  <thead><tr><th>Bước</th><th>Thành phần</th><th>Hành động</th><th>Kênh</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>Server</td><td>Gửi lệnh FOTA kèm URL firmware LAN và WAN</td><td>MQTT / HTTP</td></tr>
+    <tr><td>2</td><td>WAN-MCU</td><td>Phân tích lệnh; đánh dấu FOTA mode</td><td>—</td></tr>
+    <tr><td>3</td><td>WAN-MCU</td><td>Forward URL firmware LAN xuống LAN qua SPI CF frame</td><td>SPI</td></tr>
+    <tr><td>4</td><td>WAN-MCU</td><td>Kích hoạt Wi-Fi AP mode (cung cấp Internet cho LAN)</td><td>Wi-Fi AP</td></tr>
+    <tr><td>5</td><td>LAN-MCU</td><td>Kết nối vào Wi-Fi AP của WAN</td><td>Wi-Fi STA</td></tr>
+    <tr><td>6–7</td><td>LAN-MCU</td><td>Tải firmware HTTPS, kiểm tra hash, ghi OTA partition</td><td>HTTPS</td></tr>
+    <tr><td>8</td><td>LAN-MCU</td><td>Khởi động lại; gửi handshake "LAN FOTA DONE" lên WAN</td><td>SPI</td></tr>
+    <tr><td>9–10</td><td>WAN-MCU</td><td>Tải firmware WAN qua HTTPS, kiểm tra hash, ghi flash</td><td>HTTPS</td></tr>
+    <tr><td>11</td><td>WAN-MCU</td><td>Khởi động lại; gửi FOTA status (OK/FAIL + version) lên Server</td><td>MQTT / HTTP</td></tr>
+  </tbody>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════ SECTION 8 -->
+<h2 id="s8">8. So sánh thông lượng giao thức LAN</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Giao thức</th>
+      <th>Module</th>
+      <th>R<sub>PHY</sub></th>
+      <th>R<sub>app</sub> thực tế</th>
+      <th>Hiệu suất η</th>
+      <th>Nút thắt chính</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Zigbee (IEEE 802.15.4)</td>
+      <td>E180-ZG120B</td>
+      <td>250 kbps</td>
+      <td><span class="warn">~8,2 kbps</span></td>
+      <td>3,3%</td>
+      <td>UART 115200 bps (12,67 ms/frame) + CSMA/CA</td>
+    </tr>
+    <tr>
+      <td>LoRa P2P (SF7/BW125)</td>
+      <td>Wio-E5</td>
+      <td>5,47 kbps</td>
+      <td><span class="warn">~3,5 kbps</span></td>
+      <td>64%</td>
+      <td>Time-on-Air ~97,5 ms/gói (50 byte)</td>
+    </tr>
+    <tr>
+      <td>BLE (không DLE)</td>
+      <td>ESP32-S3 native</td>
+      <td>1000 kbps</td>
+      <td><span class="warn">~8 kbps</span></td>
+      <td>0,8%</td>
+      <td>MTU = 20 byte, CI = 20 ms</td>
+    </tr>
+    <tr>
+      <td>BLE (bật DLE, MTU=247)</td>
+      <td>ESP32-S3 native</td>
+      <td>1000 kbps</td>
+      <td><span class="good">~97,6 kbps</span></td>
+      <td>9,8%</td>
+      <td>Connection Interval = 20 ms</td>
+    </tr>
+    <tr>
+      <td>RS-485 Modbus RTU</td>
+      <td>External transceiver</td>
+      <td>9600–115200 bps</td>
+      <td>Phụ thuộc payload</td>
+      <td>~70%</td>
+      <td>Half-duplex polling</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+xychart-beta
+    title "Thông lượng ứng dụng theo giao thức (kbps)"
+    x-axis ["Zigbee", "LoRa P2P", "BLE (no DLE)", "BLE (DLE ON)", "RS-485"]
+    y-axis "Throughput (kbps)" 0 --> 110
+    bar [8.2, 3.5, 8, 97.6, 40]
+</div>
+</div>
+
+<h3>Độ trễ End-to-End ước tính (kịch bản 1 node đơn lẻ)</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Thành phần trễ</th>
+      <th>Zigbee</th>
+      <th>LoRa P2P</th>
+      <th>BLE (DLE)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>T<sub>air</sub> — Truyền sóng</td><td>~4,8 ms</td><td>~97,5 ms</td><td>~2,2 ms</td></tr>
+    <tr><td>T<sub>UART</sub> — Module → MCU</td><td>~12,7 ms</td><td>~16,1 ms</td><td>0 (native)</td></tr>
+    <tr><td>T<sub>CI</sub> — BLE Connection Interval</td><td>—</td><td>—</td><td>0–20 ms (avg 10)</td></tr>
+    <tr><td>T<sub>batch</sub> — Gom gói tại LAN</td><td colspan="3">0–10 ms (chu kỳ 10ms)</td></tr>
+    <tr><td>T<sub>SPI</sub> — Inter-MCU bus</td><td colspan="3">~0,7 ms (worst case 5193 byte @ 60 MHz)</td></tr>
+    <tr><td>T<sub>network</sub> — WAN → Cloud</td><td colspan="3">~30 ms (Wi-Fi + MQTT)</td></tr>
+    <tr style="font-weight:700;background:#E3F2FD">
+      <td><strong>T<sub>e2e</sub> ước tính (trung bình)</strong></td>
+      <td>~58 ms</td>
+      <td>~154 ms</td>
+      <td>~53 ms</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr style="margin:30px 0;border-color:#CFD8DC"/>
+<p style="color:#78909C;font-size:11px;text-align:center">
+  DA2 Modular IoT Gateway — Firmware &amp; Software Design Diagrams v2.1.1<br/>
+  Tài liệu bổ trợ cho Báo cáo Đồ án Tốt nghiệp — Không đưa trực tiếp vào LaTeX.
+</p>
+
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: 'default', securityLevel: 'loose',
+    sequence: { diagramMarginX: 20, diagramMarginY: 10 },
+    flowchart: { useMaxWidth: true } });
+</script>
+</body>
+</html>

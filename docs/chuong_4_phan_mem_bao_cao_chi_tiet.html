@@ -1,0 +1,1970 @@
+﻿<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chuong 4 - Bao cao thiet ke firmware va software</title>
+  <style>
+    :root {
+      --bg: #e9eef2;
+      --page: #ffffff;
+      --ink: #17212b;
+      --muted: #5d6b79;
+      --line: #d6dde5;
+      --accent: #0f5fa8;
+      --accent-2: #2f7d32;
+      --accent-3: #7c4d00;
+      --accent-4: #5f35b7;
+      --soft: #f5f8fb;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Segoe UI", Arial, sans-serif;
+      line-height: 1.45;
+    }
+
+    @page {
+      size: A4 portrait;
+      margin: 12mm;
+    }
+
+    body {
+      padding: 18px 0 40px;
+    }
+
+    .page {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 0 auto 18px;
+      background: var(--page);
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+      padding: 14mm;
+      position: relative;
+      overflow: hidden;
+      page-break-after: always;
+    }
+
+    .cover {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      background:
+        linear-gradient(135deg, rgba(15,95,168,0.08), rgba(47,125,50,0.04)),
+        radial-gradient(circle at top right, rgba(124,77,0,0.10), transparent 35%),
+        #fff;
+    }
+
+    .smallcaps {
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+    }
+
+    h1, h2, h3, h4 {
+      margin: 0 0 10px;
+      line-height: 1.2;
+      color: #102030;
+    }
+
+    h1 { font-size: 30px; }
+    h2 { font-size: 22px; margin-top: 10px; }
+    h3 { font-size: 17px; margin-top: 12px; }
+    h4 { font-size: 14px; margin-top: 10px; }
+
+    p {
+      margin: 0 0 9px;
+      font-size: 12.5px;
+      text-align: justify;
+    }
+
+    ul, ol {
+      margin: 6px 0 10px 18px;
+      padding: 0;
+      font-size: 12.5px;
+    }
+
+    li { margin: 4px 0; }
+
+    .hero-box {
+      border: 1.5px solid var(--line);
+      border-radius: 16px;
+      padding: 18px 20px;
+      background: linear-gradient(180deg, #f9fbfd, #f2f7fb);
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px 16px;
+      margin-top: 18px;
+      font-size: 12.5px;
+    }
+
+    .meta-grid div {
+      border-top: 1px solid var(--line);
+      padding-top: 8px;
+    }
+
+    .toc-grid {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 16px;
+      align-items: start;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 12px;
+      padding: 12px 14px;
+    }
+
+    .note {
+      background: #f7fbff;
+      border-left: 4px solid var(--accent);
+      padding: 10px 12px;
+      font-size: 12.5px;
+      margin: 8px 0 12px;
+    }
+
+    .kpi-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .kpi {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: linear-gradient(180deg, #ffffff, #f6f9fc);
+    }
+
+    .kpi .value {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--accent);
+      margin-bottom: 4px;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    .three-col {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .section-title {
+      border-bottom: 2px solid #21384d;
+      padding-bottom: 6px;
+      margin-bottom: 12px;
+    }
+
+    .part-label {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: #e9f2fb;
+      color: var(--accent);
+      font-weight: 800;
+      font-size: 11px;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 8px 0 12px;
+      font-size: 11.7px;
+    }
+
+    th, td {
+      border: 1px solid var(--line);
+      padding: 7px 8px;
+      vertical-align: top;
+    }
+
+    th {
+      background: #243746;
+      color: #f3f7fb;
+      text-align: left;
+      font-weight: 700;
+    }
+
+    tr:nth-child(even) td {
+      background: #f8fbfd;
+    }
+
+    .table-tight th, .table-tight td {
+      padding: 5px 6px;
+      font-size: 11px;
+    }
+
+    .fig-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      align-items: start;
+    }
+
+    figure {
+      margin: 0 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px;
+      background: #fff;
+    }
+
+    figure img {
+      width: 100%;
+      display: block;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    figcaption {
+      margin-top: 8px;
+      font-size: 11.5px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .mermaid-wrap {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px;
+      background: #fff;
+      margin-bottom: 12px;
+      overflow: hidden;
+    }
+
+    .mermaid {
+      text-align: center;
+      min-height: 120px;
+    }
+
+    .mermaid svg text,
+    .mermaid svg tspan,
+    .mermaid .label,
+    .mermaid .nodeLabel,
+    .mermaid .edgeLabel,
+    .mermaid .messageText,
+    .mermaid .noteText,
+    .mermaid .loopText,
+    .mermaid .taskText,
+    .mermaid .sectionTitle {
+      font-size: 16px !important;
+      font-weight: 700 !important;
+      font-family: "Segoe UI", Arial, sans-serif !important;
+      fill: #111 !important;
+      color: #111 !important;
+    }
+
+    .stat-box {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: var(--soft);
+      margin-bottom: 10px;
+    }
+
+    .legend {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      font-size: 11px;
+      margin: 8px 0 12px;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #f3f7fb;
+      border: 1px solid var(--line);
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .dot.wan { background: #1565c0; }
+    .dot.lan { background: #2e7d32; }
+    .dot.mid { background: #6a1b9a; }
+    .dot.data { background: #e65100; }
+
+    .page-number {
+      position: absolute;
+      right: 14mm;
+      bottom: 10mm;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .muted { color: var(--muted); }
+    .center { text-align: center; }
+    .right { text-align: right; }
+    .mb8 { margin-bottom: 8px; }
+    .mb12 { margin-bottom: 12px; }
+    .mb16 { margin-bottom: 16px; }
+    .mb20 { margin-bottom: 20px; }
+    .small { font-size: 11.5px; }
+
+    @media print {
+      body { background: #fff; padding: 0; }
+      .page { box-shadow: none; margin: 0; }
+    }
+  </style>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "base",
+      securityLevel: "loose",
+      flowchart: {
+        useMaxWidth: true,
+        htmlLabels: true,
+        curve: "linear",
+        nodeSpacing: 40,
+        rankSpacing: 40,
+        wrappingWidth: 220
+      },
+      sequence: {
+        useMaxWidth: true,
+        wrap: true,
+        actorMargin: 60,
+        messageMargin: 18,
+        noteMargin: 12
+      },
+      themeVariables: {
+        fontFamily: "Segoe UI, Arial, sans-serif",
+        fontSize: "16px",
+        primaryColor: "#edf4fb",
+        secondaryColor: "#f3fbf4",
+        tertiaryColor: "#fff6eb",
+        primaryBorderColor: "#183047",
+        secondaryBorderColor: "#183047",
+        tertiaryBorderColor: "#183047",
+        lineColor: "#111",
+        textColor: "#111",
+        noteBkgColor: "#fff9d8",
+        noteBorderColor: "#b29a2d"
+      },
+      themeCSS: `
+        .messageLine0, .messageLine1, .messageLine2, .signal, .edgePath path, .flowchart-link, .actor-line {
+          stroke-width: 1.8px !important;
+          stroke: #111 !important;
+        }
+        rect, circle, polygon, path {
+          stroke-width: 1.5px !important;
+          stroke: #111 !important;
+        }
+      `
+    });
+  </script>
+</head>
+<body>
+
+  <section class="page cover">
+    <div>
+      <div class="smallcaps">Bao cao thiet ke firmware va software</div>
+      <div class="smallcaps" style="margin-top:6px;">Do an tot nghiep - Gateway IoT dang mo-dun</div>
+    </div>
+
+    <div class="hero-box">
+      <div class="smallcaps">Chuong 4</div>
+      <h1>THIET KE VA THUC HIEN PHAN MEM</h1>
+      <p class="mb16">Tai lieu nay duoc bien soan theo huong mot ban bao cao kien truc chi tiet cho firmware/software cua he thong gateway IoT su dung kien truc Dual-MCU ESP32-S3. Bieu dien uu tien bang, so do, luu do va hinh minh hoa de nguoi doc co the hinh dung nhanh cau truc, luong du lieu va cach he thong van hanh.</p>
+      <div class="kpi-strip">
+        <div class="kpi"><div class="value">2</div><div>MCU chuyen biet hoa WAN va LAN</div></div>
+        <div class="kpi"><div class="value">3</div><div>Kenh Internet: Wi-Fi, Ethernet, LTE</div></div>
+        <div class="kpi"><div class="value">4</div><div>Lop firmware: Driver, BSP, Middleware, Application</div></div>
+        <div class="kpi"><div class="value">7</div><div>Muc noi dung chinh theo muc luc moi</div></div>
+      </div>
+    </div>
+
+    <div class="meta-grid">
+      <div><strong>Pham vi:</strong><br/>Firmware WAN-MCU, LAN-MCU, cau hinh module, Web/App Config, FOTA, danh gia giai phap.</div>
+      <div><strong>Dinh dang:</strong><br/>HTML huong in A4, co muc luc, bang bieu, so do Mermaid va hinh local.</div>
+      <div><strong>Nguon tong hop:</strong><br/>Noi dung LaTeX cu, file redesign markdown, flowchart Mermaid, cau truc source code Application.</div>
+      <div><strong>Muc tieu trinh bay:</strong><br/>Bang bieu va hinh minh hoa la trung tam; van ban chi giu vai tro dan giai va lien ket logic.</div>
+    </div>
+
+    <div class="page-number">1</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">Table of Contents</div>
+    <h2 class="section-title">Muc luc chi tiet va dinh huong doc tai lieu</h2>
+    <div class="toc-grid">
+      <div class="card">
+        <table class="table-tight">
+          <thead>
+            <tr><th>Muc</th><th>Noi dung</th><th>Trong tam trinh bay</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>4.1</td><td>Giai phap phan mem de xuat</td><td>Dong co kien truc, ly do Dual-MCU, nguyen tac thiet ke</td></tr>
+            <tr><td>4.2</td><td>Kien truc firmware/software tong the</td><td>Phan lop, phan vai WAN-LAN, task, data flow, khung tin noi bo</td></tr>
+            <tr><td>4.3</td><td>Thiet ke WAN-MCU firmware</td><td>Internet, Cloud, Config, Web Portal, FOTA, giao tiep LAN-MCU</td></tr>
+            <tr><td>4.4</td><td>Thiet ke LAN-MCU firmware</td><td>Protocol handlers, xu ly gan nguon, module monitor, luu dem</td></tr>
+            <tr><td>4.5</td><td>Co che cau hinh module dua tren JSON</td><td>Preset, parser, dispatch, template command, slot mapping</td></tr>
+            <tr><td>4.6</td><td>Co che web config, app config va FOTA</td><td>USB/UART, Web Config Portal, quy trinh cap nhat song song hai MCU</td></tr>
+            <tr><td>4.7</td><td>Danh gia giai phap phan mem</td><td>Modularity, configurability, reliability, scalability, KPI</td></tr>
+            <tr><td>Phu luc A</td><td>Danh muc task va muc uu tien</td><td>Bang tong hop de doi chieu source code</td></tr>
+            <tr><td>Phu luc B</td><td>Bang tham so va frame format</td><td>Thong so quan trong cho implementation</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <div class="note">
+          <strong>Cach doc de hieu nhanh:</strong> Bat dau tu So do kien truc tong the, sau do xem Task Architecture, tiep theo la ba flow chinh: uplink, downlink va config/FOTA. Van ban duoc rut gon o muc can thiet de giai thich cac hinh va bang.
+        </div>
+        <div class="mermaid-wrap">
+          <div class="mermaid">
+flowchart TD
+    A[System Requirements] --> B[Software Solution]
+    B --> C[Overall Architecture]
+    C --> D[WAN-MCU Firmware]
+    C --> E[LAN-MCU Firmware]
+    D --> F[Web/App Config]
+    D --> G[FOTA]
+    E --> H[JSON Module Base Setting]
+    F --> I[Solution Evaluation]
+    G --> I
+    H --> I
+          </div>
+        </div>
+        <div class="card small">
+          <strong>Ty le noi dung trong tai lieu:</strong>
+          <ul>
+            <li>Bang bieu va hinh: danh cho viec nhin tong quan cau truc, quy trinh va ranh gioi module.</li>
+            <li>Van ban: chi giai thich cac quyet dinh kien truc, khong dien giai dai dong theo kieu tutorial.</li>
+            <li>Cac hinh local va Mermaid duoc dat trong nhung phan can minh hoa truc tiep voi source code hien co.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="page-number">2</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">4.1</div>
+    <h2 class="section-title">Giai phap phan mem de xuat</h2>
+    <div class="two-col">
+      <div>
+        <div class="note"><strong>Ket luan thiet ke:</strong> Phan mem khong duoc xem la tap hop cac task doc lap, ma la mot nen tang co hai mien xu ly chuyen biet hoa, duoc lien ket boi giao tiep noi bo co tin hieu ACK/NACK, CRC, sequence number va GPIO handshake event-driven.</div>
+      </div>
+      <div>
+        <table>
+          <thead>
+            <tr><th>Tieu chi</th><th>Van de trong cach tiep can don MCU</th><th>Huong giai quyet da chon</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Tai nguyen RAM/Flash</td><td>De tran khi nhieu stack dong thoi</td><td>Tach WAN va LAN sang hai MCU rieng</td></tr>
+            <tr><td>Do tre</td><td>Task mang rong block task thu thap du lieu</td><td>Near-sensor processing o LAN-MCU</td></tr>
+            <tr><td>Mo rong giao thuc</td><td>Moi giao thuc moi lam phuc tap firmware tong</td><td>Protocol handler doc lap theo tung mien</td></tr>
+            <tr><td>Cau hinh</td><td>Phu thuoc build-time</td><td>NVS + App/Web Config + JSON preset</td></tr>
+            <tr><td>Cap nhat firmware</td><td>Kho bao tri quy mo lon</td><td>FOTA tuan tu cho hai MCU</td></tr>
+            <tr><td>Thay doi module</td><td>Phai sua code AT command</td><td>Module Base Setting dua tren JSON</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="three-col">
+      <div class="stat-box">
+        <h4>Nguyen tac 1</h4>
+        <div class="small"><strong>Phan vai chuyen biet hoa</strong><br/>WAN-MCU quan ly ket noi va dieu phoi. LAN-MCU xu ly du lieu gan nguon va giao tiep module.</div>
+      </div>
+      <div class="stat-box">
+        <h4>Nguyen tac 2</h4>
+        <div class="small"><strong>Phan lop ro rang</strong><br/>Driver, BSP, Middleware va Application duoc tach biet de han che anh huong day chuyen.</div>
+      </div>
+      <div class="stat-box">
+        <h4>Nguyen tac 3</h4>
+        <div class="small"><strong>Cau hinh hoa toi da</strong><br/>Thong so he thong va tri thuc module duoc dua vao NVS/preset thay vi khoa cung trong ma nguon.</div>
+      </div>
+    </div>
+
+    <div class="mermaid-wrap">
+      <div class="mermaid">
+flowchart LR
+    A[Technical Requirements] --> B[Modularity]
+    A --> C[Configurability]
+    A --> D[Reliability]
+    A --> E[Scalability]
+    B --> F[Dual-MCU]
+    C --> G[NVS + JSON preset]
+    D --> H[FreeRTOS + Queue + Retry]
+    E --> I[Handler-based architecture]
+    F --> J[Unified Firmware/Software Platform]
+    G --> J
+    H --> J
+    I --> J
+      </div>
+    </div>
+    <div class="page-number">3</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">4.2</div>
+    <h2 class="section-title">Kien truc firmware/software tong the</h2>
+    <div class="legend">
+      <span><i class="dot wan"></i> Khoi WAN-MCU</span>
+      <span><i class="dot lan"></i> Khoi LAN-MCU</span>
+      <span><i class="dot mid"></i> Middleware / control</span>
+      <span><i class="dot data"></i> Luong du lieu / frame</span>
+    </div>
+
+    <figure>
+      <img src="DATN_Gateway/figures/DATN/design_mcuwanfirmware.jpg" alt="WAN firmware architecture" />
+      <figcaption>Hinh 4.1. So do khoi firmware WAN-MCU duoc xuat tu tai lieu thiet ke cu.</figcaption>
+    </figure>
+
+    <figure>
+      <img src="DATN_Gateway/figures/DATN/design_mculanfirmware.jpg" alt="LAN firmware architecture" />
+      <figcaption>Hinh 4.2. So do khoi firmware LAN-MCU duoc xuat tu tai lieu thiet ke cu.</figcaption>
+    </figure>
+    <div class="page-number">4</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">4.2</div>
+    <h2 class="section-title">Kien truc phan lop va phan vai giua WAN-MCU va LAN-MCU</h2>
+    <div class="two-col mb12">
+      <div>
+        <table>
+          <thead>
+            <tr><th>Lop</th><th>Vai tro o WAN-MCU</th><th>Vai tro o LAN-MCU</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Application</td><td>Config, Server Comm, Internet Comm, Web Portal, FOTA, HMI</td><td>MCU WAN Handler, protocol handlers, module monitor, config controller</td></tr>
+            <tr><td>Middleware</td><td>ESP-IDF MQTT/HTTP/CoAP, OTA, FreeRTOS, NVS</td><td>JSON parser, storage handler, OTA, FreeRTOS</td></tr>
+            <tr><td>BSP</td><td>LTE, Ethernet, inter-MCU comm, RTC, stack handler</td><td>Module UART/SPI/I2C/USB, SD Card, RS-485, IO expander</td></tr>
+            <tr><td>Driver</td><td>GPIO, UART, SPI, I2C, USB, Wi-Fi, MAC</td><td>GPIO, UART, SPI, I2C, SDIO, USB</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <div class="mermaid-wrap">
+          <div class="mermaid">
+flowchart TB
+    subgraph WAN[WAN-MCU]
+      WA[Application]
+      WM[Middleware]
+      WB[BSP]
+      WD[Driver]
+      WA --> WM --> WB --> WD
+    end
+    subgraph LAN[LAN-MCU]
+      LA[Application]
+      LM[Middleware]
+      LB[BSP]
+      LD[Driver]
+      LA --> LM --> LB --> LD
+    end
+    WAN <--> |SPI + GPIO Handshake| LAN
+          </div>
+        </div>
+        <div class="card small">
+          <strong>Dac diem quan trong:</strong>
+          <ul>
+            <li>WAN-MCU khong truc tiep xu ly sensor stack o muc vat ly.</li>
+            <li>LAN-MCU khong ganh toan bo logic server, TLS hay quan tri web.</li>
+            <li>Hai firmware doc lap nhung chia se mot giao thuc noi bo thong nhat.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <table class="table-tight">
+      <thead>
+        <tr><th>Thanh phan</th><th>Mien</th><th>Loai du lieu xu ly</th><th>Muc tieu thiet ke</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Server Communication Handler</td><td>WAN</td><td>Telemetry, RPC, response polling</td><td>Tuong thich da giao thuc server</td></tr>
+        <tr><td>Internet Communication Handler</td><td>WAN</td><td>Link status, IP state, AP/STA state</td><td>Duy tri ket noi va failover</td></tr>
+        <tr><td>MCU LAN Handler</td><td>WAN</td><td>Data Frame, Command Frame, ACK/NACK</td><td>Lien ket voi LAN-MCU co tin cay</td></tr>
+        <tr><td>MCU WAN Handler</td><td>LAN</td><td>Batch uplink, downlink command</td><td>Tan dung bang thong inter-MCU</td></tr>
+        <tr><td>Zigbee / LoRa / BLE / RS-485 Handlers</td><td>LAN</td><td>Khung giao thuc cu the</td><td>Xu ly gan nguon, tranh block cheo</td></tr>
+        <tr><td>Module Monitor Task</td><td>LAN</td><td>Slot status, device ID, AT health</td><td>Tu dong nhan dien va phuc hoi module</td></tr>
+      </tbody>
+    </table>
+    <div class="page-number">5</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">4.2</div>
+    <h2 class="section-title">Task architecture va ma tran uu tien</h2>
+    <div class="two-col">
+      <div>
+        <h3>Bang task WAN-MCU</h3>
+        <table>
+          <thead><tr><th>Task</th><th>Priority</th><th>Trigger</th><th>Chuc nang</th></tr></thead>
+          <tbody>
+            <tr><td>MCU LAN Uplink Task</td><td>6</td><td>SPI interrupt</td><td>Nhan Data Frame tu LAN-MCU, kiem tra va dua vao queue server</td></tr>
+            <tr><td>MCU LAN Downlink Task</td><td>5</td><td>Cloud command</td><td>Dong goi lenh va kich handshake cho LAN-MCU</td></tr>
+            <tr><td>MQTT Handler Task</td><td>4</td><td>MQTT event</td><td>Publish telemetry, subscribe command</td></tr>
+            <tr><td>HTTP/CoAP Task</td><td>4</td><td>HTTP request / Observe</td><td>REST va CoAP I/O</td></tr>
+            <tr><td>Config Handler Task</td><td>3</td><td>Queue</td><td>Xu ly lenh cau hinh tu moi kenh dau vao</td></tr>
+            <tr><td>Internet Monitor</td><td>3</td><td>Dinh ky 5 s</td><td>Kiem tra link va kich failover</td></tr>
+            <tr><td>Web Config Handler</td><td>3</td><td>HTTP request</td><td>API web, giao dien cau hinh, log</td></tr>
+            <tr><td>FOTA Handler</td><td>2</td><td>Command</td><td>Dieu phoi quy trinh update hai MCU</td></tr>
+            <tr><td>HMI Task</td><td>2</td><td>Event</td><td>Hien thi tinh trang he thong</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h3>Bang task LAN-MCU</h3>
+        <table>
+          <thead><tr><th>Task</th><th>Priority</th><th>Trigger</th><th>Chuc nang</th></tr></thead>
+          <tbody>
+            <tr><td>MCU WAN Uplink Task</td><td>6</td><td>Dinh ky 10 ms</td><td>Gom du lieu batch va day len WAN</td></tr>
+            <tr><td>MCU WAN Downlink Task</td><td>5</td><td>GPIO interrupt</td><td>Lay lenh tu WAN va dispatch den handler dich</td></tr>
+            <tr><td>Zigbee Handler Task</td><td>4</td><td>UART interrupt</td><td>Nhan va xu ly du lieu Zigbee</td></tr>
+            <tr><td>LoRa Handler Task</td><td>4</td><td>UART interrupt</td><td>Nhan/gui du lieu LoRa P2P</td></tr>
+            <tr><td>BLE Handler Task</td><td>4</td><td>BLE event</td><td>GATT/Native Mesh processing</td></tr>
+            <tr><td>RS-485 Handler Task</td><td>4</td><td>UART interrupt</td><td>Modbus/serial industrial device I/O</td></tr>
+            <tr><td>Config Handler Task</td><td>3</td><td>Queue</td><td>Nhan preset JSON va lenh cau hinh module</td></tr>
+            <tr><td>Module Monitor Task</td><td>2</td><td>Dinh ky 30 s</td><td>Health check, slot detect, reload config</td></tr>
+            <tr><td>FOTA LAN Task</td><td>2</td><td>Command</td><td>OTA client thong qua AP noi bo</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="mermaid-wrap">
+      <div class="mermaid">
+flowchart LR
+    subgraph W[WAN-MCU Task Domain]
+      W1[Priority 6<br/>MCU LAN Uplink]
+      W2[Priority 5<br/>MCU LAN Downlink]
+      W3[Priority 4<br/>MQTT / HTTP / CoAP]
+      W4[Priority 3<br/>Config / Web / Internet Monitor]
+      W5[Priority 2<br/>FOTA / HMI]
+    end
+    subgraph L[LAN-MCU Task Domain]
+      L1[Priority 6<br/>MCU WAN Uplink]
+      L2[Priority 5<br/>MCU WAN Downlink]
+      L3[Priority 4<br/>Protocol Handlers]
+      L4[Priority 3<br/>Config Handler]
+      L5[Priority 2<br/>Monitor / FOTA]
+    end
+    W1 <--> |Inter-MCU critical path| L1
+    W2 <--> |Downlink control path| L2
+      </div>
+    </div>
+    <div class="page-number">6</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">4.2</div>
+    <h2 class="section-title">Luong du lieu tong the va giao tiep noi bo</h2>
+    <div class="fig-grid">
+      <div class="mermaid-wrap">
+        <div class="mermaid">
+sequenceDiagram
+    participant Sensor
+    participant LAN as LAN-MCU
+    participant WAN as WAN-MCU
+    participant Cloud
+
+    Sensor->>LAN: Data via UART/SPI/BLE
+    LAN->>LAN: Validation + Parsing + Normalization
+    LAN->>WAN: DT Frame via SPI
+    WAN->>WAN: CRC + Sequence check
+    WAN-->>LAN: ACK / NACK
+    WAN->>Cloud: MQTT Publish / HTTP POST / CoAP PUT
+        </div>
+      </div>
+      <div class="mermaid-wrap">
+        <div class="mermaid">
+sequenceDiagram
+    participant Cloud
+    participant WAN as WAN-MCU
+    participant GPIO
+    participant LAN as LAN-MCU
+    participant Device
+
+    Cloud->>WAN: RPC / Command
+    WAN->>WAN: Build CF Frame
+    WAN->>GPIO: Assert Handshake
+    LAN->>WAN: SPI read request
+    WAN-->>LAN: CF Frame
+    LAN-->>WAN: ACK
+    LAN->>Device: Execute command
+        </div>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div>
+        <table>
+          <thead><tr><th>Thanh phan frame</th><th>Kich thuoc</th><th>Vai tro</th></tr></thead>
+          <tbody>
+            <tr><td>Header</td><td>2 byte</td><td>Phan biet DT, CF, DQ, CQ, RT</td></tr>
+            <tr><td>Frame Type</td><td>1 byte</td><td>Xac dinh loai khung o muc chi tiet</td></tr>
+            <tr><td>Handler ID</td><td>3 byte</td><td>Danh dau dich xu ly ZIG/LOR/BLE/RS4...</td></tr>
+            <tr><td>Sequence Number</td><td>2 byte</td><td>Phat hien mat goi, goi lap</td></tr>
+            <tr><td>Payload Length</td><td>2 byte</td><td>Do dai du lieu tai</td></tr>
+            <tr><td>Payload</td><td>N byte</td><td>JSON config, command hoac data da chuan hoa</td></tr>
+            <tr><td>CRC</td><td>2 byte</td><td>Dam bao toan ven khung</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <table>
+          <thead><tr><th>Header</th><th>Ten khung</th><th>Huong</th><th>Y nghia</th></tr></thead>
+          <tbody>
+            <tr><td>DT</td><td>Data Frame</td><td>LAN -> WAN</td><td>Du lieu sensor da duoc chuan hoa</td></tr>
+            <tr><td>CF</td><td>Command Frame</td><td>WAN -> LAN</td><td>Lenh tu server, web config hay app config</td></tr>
+            <tr><td>DQ</td><td>Data Query</td><td>WAN -> LAN</td><td>Yeu cau truy van du lieu hoac buffer</td></tr>
+            <tr><td>CQ</td><td>Config Query</td><td>WAN -> LAN</td><td>Yeu cau doc cau hinh current</td></tr>
+            <tr><td>RT</td><td>RTC Response</td><td>WAN -> LAN</td><td>Dong bo timestamp giua hai MCU</td></tr>
+            <tr><td>ACK</td><td>Acknowledgment</td><td>Hai chieu</td><td>Xac nhan OK / FAIL / NO INTERNET</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="page-number">7</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">4.3</div>
+    <h2 class="section-title">Thiet ke WAN-MCU firmware</h2>
+    <div class="two-col">
+      <div>
+      </div>
+      <div>
+        <table>
+          <thead><tr><th>Khoi</th><th>Dau vao</th><th>Dau ra</th><th>Gia tri kien truc</th></tr></thead>
+          <tbody>
+            <tr><td>Main Control</td><td>State events</td><td>Mode transition</td><td>Dieu phoi tong the</td></tr>
+            <tr><td>Internet Comm</td><td>Wi-Fi / ETH / LTE status</td><td>Internet ready state</td><td>Auto-reconnect, fallback</td></tr>
+            <tr><td>Server Comm</td><td>Telemetry, RPC</td><td>Cloud packets</td><td>Tuong thich MQTT/HTTP/CoAP</td></tr>
+            <tr><td>MCU LAN Comm</td><td>SPI frames</td><td>ACK/NACK, data routing</td><td>Cau noi WAN-LAN co tin cay</td></tr>
+            <tr><td>Data Comm</td><td>USB/UART commands</td><td>Config results</td><td>Bring-up va bao tri tai cho</td></tr>
+            <tr><td>Web Config</td><td>HTTP API/Web UI</td><td>Config apply/log</td><td>Quan tri khong day</td></tr>
+            <tr><td>FOTA</td><td>Firmware URL / command</td><td>OTA sequence</td><td>Cap nhat hau trien khai</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <figure>
+      <img src="DATN_Gateway/figures/DATN/design_mcuwanfirmware.jpg" alt="Detailed WAN firmware block" />
+      <figcaption>Hinh 4.3. So do phan cap khoi firmware WAN-MCU, trong do cac handler lon duoc to chuc theo tang ung dung.</figcaption>
+    </figure>
+    <div class="page-number">8</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">4.3</div>
+    <h2 class="section-title">Internet handler, server handler va Internet fallback</h2>
+    <div class="fig-grid">
+      <div class="mermaid-wrap">
+        <div class="mermaid">
+flowchart TD
+    START([WAN-MCU Boot]) --> LOAD[Load internet_type and fallback settings]
+    LOAD --> PRI[Start Primary Interface by internet_type]
+    PRI --> PCHK{Primary connected and online?}
+    PCHK -->|Yes| PACT[Use Primary Interface]
+    PCHK -->|No| FBEN{Fallback enabled?}
+    FBEN -->|No| OFF[Offline + Store Forward]
+    FBEN -->|Yes| FBTRY[Start fallback_type interface]
+    FBTRY --> FCHK{Fallback connected and online?}
+    FCHK -->|Yes| FACT[Use Fallback Interface]
+    FCHK -->|No| OFF
+    PACT --> MON[Internet Monitor 5 s]
+    FACT --> MON
+    OFF --> MON
+    MON --> REVAL[Re-evaluate primary/fallback state]
+    REVAL --> PRI
+        </div>
+      </div>
+      <div>
+        <table>
+          <thead><tr><th>Giao dien</th><th>Vai tro cau hinh</th><th>Uu diem</th><th>Rui ro</th><th>Cach bo tro</th></tr></thead>
+          <tbody>
+            <tr><td>Ethernet W5500</td><td>Primary hoac fallback tuy internet_type/fallback_type</td><td>On dinh, phu hop cong nghiep</td><td>Can ha tang day dan</td><td>Duoc monitor va switch theo ket qua online check</td></tr>
+            <tr><td>Wi-Fi</td><td>Primary hoac fallback tuy internet_type/fallback_type</td><td>Linh hoat, san co tren ESP32-S3</td><td>Phu thuoc moi truong RF</td><td>Ho tro AP/STA va auto reconnect</td></tr>
+            <tr><td>LTE</td><td>Primary hoac fallback tuy internet_type/fallback_type</td><td>Du phong khi khong co LAN/Internet noi bo</td><td>Do tre va chi phi cao hon</td><td>Kich hoat theo cau hinh fallback va tinh trang ket noi</td></tr>
+          </tbody>
+        </table>
+        <table>
+          <thead><tr><th>Server type</th><th>Uplink</th><th>Downlink</th><th>Muc su dung phu hop</th></tr></thead>
+          <tbody>
+            <tr><td>MQTT</td><td>Publish topic</td><td>Subscribe/RPC</td><td>ThingsBoard, broker-based cloud</td></tr>
+            <tr><td>HTTP</td><td>POST</td><td>Long polling/REST</td><td>He thong REST API tong quat</td></tr>
+            <tr><td>CoAP</td><td>PUT</td><td>Observe</td><td>He thong can overhead thap</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="note">Server Communication Handler khong dong vai tro giao tiep server don thuan. No con la khoi chuyen doi giua ngon ngu cua cloud (topic, endpoint, payload RPC) va ngon ngu noi bo cua gateway (Config Frame, Data Frame, Handler ID, queue xu ly).</div>
+    <div class="page-number">9</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">4.3</div>
+    <h2 class="section-title">Data Communication Handler, Web Config Handler va FOTA phia WAN</h2>
+    <div class="fig-grid">
+      <figure>
+        <img src="DATN_Gateway/figures/DATN/design_DCH-CT.png" alt="Data communication handler" />
+        <figcaption>Hinh 4.4. Luu do Data Communication Handler cho kenh USB/UART.</figcaption>
+      </figure>
+      <figure>
+        <img src="DATN_Gateway/figures/DATN/design_wcp.png" alt="Web config portal" />
+        <figcaption>Hinh 4.5. Luu do xu ly cau hinh qua Web Config Portal.</figcaption>
+      </figure>
+    </div>
+
+    <div class="fig-grid">
+      <figure>
+        <img src="DATN_Gateway/figures/DATN/design_FOTA.png" alt="FOTA diagram" />
+        <figcaption>Hinh 4.6. Luu do giai thuat FOTA hai MCU voi trinh tu LAN truoc, WAN sau.</figcaption>
+      </figure>
+      <div>
+        <table>
+          <thead><tr><th>Kenh cau hinh</th><th>Thanh phan tiep nhan</th><th>Dich xu ly cuoi</th><th>Phan hoi cho nguoi dung</th></tr></thead>
+          <tbody>
+            <tr><td>USB/UART App Config</td><td>Data Communication Handler</td><td>Config Handler + NVS + SPI forward</td><td>OK/FAIL + current status</td></tr>
+            <tr><td>Web Config Portal</td><td>Web Config Handler</td><td>Config Handler + NVS + SPI forward</td><td>HTTP response + log/status</td></tr>
+            <tr><td>Cloud FOTA command</td><td>Server Communication Handler</td><td>FOTA Handler</td><td>Status report len server</td></tr>
+          </tbody>
+        </table>
+        <table>
+          <thead><tr><th>Thanh phan</th><th>Gia tri thiet ke</th></tr></thead>
+          <tbody>
+            <tr><td>Data Communication Handler</td><td>Huu ich trong bring-up, debug va bao tri tai cho</td></tr>
+            <tr><td>Web Config Handler</td><td>Giam phu thuoc vao phan mem cai dat tren PC, tang tinh than thien</td></tr>
+            <tr><td>FOTA Handler</td><td>Cho phep cap nhat firmware hau trien khai va giam chi phi van hanh</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="page-number">10</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">4.4</div>
+    <h2 class="section-title">Thiet ke LAN-MCU firmware</h2>
+    <div class="two-col">
+      <div>
+      </div>
+      <div>
+        <table>
+          <thead><tr><th>Muc tieu thiet ke</th><th>Cach thuc hien o LAN-MCU</th></tr></thead>
+          <tbody>
+            <tr><td>Xu ly du lieu gan nguon</td><td>Validation, parsing, normalization truoc khi uplink</td></tr>
+            <tr><td>Chong block giao thuc</td><td>Moi protocol handler la mot task doc lap</td></tr>
+            <tr><td>Dong bo voi WAN-MCU</td><td>SPI Master + GPIO interrupt-driven downlink</td></tr>
+            <tr><td>Thich nghi module</td><td>JSON parser + module monitor + slot mapping</td></tr>
+            <tr><td>Do on dinh khi WAN mat mang</td><td>Store-and-forward va cached internet status</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <figure>
+      <img src="DATN_Gateway/figures/DATN/design_mculanfirmware.jpg" alt="Detailed LAN firmware block" />
+      <figcaption>Hinh 4.7. So do phan cap khoi firmware LAN-MCU, nhan manh vai tro cua protocol handlers va module monitor.</figcaption>
+    </figure>
+    <div class="page-number">11</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">4.4</div>
+    <h2 class="section-title">Protocol handlers phia LAN va mo hinh xu ly gan nguon</h2>
+    <div class="three-col">
+      <div class="card">
+        <h4>Zigbee Handler</h4>
+        <div class="small">Thu nhan framing tu E180-ZG120B, boc tach payload ung dung, kiem tra hop le va chuan hoa ve khung noi bo.</div>
+      </div>
+      <div class="card">
+        <h4>LoRa Handler</h4>
+        <div class="small">Xu ly chuoi AT, response TX DONE va du lieu P2P o Wio-E5, tranh block do Time-on-Air cao.</div>
+      </div>
+      <div class="card">
+        <h4>BLE Handler</h4>
+        <div class="small">Ho tro ca AT-module va native/GATT. Xu ly event ket noi, scan, write/read va notify.</div>
+      </div>
+    </div>
+    <div class="three-col">
+      <div class="card">
+        <h4>RS-485 Handler</h4>
+        <div class="small">Quan ly serial half-duplex, timeout, polling va framing cho thiet bi cong nghiep.</div>
+      </div>
+      <div class="card">
+        <h4>MCU WAN Handler</h4>
+        <div class="small">Gom batch 10 ms, dong goi Data Frame, nhan lenh downlink va ACK/NACK voi WAN-MCU.</div>
+      </div>
+      <div class="card">
+        <h4>Module Monitor Task</h4>
+        <div class="small">Slot detect, ping AT, doc Device ID, reload preset va khoi dong lai handler khi can.</div>
+      </div>
+    </div>
+
+    <table>
+      <thead><tr><th>Buoc xu ly chung cua protocol handler</th><th>Mo ta</th><th>Dau ra</th></tr></thead>
+      <tbody>
+        <tr><td>1. Nhan du lieu tho</td><td>Doc UART/BLE event/SPI tu module vat ly</td><td>Buffer tho</td></tr>
+        <tr><td>2. Kiem tra hop le</td><td>Kiem tra framing, checksum, do dai, chuoi response</td><td>Khung hop le / khung bi loai</td></tr>
+        <tr><td>3. Gan metadata</td><td>Gan nhan nguon, timestamp, handler id, loai su kien</td><td>Ban ghi noi bo</td></tr>
+        <tr><td>4. Chuan hoa</td><td>Chuyen sang dinh dang thong nhat de uplink</td><td>Payload noi bo</td></tr>
+        <tr><td>5. Dua vao queue</td><td>Chuyen giao cho MCU WAN Handler batch uplink</td><td>Data Frame queue</td></tr>
+      </tbody>
+    </table>
+    <div class="page-number">12</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">4.4</div>
+    <h2 class="section-title">Module Monitor, luu dem va so sanh nang luc giao thuc LAN</h2>
+    <div class="two-col">
+      <div>
+        <table>
+          <thead><tr><th>Loai kiem tra</th><th>Co che</th><th>Phan ung khi loi</th></tr></thead>
+          <tbody>
+            <tr><td>Slot Detection</td><td>Doc GPIO SLOTDET</td><td>Danh dau slot disconnected</td></tr>
+            <tr><td>Device ID</td><td>Doc 4-bit DEV_ID qua IO Expander</td><td>Cau bao khong khop preset</td></tr>
+            <tr><td>AT Ping</td><td>Gui lenh AT co ban</td><td>Tang bo dem loi, reset module neu lap lai</td></tr>
+            <tr><td>Runtime reload</td><td>Kiem tra thay doi module/cau hinh</td><td>Stop - Reinit - Start lai handler</td></tr>
+          </tbody>
+        </table>
+
+        <table>
+          <thead><tr><th>Giao thuc</th><th>R_PHY</th><th>R_app thuc te</th><th>Nghen chai chinh</th></tr></thead>
+          <tbody>
+            <tr><td>Zigbee</td><td>250 kbps</td><td>~8.2 kbps</td><td>UART 115200 + CSMA/CA</td></tr>
+            <tr><td>LoRa P2P</td><td>5.47 kbps</td><td>~3.5 kbps</td><td>Time-on-Air cao</td></tr>
+            <tr><td>BLE khong DLE</td><td>1000 kbps</td><td>~8 kbps</td><td>MTU 20, CI 20 ms</td></tr>
+            <tr><td>BLE co DLE</td><td>1000 kbps</td><td>~97.6 kbps</td><td>CI 20 ms</td></tr>
+            <tr><td>RS-485</td><td>9600-115200 bps</td><td>Phu thuoc payload</td><td>Half-duplex polling</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <div class="mermaid-wrap">
+          <div class="mermaid">
+xychart-beta
+      title "Application Throughput by LAN Protocol (kbps)"
+    x-axis ["Zigbee", "LoRa", "BLE no DLE", "BLE DLE", "RS-485"]
+    y-axis "kbps" 0 --> 110
+    bar [8.2, 3.5, 8.0, 97.6, 40]
+          </div>
+        </div>
+        <div class="card small">
+          <strong>Nhan xet:</strong>
+          <ul>
+            <li>Kenh inter-MCU khong phai nghen chai chinh; van de nam o phia protocol access layer.</li>
+            <li>LoRa bi gioi han boi time-on-air, Zigbee bi han che boi framing module va UART.</li>
+            <li>BLE native khi bat DLE cho thay tiem nang bang thong tot hon ro ret.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="page-number">13</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">4.5</div>
+    <h2 class="section-title">Co che cau hinh module dua tren JSON (Module Base Setting)</h2>
+    <div class="two-col">
+      <div>
+        <table>
+          <thead><tr><th>Chuc nang</th><th>HC-05</th><th>ESP32 AT</th><th>nRF52</th><th>STM32WB55</th></tr></thead>
+          <tbody>
+            <tr><td>Dat ten thiet bi</td><td>AT+NAME=</td><td>AT+BLENAME=</td><td>AT+UBTLN=</td><td>AT+LOCALNAME=</td></tr>
+            <tr><td>Quet thiet bi</td><td>AT+INQ</td><td>AT+BLESCAN=1</td><td>AT+UBTSCAN</td><td>AT+BLESCAN</td></tr>
+            <tr><td>Ket noi</td><td>AT+LINK=</td><td>AT+BLECONN=</td><td>AT+UBTACLC=</td><td>AT+CONNECT=</td></tr>
+            <tr><td>Ngat ket noi</td><td>AT+DISC</td><td>AT+BLEDISCONN</td><td>AT+UBTACLDC</td><td>AT+DISCONNECT</td></tr>
+            <tr><td>Reset software</td><td>AT+RESET</td><td>AT+RST</td><td>AT+CPWROFF</td><td>AT+RESET</td></tr>
+          </tbody>
+        </table>
+        <div class="note">Bang tren cho thay bai toan co cot loi nam o cho cung mot chuc nang logic nhung moi module lai co mot bo cu phap va thu tu thao tac rieng. Day la ly do khong the tiep tuc hard-code command flow trong firmware.</div>
+      </div>
+      <div class="mermaid-wrap">
+        <div class="mermaid">
+flowchart LR
+    subgraph JSON[JSON Preset]
+      J1[comm_type]
+      J2[baud_rate]
+      J3[functions[]]
+      J4[pre_gpio / post_gpio]
+      J5[timeout_ms]
+    end
+    subgraph FW[Firmware Runtime]
+      F1[Receive function name]
+      F2[Template lookup]
+      F3[Parameter binding]
+      F4[Execute on module]
+    end
+    JSON --> FW
+        </div>
+      </div>
+    </div>
+
+    <table>
+      <thead><tr><th>Thanh phan JSON</th><th>Y nghia</th><th>Vi du</th><th>Gia tri kien truc</th></tr></thead>
+      <tbody>
+        <tr><td>comm_type</td><td>Loai giao tiep module</td><td>UART, SPI, I2C</td><td>Tach phu thuoc khoi code</td></tr>
+        <tr><td>baud_rate</td><td>Thong so truyen thong co ban</td><td>115200</td><td>Cho phep doi module khong rebuild</td></tr>
+        <tr><td>functions[i].name</td><td>Ten chuan hoa cua chuc nang</td><td>MODULE_SCAN</td><td>Chuan hoa theo logic thay vi cu phap</td></tr>
+        <tr><td>cmd_template</td><td>Khuon mau lenh AT</td><td>AT+BLESCAN={duration}</td><td>Ho tro lenh dong</td></tr>
+        <tr><td>pre_gpio/post_gpio</td><td>Chuoi dieu khien GPIO</td><td>RST_HIGH, DELAY_100ms</td><td>Dua trinh tu reset ra khoi firmware</td></tr>
+        <tr><td>timeout_ms</td><td>Thoi gian cho response</td><td>3000</td><td>Tuy chinh theo nha san xuat module</td></tr>
+      </tbody>
+    </table>
+    <div class="page-number">14</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">4.5</div>
+    <h2 class="section-title">Luong nap preset va thuc thi lenh theo JSON</h2>
+    <div class="fig-grid">
+      <figure>
+        <img src="DATN_Gateway/figures/DATN/design_mbs.png" alt="Module base setting flow" />
+        <figcaption>Hinh 4.8. Luong tong quat cua Module Base Setting tu giai doan nap cau hinh den thuc thi lenh.</figcaption>
+      </figure>
+      <figure>
+        <img src="DATN_Gateway/figures/DATN/design_server-to-bulb.png" alt="ThingsBoard to device control" />
+        <figcaption>Hinh 4.9. Vi du luong dieu khien end-to-end tu server den thiet bi thong qua gateway.</figcaption>
+      </figure>
+    </div>
+
+    <div class="mermaid-wrap">
+      <div class="mermaid">
+flowchart TD
+    A[PC App or Server sends JSON preset] --> B[WAN-MCU receives payload]
+    B --> C[Build Config Frame]
+    C --> D[LAN-MCU JSON Parser]
+    D --> E[Update runtime config]
+    E --> F[Module Config Controller]
+    F --> G[Enable new handlers or parameters]
+    G --> H[Runtime commands MODULE_SCAN / MODULE_WRITE ...]
+    H --> I[Template lookup]
+    I --> J[Parameter binding and GPIO sequence]
+    J --> K[Send command to physical module]
+    K --> L[Return status uplink to server]
+      </div>
+    </div>
+
+    <table class="table-tight">
+      <thead><tr><th>Giai doan</th><th>Buoc</th><th>Thanh phan</th><th>Ket qua</th></tr></thead>
+      <tbody>
+        <tr><td rowspan="4">Nap cau hinh</td><td>1</td><td>App PC / Server</td><td>Gui preset JSON bang lenh ML</td></tr>
+        <tr><td>2</td><td>WAN-MCU</td><td>Forward xuong LAN bang CF Frame</td></tr>
+        <tr><td>3</td><td>LAN JSON Parser</td><td>Phan tich va luu vao runtime</td></tr>
+        <tr><td>4</td><td>Config Controller</td><td>Cap nhat bang anh xa slot - handler - preset</td></tr>
+        <tr><td rowspan="5">Thuc thi lenh</td><td>5</td><td>Server</td><td>Gui lenh logic vi du ZIG:MODULE_SCAN</td></tr>
+        <tr><td>6</td><td>WAN-MCU</td><td>Xac dinh Handler ID dich va downlink</td></tr>
+        <tr><td>7</td><td>LAN-MCU</td><td>Tra cuu template trong preset</td></tr>
+        <tr><td>8</td><td>JSON Engine</td><td>Ghep tham so, chay GPIO sequence</td></tr>
+        <tr><td>9</td><td>Protocol Handler</td><td>Gui lenh den module va nhan response</td></tr>
+      </tbody>
+    </table>
+    <div class="page-number">15</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">4.6</div>
+    <h2 class="section-title">Co che Web Config, App Config va FOTA</h2>
+    <div class="two-col">
+      <div>
+        <div class="card small">
+          <strong>App Config phu hop khi:</strong>
+          <ul>
+            <li>Gateway vua lap rap xong va can quet thong tin phien ban.</li>
+            <li>Can debug hoac trich xuat log nhanh bang cap.</li>
+            <li>Can nap preset JSON lon o moi truong chua co web.</li>
+          </ul>
+        </div>
+        <div class="card small">
+          <strong>Web Config Portal phu hop khi:</strong>
+          <ul>
+            <li>Can thao tac tren thiet bi da trien khai ma khong mo vo hay ket noi cong COM.</li>
+            <li>Can giao dien truc quan cho ky thuat vien van hanh.</li>
+            <li>Can API noi bo de giam sat trang thai va trigger FOTA.</li>
+          </ul>
+        </div>
+      </div>
+      <div>
+        <table>
+          <thead><tr><th>Co che</th><th>Kenh truy cap</th><th>Diem vao firmware</th><th>Dau ra</th></tr></thead>
+          <tbody>
+            <tr><td>App Config</td><td>USB/UART</td><td>Data Communication Handler</td><td>Read/Write config, OK/FAIL</td></tr>
+            <tr><td>Web Config Portal</td><td>HTTP qua AP/STA</td><td>Web Config Handler</td><td>API response, log, reboot/FOTA trigger</td></tr>
+            <tr><td>FOTA</td><td>Cloud command</td><td>Server Comm + FOTA Handler</td><td>Trang thai cap nhat, version moi</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="fig-grid">
+      <div class="mermaid-wrap">
+        <div class="mermaid">
+flowchart TD
+    A[PC App sends command] --> B[WAN parses command]
+    B --> C{Read or Write?}
+    C -->|Read| D[Read NVS or Runtime]
+    C -->|Write| E[Validate and queue]
+    E --> F{Target WAN or LAN?}
+    F -->|WAN| G[Save NVS and apply]
+    F -->|LAN| H[Forward via SPI]
+    H --> I[LAN validate, save, apply]
+    D --> J[Reply to App]
+    G --> J
+    I --> J
+        </div>
+      </div>
+      <div class="mermaid-wrap">
+        <div class="mermaid">
+flowchart TD
+    A1[Browser POST /api/config] --> B1[WAN parses JSON]
+    B1 --> C1[Build internal command]
+    C1 --> D1[Push to config queue]
+    D1 --> E1{Target?}
+    E1 -->|WAN| F1[Save NVS and apply]
+    E1 -->|LAN| G1[Forward via SPI]
+    G1 --> H1[LAN save and apply]
+    F1 --> I1[HTTP 200 OK/FAIL]
+    H1 --> I1
+        </div>
+      </div>
+    </div>
+    <div class="page-number">16</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">4.6</div>
+    <h2 class="section-title">Quy trinh FOTA cho he thong Dual-MCU</h2>
+    <div class="fig-grid">
+      <div class="mermaid-wrap">
+        <div class="mermaid">
+sequenceDiagram
+    participant Server
+    participant WAN
+    participant AP as WiFi AP
+    participant LAN
+
+    Server->>WAN: FOTA command + firmware URLs
+    WAN->>WAN: Set OTA mode
+    WAN->>LAN: Forward LAN firmware URL via SPI
+    WAN->>AP: Start AP mode
+    LAN->>AP: Connect STA
+    LAN->>LAN: Download + verify + flash
+    LAN-->>WAN: Handshake LAN FOTA DONE
+    WAN->>WAN: Download + verify + flash own firmware
+    WAN->>Server: Report final status
+        </div>
+      </div>
+      <div>
+        <table>
+          <thead><tr><th>Buoc</th><th>Thanh phan</th><th>Hanh dong</th><th>Y nghia</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>Server</td><td>Gui lenh va URL firmware</td><td>Khoi tao quy trinh cap nhat</td></tr>
+            <tr><td>2</td><td>WAN-MCU</td><td>Chuyen he thong sang OTA mode</td><td>Dong bo trang thai noi bo</td></tr>
+            <tr><td>3</td><td>WAN-MCU</td><td>Gui URL LAN firmware xuong LAN-MCU</td><td>Dieu phoi cap nhat LAN truoc</td></tr>
+            <tr><td>4</td><td>WAN-MCU</td><td>Bat AP de LAN-MCU truy cap Internet</td><td>Tao duong truyen tai noi bo</td></tr>
+            <tr><td>5-7</td><td>LAN-MCU</td><td>Download, verify, flash, reboot</td><td>Cap nhat firmware LAN</td></tr>
+            <tr><td>8</td><td>LAN-MCU</td><td>Gui handshake LAN FOTA DONE</td><td>Xac nhan da san sang cho WAN cap nhat</td></tr>
+            <tr><td>9-10</td><td>WAN-MCU</td><td>Tu cap nhat firmware cua minh</td><td>Hoan tat cap nhat toan he thong</td></tr>
+            <tr><td>11</td><td>WAN-MCU</td><td>Bao cao status len server</td><td>Dong vong FOTA</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="note"><strong>Quyet dinh kien truc quan trong:</strong> LAN-MCU phai duoc cap nhat truoc WAN-MCU. Neu lam nguoc lai, he thong co nguy co mat khoi dieu phoi trung tam trong khi LAN-MCU chua duoc dong bo phien ban moi.</div>
+    <figure>
+      <img src="DATN_Gateway/figures/DATN/design_FOTA.png" alt="Detailed FOTA flow" />
+      <figcaption>Hinh 4.10. Minh hoa luu do FOTA da duoc su dung trong tai lieu thiet ke goc.</figcaption>
+    </figure>
+    <div class="page-number">17</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">4.7</div>
+    <h2 class="section-title">Danh gia giai phap phan mem</h2>
+    <div class="two-col">
+      <div>
+        <table>
+          <thead><tr><th>Tieu chi</th><th>Danh gia</th><th>Bang chung kien truc</th></tr></thead>
+          <tbody>
+            <tr><td>Modularity</td><td>Dat</td><td>Protocol handlers doc lap, JSON preset, slot mapping</td></tr>
+            <tr><td>Configurability</td><td>Dat</td><td>NVS, App Config, Web Config Portal, ML command flow</td></tr>
+            <tr><td>Reliability</td><td>Dat</td><td>ACK/NACK, CRC, retry, failover, store-forward, FOTA sequence</td></tr>
+            <tr><td>Scalability</td><td>Tot</td><td>Bo sung handler moi chu yeu anh huong mot mien</td></tr>
+            <tr><td>Interoperability</td><td>Tot</td><td>Ho tro nhieu giao thuc LAN va WAN trong cung mot gateway</td></tr>
+            <tr><td>Maintainability</td><td>Tot</td><td>Phan lop ro rang, tri thuc module tach khoi ma nguon</td></tr>
+          </tbody>
+        </table>
+
+        <table>
+          <thead><tr><th>Rui ro con ton tai</th><th>Nguyen nhan</th><th>Huong giam thieu</th></tr></thead>
+          <tbody>
+            <tr><td>Do tre giao thuc LAN khong dong deu</td><td>Ban chat khac nhau giua Zigbee/LoRa/BLE/RS-485</td><td>Tach nghen chai ve protocol access layer, khong de lan sang WAN</td></tr>
+            <tr><td>Do phuc tap cau hinh tang</td><td>Nhieu kenh config va nhieu stack</td><td>Thong nhat pipeline Config Handler</td></tr>
+            <tr><td>Rui ro update dong thoi hai MCU</td><td>FOTA co phu thuoc trinh tu</td><td>Chon LAN truoc, WAN sau, co bao cao status va verify</td></tr>
+            <tr><td>Khac biet module cung chuc nang</td><td>AT syntax khong thong nhat</td><td>Module Base Setting dua tren JSON</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <div class="mermaid-wrap">
+          <div class="mermaid">
+xychart-beta
+        title "Overall Software Solution Evaluation"
+    x-axis ["Modularity", "Config", "Reliability", "Interoperability", "Scalability", "Maintainability"]
+        y-axis "Score" 0 --> 10
+    bar [9, 9, 8, 9, 8, 8]
+          </div>
+        </div>
+        <div class="card small">
+          <strong>Ket luan:</strong>
+          <div>Gia tri lon nhat cua giai phap nam o cau truc tong the: phan vai WAN-LAN ro rang, giao tiep noi bo chuan hoa, va tri thuc cau hinh module duoc tach khoi firmware.</div>
+        </div>
+      </div>
+    </div>
+    <div class="page-number">18</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">Phu luc</div>
+    <h2 class="section-title">Phu luc A - Danh muc task va handler doi chieu voi source code</h2>
+    <table>
+      <thead><tr><th>Workspace</th><th>Thu muc Application</th><th>Vai tro trong kien truc</th><th>Chuong muc lien quan</th></tr></thead>
+      <tbody>
+        <tr><td>DA2_esp</td><td>Config_Handler</td><td>Config Handler tren WAN-MCU</td><td>4.3, 4.6</td></tr>
+        <tr><td>DA2_esp</td><td>Data_Communication_Handler</td><td>Kenh USB/UART cho App Config</td><td>4.3, 4.6</td></tr>
+        <tr><td>DA2_esp</td><td>FOTA</td><td>OTA phia WAN va AP mode</td><td>4.3, 4.6</td></tr>
+        <tr><td>DA2_esp</td><td>Internet_Communication_Handler</td><td>Wi-Fi, LTE, Ethernet</td><td>4.3</td></tr>
+        <tr><td>DA2_esp</td><td>Internet_Monitor_Handler</td><td>Failover va monitor link</td><td>4.3</td></tr>
+        <tr><td>DA2_esp</td><td>MCU_LAN_Handler</td><td>Inter-MCU SPI slave endpoint</td><td>4.2, 4.3</td></tr>
+        <tr><td>DA2_esp</td><td>Server_Communication_Handler</td><td>MQTT/HTTP/CoAP</td><td>4.3</td></tr>
+        <tr><td>DA2_esp</td><td>Web_Config_Handler</td><td>Web Config Portal</td><td>4.3, 4.6</td></tr>
+        <tr><td>DA2_esp_LAN</td><td>MCU_WAN_Handler</td><td>Inter-MCU SPI master endpoint</td><td>4.2, 4.4</td></tr>
+        <tr><td>DA2_esp_LAN</td><td>Zigbee_Handler</td><td>Zigbee protocol handler</td><td>4.4</td></tr>
+        <tr><td>DA2_esp_LAN</td><td>LoRa_Handler</td><td>LoRa P2P protocol handler</td><td>4.4</td></tr>
+        <tr><td>DA2_esp_LAN</td><td>BLE_Handler</td><td>BLE native / GATT / AT-related handling</td><td>4.4</td></tr>
+        <tr><td>DA2_esp_LAN</td><td>RS485_Handler</td><td>Industrial serial communication</td><td>4.4</td></tr>
+        <tr><td>DA2_esp_LAN</td><td>Config_Handler</td><td>JSON preset parser/controller phia LAN</td><td>4.5</td></tr>
+        <tr><td>DA2_esp_LAN</td><td>Module_Monitor_Task</td><td>Health check va slot detect</td><td>4.4</td></tr>
+        <tr><td>DA2_esp_LAN</td><td>FOTA_LAN</td><td>OTA client phia LAN</td><td>4.6</td></tr>
+      </tbody>
+    </table>
+
+    <div class="mermaid-wrap">
+      <div class="mermaid">
+flowchart LR
+    subgraph Repo[Workspace Implementation Surface]
+      W1[DA2_esp / Application]
+      L1[DA2_esp_LAN / Application]
+    end
+    W1 --> A1[WAN firmware domain]
+    L1 --> A2[LAN firmware domain]
+    A1 <--> A2
+      </div>
+    </div>
+    <div class="page-number">19</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">Phu luc</div>
+    <h2 class="section-title">Phu luc B - Bang tong hop command/config/frame quan trong</h2>
+    <div class="two-col">
+      <div>
+        <table>
+          <thead><tr><th>Prefix / Ma</th><th>Y nghia</th><th>Mien xu ly</th></tr></thead>
+          <tbody>
+            <tr><td>WF</td><td>Wi-Fi config</td><td>WAN</td></tr>
+            <tr><td>MQ</td><td>MQTT config</td><td>WAN</td></tr>
+            <tr><td>LT</td><td>LTE config</td><td>WAN</td></tr>
+            <tr><td>IN</td><td>Internet type config</td><td>WAN</td></tr>
+            <tr><td>SV</td><td>Server type config</td><td>WAN</td></tr>
+            <tr><td>HP</td><td>HTTP config</td><td>WAN</td></tr>
+            <tr><td>CP</td><td>CoAP config</td><td>WAN</td></tr>
+            <tr><td>FW</td><td>Trigger firmware update</td><td>WAN + LAN</td></tr>
+            <tr><td>FU</td><td>Store firmware URL</td><td>WAN</td></tr>
+            <tr><td>ML</td><td>Module JSON config</td><td>LAN via WAN forward</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <table>
+          <thead><tr><th>Frame / ID</th><th>Mo ta</th><th>Vi du</th></tr></thead>
+          <tbody>
+            <tr><td>DT</td><td>Data Frame</td><td>Telemetry tu Zigbee/LoRa/BLE</td></tr>
+            <tr><td>CF</td><td>Command Frame</td><td>Lenh dieu khien xuong LAN-MCU</td></tr>
+            <tr><td>DQ</td><td>Data Query</td><td>Yeu cau doc du lieu hoac cache</td></tr>
+            <tr><td>CQ</td><td>Config Query</td><td>Yeu cau doc config hien tai</td></tr>
+            <tr><td>RT</td><td>RTC Response</td><td>Dong bo thoi gian giua hai MCU</td></tr>
+            <tr><td>ZIG</td><td>Handler ID Zigbee</td><td>Zigbee Handler Task</td></tr>
+            <tr><td>LOR</td><td>Handler ID LoRa</td><td>LoRa Handler Task</td></tr>
+            <tr><td>BLE</td><td>Handler ID BLE AT</td><td>BLE handler / module UART</td></tr>
+            <tr><td>BLN</td><td>Handler ID BLE native</td><td>ESP32-S3 BLE native</td></tr>
+            <tr><td>RS4</td><td>Handler ID RS-485</td><td>RS485 handler</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="note">Tai lieu nay duoc viet theo huong de nguoi doc co the dung ngay de review Chương 4 o muc kien truc, truoc khi chuyen thanh ban LaTeX chinh thuc. Nhung hinh local trong `DATN_Gateway/figures/DATN/` va cac so do Mermaid trong file nay co the tiep tuc duoc chon loc de dua vao wrapper Chương 4 sau nay.</div>
+    <div class="page-number">20</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">Phu luc C</div>
+    <h2 class="section-title">Ma tran traceability tu yeu cau den thanh phan firmware</h2>
+    <table>
+      <thead><tr><th>Yeu cau he thong</th><th>Thanh phan chinh</th><th>Mien xu ly</th><th>Bang chung thiet ke</th></tr></thead>
+      <tbody>
+        <tr><td>Ho tro da giao thuc LAN</td><td>Zigbee, LoRa, BLE, RS-485 handlers</td><td>LAN-MCU</td><td>Task tach rieng theo protocol</td></tr>
+        <tr><td>Ho tro da giao dien Internet</td><td>Wi-Fi, Ethernet, LTE handlers</td><td>WAN-MCU</td><td>Internet fallback va monitor</td></tr>
+        <tr><td>Khong sua firmware khi thay module</td><td>Module Base Setting JSON</td><td>LAN-MCU + WAN forward</td><td>Preset parser + template command</td></tr>
+        <tr><td>Cau hinh tai cho</td><td>Data Communication Handler</td><td>WAN-MCU</td><td>USB/UART App Config</td></tr>
+        <tr><td>Cau hinh khong day</td><td>Web Config Handler</td><td>WAN-MCU</td><td>Portal AP/STA + API</td></tr>
+        <tr><td>Cap nhat hau trien khai</td><td>FOTA Handler, FOTA_LAN</td><td>WAN + LAN</td><td>LAN truoc, WAN sau</td></tr>
+        <tr><td>Giao tiep noi bo on dinh</td><td>MCU LAN/WAN Handlers</td><td>Ca hai</td><td>Frame + ACK/NACK + CRC + sequence</td></tr>
+        <tr><td>On dinh khi cloud mat ket noi</td><td>Monitor + queue + store-forward</td><td>WAN + LAN</td><td>Cached status va buffering</td></tr>
+      </tbody>
+    </table>
+    <div class="mermaid-wrap">
+      <div class="mermaid">
+flowchart LR
+    R1[Multi-Protocol Requirement] --> H1[Protocol Handlers]
+    R2[Multi-Internet Requirement] --> H2[Internet Communication Handlers]
+    R3[No Rebuild on Module Change] --> H3[JSON Module Base Setting]
+    R4[Maintenance and Update Requirement] --> H4[App Config + Web Config + FOTA]
+    H1 --> Z[Architecture Satisfaction]
+    H2 --> Z
+    H3 --> Z
+    H4 --> Z
+      </div>
+    </div>
+    <div class="page-number">21</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">Phu luc D</div>
+    <h2 class="section-title">State machine van hanh tong the cua gateway</h2>
+    <div class="mermaid-wrap">
+      <div class="mermaid">
+stateDiagram-v2
+    [*] --> Boot
+    Boot --> LoadConfig
+    LoadConfig --> InternetInit
+    InternetInit --> CloudReady: Internet OK
+    InternetInit --> APConfigMode: Config requested
+    InternetInit --> OfflineBufferMode: No WAN
+    CloudReady --> LocalConfigMode: USB/UART request
+    CloudReady --> WebConfigMode: HTTP request
+    CloudReady --> FOTAMode: OTA command
+    CloudReady --> DownlinkDispatch: RPC arrives
+    DownlinkDispatch --> CloudReady
+    LocalConfigMode --> CloudReady
+    WebConfigMode --> CloudReady
+    APConfigMode --> CloudReady
+    OfflineBufferMode --> CloudReady: Link restored
+    FOTAMode --> Rebooting
+    Rebooting --> Boot
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>Trang thai</th><th>Mo ta</th><th>Su kien vao</th><th>Su kien ra</th></tr></thead>
+      <tbody>
+        <tr><td>Boot</td><td>Khoi dong driver, BSP, task</td><td>Cap nguon / reset</td><td>Hoan tat init</td></tr>
+        <tr><td>LoadConfig</td><td>Doc NVS va runtime defaults</td><td>Boot xong</td><td>Cau hinh hop le</td></tr>
+        <tr><td>InternetInit</td><td>Khoi tao Ethernet/Wi-Fi/LTE</td><td>Co config WAN</td><td>Link OK / fallback / AP mode</td></tr>
+        <tr><td>CloudReady</td><td>Publish/subscribe, telemetry, command</td><td>Internet va server OK</td><td>Config request, FOTA, offline</td></tr>
+        <tr><td>OfflineBufferMode</td><td>Luu dem cho den khi co ket noi lai</td><td>Link fail</td><td>Link restored</td></tr>
+        <tr><td>FOTAMode</td><td>Dong bo quy trinh update hai MCU</td><td>Server command</td><td>Reboot</td></tr>
+      </tbody>
+    </table>
+    <div class="page-number">22</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">Phu luc E</div>
+    <h2 class="section-title">State machine cho luong uplink, downlink va cau hinh</h2>
+    <div class="fig-grid">
+      <div class="mermaid-wrap">
+        <div class="mermaid">
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> ReceiveRaw
+    ReceiveRaw --> Validate
+    Validate --> Normalize: valid
+    Validate --> Idle: invalid
+    Normalize --> QueueUplink
+    QueueUplink --> BatchTransfer
+    BatchTransfer --> AckWait
+    AckWait --> Idle: ACK
+    AckWait --> BatchTransfer: NACK/Retry
+        </div>
+      </div>
+      <div class="mermaid-wrap">
+        <div class="mermaid">
+stateDiagram-v2
+    [*] --> WaitingCommand
+    WaitingCommand --> ParseRPC
+    ParseRPC --> BuildCF
+    BuildCF --> TriggerHandshake
+    TriggerHandshake --> LanRead
+    LanRead --> AckCheck
+    AckCheck --> WaitingCommand: ACK
+    AckCheck --> TriggerHandshake: Retry
+        </div>
+      </div>
+    </div>
+    <div class="mermaid-wrap">
+      <div class="mermaid">
+stateDiagram-v2
+    [*] --> ListenConfig
+    ListenConfig --> ParseInput
+    ParseInput --> ValidateConfig
+    ValidateConfig --> SaveNVS: WAN target
+    ValidateConfig --> ForwardSPI: LAN target
+    ForwardSPI --> LanApply
+    SaveNVS --> Reply
+    LanApply --> Reply
+    Reply --> ListenConfig
+      </div>
+    </div>
+    <div class="page-number">23</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">Phu luc F</div>
+    <h2 class="section-title">So do sequence chi tiet cho uplink va downlink</h2>
+    <div class="mermaid-wrap">
+      <div class="mermaid">
+sequenceDiagram
+    participant Sensor
+    participant LAN_MCU as LAN MCU
+    participant WAN_MCU as WAN MCU
+    participant Cloud
+
+    Sensor->>LAN_MCU: Data
+    LAN_MCU->>WAN_MCU: SPI DATA (seq, crc, payload)
+
+    alt SPI bad (CRC Error)
+        WAN_MCU-->>LAN_MCU: NACK (seq)
+    else SPI ok
+        WAN_MCU-->>LAN_MCU: ACK (seq)
+        WAN_MCU->>Cloud: MQTT Publish / HTTP POST / CoAP PUT
+    end
+      </div>
+    </div>
+    <div class="mermaid-wrap">
+      <div class="mermaid">
+sequenceDiagram
+    participant Cloud
+    participant WAN_MCU as WAN MCU
+    participant LAN_MCU as LAN MCU
+    participant Sensor
+
+    Cloud->>WAN_MCU: Command (MQTT Downlink)
+    WAN_MCU->>LAN_MCU: SPI CMD (seq, crc, payload)
+
+    alt SPI bad (CRC Error)
+        LAN_MCU-->>WAN_MCU: NACK (retry)
+    else SPI ok
+        LAN_MCU-->>WAN_MCU: ACK
+        LAN_MCU->>Sensor: Forward command (UART/I2C/GPIO)
+    end
+      </div>
+    </div>
+    <div class="page-number">24</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">Phu luc G</div>
+    <h2 class="section-title">So do handshake SPI giua LAN-MCU va WAN-MCU</h2>
+    <div class="mermaid-wrap">
+      <div class="mermaid">
+sequenceDiagram
+    participant LAN_MCU as LAN-MCU (SPI Master)
+    participant WAN_MCU as WAN-MCU (SPI Slave)
+
+    Note over LAN_MCU, WAN_MCU: Uplink Data Flow (LAN -> WAN)
+    LAN_MCU->>WAN_MCU: DATA (seq, crc, payload)
+    alt CRC bad
+        WAN_MCU-->>LAN_MCU: NACK (seq)
+        LAN_MCU->>WAN_MCU: DATA retransmit
+    else CRC ok
+        WAN_MCU-->>LAN_MCU: ACK (seq)
+    end
+
+    Note over LAN_MCU, WAN_MCU: Downlink Data Flow (WAN -> LAN via GPIO Interrupt)
+    WAN_MCU->>LAN_MCU: Assert GPIO Handshake
+    LAN_MCU->>WAN_MCU: SPI Clocking (Read data)
+    WAN_MCU-->>LAN_MCU: CMD (seq, crc, payload)
+    WAN_MCU->>LAN_MCU: De-assert GPIO Handshake
+
+    alt CRC bad
+        LAN_MCU-->>WAN_MCU: NACK (seq)
+    else CRC ok
+        LAN_MCU-->>WAN_MCU: ACK (seq)
+    end
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>Huong truyen</th><th>Chu the khoi tao</th><th>Co che bao dam</th><th>Gia tri kien truc</th></tr></thead>
+      <tbody>
+        <tr><td>Uplink</td><td>LAN-MCU</td><td>CRC + sequence + ACK/NACK</td><td>Du lieu duoc day chu dong len WAN</td></tr>
+        <tr><td>Downlink</td><td>WAN-MCU</td><td>GPIO interrupt + ACK/NACK</td><td>Loai bo polling, giam overhead CPU</td></tr>
+      </tbody>
+    </table>
+    <div class="page-number">25</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">Phu luc H</div>
+    <h2 class="section-title">So do quy trinh cap nhat cau hinh tu PC App va Web Portal</h2>
+    <div class="fig-grid">
+      <div class="mermaid-wrap">
+        <div class="mermaid">
+sequenceDiagram
+    participant PC as App PC
+    participant WAN as WAN-MCU
+    participant LAN as LAN-MCU
+
+    PC->>WAN: Scan and connect
+    WAN-->>PC: Device info / current config
+    PC->>WAN: Send config command
+    WAN->>WAN: Parse target
+    alt Target = WAN
+      WAN->>WAN: Save NVS + Apply
+    else Target = LAN
+      WAN->>LAN: SPI forward config
+      LAN->>LAN: Validate + Save + Apply
+      LAN-->>WAN: ACK OK/FAIL
+    end
+    WAN-->>PC: Final result
+        </div>
+      </div>
+      <div class="mermaid-wrap">
+        <div class="mermaid">
+sequenceDiagram
+    participant Browser
+    participant WAN as WAN MCU
+    participant LAN as LAN MCU
+
+    Browser->>WAN: POST /api/config
+    WAN->>WAN: Parse JSON -> Build internal command
+    alt WAN target
+      WAN->>WAN: Save NVS + Apply
+    else LAN target
+      WAN->>LAN: SPI forward
+      LAN->>LAN: Save + Apply
+      LAN-->>WAN: ACK
+    end
+    WAN-->>Browser: HTTP 200 OK/FAIL
+        </div>
+      </div>
+    </div>
+    <div class="page-number">26</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">Phu luc I</div>
+    <h2 class="section-title">So do quy trinh FOTA va Module Base Setting chi tiet</h2>
+    <div class="fig-grid">
+      <div class="mermaid-wrap">
+        <div class="mermaid">
+flowchart TD
+    A[Server sends OTA command] --> B[WAN enters OTA mode]
+    B --> C[WAN starts WiFi AP]
+    C --> D[LAN joins AP]
+    D --> E[LAN downloads firmware]
+    E --> F{LAN OK?}
+    F -->|No| G[Fallback]
+    F -->|Yes| H[Handshake complete]
+    H --> I[WAN updates itself]
+    I --> J{WAN OK?}
+    J -->|No| G
+    J -->|Yes| K[Report new version]
+        </div>
+      </div>
+      <div class="mermaid-wrap">
+        <div class="mermaid">
+flowchart TD
+    A1[Receive JSON config] --> B1[Parse JSON]
+    B1 --> C1[Initialize hardware profile]
+    C1 --> D1[Start handler task]
+    D1 --> E1[Receive MODULE_* command]
+    E1 --> F1{Function found?}
+    F1 -->|Yes| G1[Build command from template]
+    F1 -->|No| H1[Return command not found]
+    G1 --> I1[Run pre_gpio sequence]
+    I1 --> J1[Send UART/SPI/I2C command]
+    J1 --> K1[Collect response]
+    K1 --> L1[Return result]
+    H1 --> L1
+        </div>
+      </div>
+    </div>
+    <div class="page-number">27</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">Phu luc J</div>
+    <h2 class="section-title">Kich ban ThingsBoard den thiet bi BLE va luong request Web Config</h2>
+    <div class="mermaid-wrap">
+      <div class="mermaid">
+sequenceDiagram
+    participant TB as ThingsBoard
+    participant WAN as WAN MCU
+    participant LAN as LAN MCU
+    participant BLE as BLE Module
+    participant DEV as End Device
+
+    TB->>WAN: CFBL JSON config
+    WAN->>LAN: SPI forward
+    LAN->>LAN: Parse + init BLE handler
+    LAN-->>WAN: ACK OK
+    WAN-->>TB: config_saved
+
+    TB->>WAN: RPC control command
+    WAN->>LAN: SPI command
+    LAN->>BLE: AT / native BLE action
+    BLE->>DEV: GATT write / connect
+    DEV-->>BLE: response
+    BLE-->>LAN: notify / OK
+    LAN-->>WAN: SPI uplink result
+    WAN-->>TB: final status
+      </div>
+    </div>
+    <div class="mermaid-wrap">
+      <div class="mermaid">
+flowchart TD
+    A[Web Browser POST /api/config] --> B[WAN api_config]
+    B --> C[Parse JSON]
+    C --> D[Build internal command]
+    D --> E[Push config queue]
+    E --> F{Target?}
+    F -->|WAN| G[Save NVS + Apply]
+    F -->|LAN| H[Forward via SPI]
+    H --> I[LAN validate + save + apply]
+    G --> J[Return OK or FAIL]
+    I --> J
+      </div>
+    </div>
+    <div class="page-number">28</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">Phu luc K</div>
+    <h2 class="section-title">Bang tham so van hanh va KPI danh gia</h2>
+    <div class="two-col">
+      <div>
+        <table>
+          <thead><tr><th>KPI</th><th>Gia tri tham chieu</th><th>Giai thich</th></tr></thead>
+          <tbody>
+            <tr><td>Inter-MCU bus</td><td>> 10 Mbps thuc te</td><td>Du de lam xương song cho uplink/downlink noi bo</td></tr>
+            <tr><td>Batch interval</td><td>10 ms</td><td>Can bang giua do tre va hieu qua giao tiep</td></tr>
+            <tr><td>Internet monitor cycle</td><td>5 s</td><td>Du nhanh de failover, du cham de khong tao overhead</td></tr>
+            <tr><td>Module monitor cycle</td><td>30 s</td><td>Phu hop health check khong xam lan path chinh</td></tr>
+            <tr><td>BLE with DLE</td><td>~97.6 kbps</td><td>Minh hoa tiem nang cao nhat trong cac LAN stack hien tai</td></tr>
+            <tr><td>Zigbee app throughput</td><td>~8.2 kbps</td><td>Bi gioi han boi framing module va UART</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <table>
+          <thead><tr><th>Muc tieu kien truc</th><th>Co che thuc hien</th></tr></thead>
+          <tbody>
+            <tr><td>Khong doi firmware khi doi module</td><td>JSON preset + template dispatch</td></tr>
+            <tr><td>Khong de cloud task lam nghen sensor task</td><td>Tach WAN-LAN va inter-MCU pipeline</td></tr>
+            <tr><td>Ho tro bao tri khong day</td><td>Web Config Portal + AP mode</td></tr>
+            <tr><td>Ho tro bao tri hau trien khai</td><td>FOTA LAN truoc WAN sau</td></tr>
+            <tr><td>On dinh khi network fail</td><td>Internet Monitor + fallback + buffering</td></tr>
+            <tr><td>De mo rong cloud service</td><td>Server Communication Handler da giao thuc</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="page-number">29</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">Phu luc L</div>
+    <h2 class="section-title">Tong ket tai lieu va huong chuyen sang LaTeX</h2>
+    <div class="card">
+      <div>Tai lieu HTML nay duoc toi uu cho bang, hinh va so do de phuc vu kiem dinh nhanh Chương 4 truoc khi dua vao LaTeX.</div>
+    </div>
+    <table>
+      <thead><tr><th>Dau ra cua file HTML nay</th><th>Gia tri su dung tiep theo</th></tr></thead>
+      <tbody>
+        <tr><td>Cover, muc luc, phan 4.1-4.7</td><td>Lam ban preview noi dung cho Chương 4</td></tr>
+        <tr><td>Bang traceability, ma tran task, state machine</td><td>Chon loc dua vao phan phu luc hoac bang tong hop cua LaTeX</td></tr>
+        <tr><td>Sequence diagrams va flowchart</td><td>Lam co so ve lai hinh cho PDF nop bao cao</td></tr>
+        <tr><td>Bang thong so/KPI</td><td>Rut gon de dua vao phan danh gia giai phap phan mem</td></tr>
+      </tbody>
+    </table>
+    <div class="page-number">30</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">Phu luc M</div>
+    <h2 class="section-title">Chi tiet Internet stack tren WAN-MCU</h2>
+    <div class="two-col">
+      <div>
+        <table>
+          <thead><tr><th>Thanh phan</th><th>Vai tro</th><th>Trang thai quan ly</th></tr></thead>
+          <tbody>
+            <tr><td>Wi-Fi Handler</td><td>Kiem soat AP/STA, scan, connect, reconnect</td><td>Disconnected, Connecting, Connected, AP Mode</td></tr>
+            <tr><td>Ethernet Handler</td><td>Quan ly W5500, link-up, DHCP/static IP</td><td>Link Down, Link Up, IP Ready</td></tr>
+            <tr><td>LTE Handler</td><td>Dieu khien modem, APN, PPP/data path</td><td>Off, Init, Network Register, Data Ready</td></tr>
+            <tr><td>Internet Monitor</td><td>Danh gia primary/fallback theo cau hinh runtime</td><td>Observe, Switch, Recovery</td></tr>
+          </tbody>
+        </table>
+        <table>
+          <thead><tr><th>Su kien</th><th>Nguon phat hien</th><th>Phan ung</th></tr></thead>
+          <tbody>
+            <tr><td>Primary link down</td><td>Driver/BSP/stack</td><td>Thu fallback_type neu fallback duoc bat</td></tr>
+            <tr><td>Fallback path fail</td><td>Wi-Fi/LTE/Ethernet stack</td><td>Chuyen Offline Buffer Mode va tiep tuc monitor</td></tr>
+            <tr><td>LTE modem not ready</td><td>LTE handler</td><td>Khoi tao lai modem, giu he thong o offline mode</td></tr>
+            <tr><td>Cloud timeout keo dai</td><td>Server handler</td><td>Cap nhat health va trigger monitor danh gia lai link</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="mermaid-wrap">
+        <div class="mermaid">
+flowchart TB
+    A[Internet Monitor] --> B[Read internet_type and fallback settings]
+    B --> C[Start primary interface]
+    C --> D{Primary online?}
+    D -->|Yes| E[Use primary path]
+    D -->|No| F{Fallback enabled?}
+    F -->|No| G[Offline Buffer Mode]
+    F -->|Yes| H[Start fallback interface]
+    H --> I{Fallback online?}
+    I -->|Yes| J[Use fallback path]
+    I -->|No| G
+    E --> K[Periodic health check]
+    J --> K
+    G --> K
+    K --> C
+        </div>
+      </div>
+    </div>
+    <div class="page-number">31</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">Phu luc N</div>
+    <h2 class="section-title">Chi tiet Cloud stack tren WAN-MCU</h2>
+    <div class="two-col">
+      <div>
+        <table>
+          <thead><tr><th>Giao thuc</th><th>Uplink</th><th>Downlink</th><th>Trang thai can quan ly</th></tr></thead>
+          <tbody>
+            <tr><td>MQTT</td><td>Publish telemetry</td><td>Subscribe topic / RPC</td><td>Broker connect, session, keepalive</td></tr>
+            <tr><td>HTTP</td><td>POST telemetry</td><td>Long polling / REST command</td><td>Request timeout, response code</td></tr>
+            <tr><td>CoAP</td><td>PUT / resource update</td><td>Observe / command resource</td><td>Observe state, retransmission</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="mermaid-wrap">
+        <div class="mermaid">
+flowchart LR
+    A[Data Frame from LAN] --> B{server_type}
+    B -->|MQTT| C[Publish topic]
+    B -->|HTTP| D[HTTP POST]
+    B -->|CoAP| E[CoAP PUT]
+    C --> F[Cloud ACK / state]
+    D --> F
+    E --> F
+        </div>
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>Thong so cau hinh</th><th>Muc dich</th><th>Vi tri luu</th></tr></thead>
+      <tbody>
+        <tr><td>Broker URL / Endpoint</td><td>Xac dinh dich cloud</td><td>NVS</td></tr>
+        <tr><td>Port</td><td>Lua chon kenh transport</td><td>NVS</td></tr>
+        <tr><td>Auth token / credential</td><td>Xac thuc</td><td>NVS</td></tr>
+        <tr><td>TLS/DTLS enable</td><td>Bat tat bao mat</td><td>NVS</td></tr>
+        <tr><td>Timeout / retry</td><td>Kiem soat hanh vi recovery</td><td>NVS</td></tr>
+      </tbody>
+    </table>
+    <div class="page-number">32</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">Phu luc O</div>
+    <h2 class="section-title">Bang du lieu va data dictionary noi bo</h2>
+    <table>
+      <thead><tr><th>Thuc the</th><th>Truong</th><th>Kieu du lieu</th><th>Y nghia</th></tr></thead>
+      <tbody>
+        <tr><td>Config Request</td><td>type</td><td>enum</td><td>Nhom config can xu ly</td></tr>
+        <tr><td>Config Request</td><td>payload</td><td>JSON/string</td><td>Du lieu cau hinh tu app/web/server</td></tr>
+        <tr><td>Inter-MCU Frame</td><td>header</td><td>uint16</td><td>DT/CF/DQ/CQ/RT</td></tr>
+        <tr><td>Inter-MCU Frame</td><td>handler_id</td><td>3-byte ASCII</td><td>ZIG/LOR/BLE/RS4/...</td></tr>
+        <tr><td>Inter-MCU Frame</td><td>seq</td><td>uint16</td><td>Thu tu khung truyen</td></tr>
+        <tr><td>Inter-MCU Frame</td><td>crc</td><td>uint16</td><td>Kiem tra toan ven</td></tr>
+        <tr><td>Module Preset</td><td>functions[i].name</td><td>string</td><td>Ten chuan hoa cua chuc nang</td></tr>
+        <tr><td>Module Preset</td><td>cmd_template</td><td>string</td><td>Template lenh AT / command</td></tr>
+        <tr><td>Module Preset</td><td>pre_gpio</td><td>string/list</td><td>Trinh tu GPIO truoc lenh</td></tr>
+        <tr><td>Module Preset</td><td>timeout_ms</td><td>uint32</td><td>Thoi gian cho response</td></tr>
+      </tbody>
+    </table>
+    <div class="mermaid-wrap">
+      <div class="mermaid">
+classDiagram
+    class InterMCUFrame {
+      +header
+      +frameType
+      +handlerId
+      +seq
+      +payloadLength
+      +payload
+      +crc
+    }
+    class ModulePreset {
+      +commType
+      +baudRate
+      +functions[]
+    }
+    class FunctionSpec {
+      +name
+      +cmdTemplate
+      +preGpio
+      +postGpio
+      +timeoutMs
+    }
+    ModulePreset --> FunctionSpec
+        </div>
+      </div>
+    <div class="page-number">33</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">Phu luc P</div>
+    <h2 class="section-title">Fault recovery va chien luoc xu ly loi</h2>
+    <div class="two-col">
+      <div>
+        <table>
+          <thead><tr><th>Tinh huong loi</th><th>Khoi phat hien</th><th>Xu ly cap 1</th><th>Xu ly cap 2</th></tr></thead>
+          <tbody>
+            <tr><td>CRC loi tren SPI uplink</td><td>WAN-MCU</td><td>Tra NACK</td><td>LAN retry</td></tr>
+            <tr><td>Handshake downlink timeout</td><td>WAN-MCU</td><td>Retry gioi han</td><td>Danh dau command fail</td></tr>
+            <tr><td>Module khong tra loi AT</td><td>Module Monitor</td><td>Tang bo dem loi</td><td>Reset module / reload handler</td></tr>
+            <tr><td>Mat Internet</td><td>Internet Monitor</td><td>Fallback</td><td>Offline buffering</td></tr>
+            <tr><td>FOTA verify fail</td><td>OTA handler</td><td>Huy quy trinh</td><td>Rollback / giu phien ban cu</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="mermaid-wrap">
+        <div class="mermaid">
+flowchart TD
+    A[Detect error] --> B{Error class}
+    B -->|SPI or CRC| C[NACK and retry]
+    B -->|Module no response| D[Monitor counter and reset]
+    B -->|Internet lost| E[Fallback or store-forward]
+    B -->|FOTA verify fail| F[Abort and rollback]
+        </div>
+      </div>
+    </div>
+    <div class="page-number">34</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">Phu luc Q</div>
+    <h2 class="section-title">Bao mat, luu tru cau hinh va nguyen tac phan quyen</h2>
+    <table>
+      <thead><tr><th>Nhom du lieu</th><th>Vi tri luu</th><th>Muc do nhay cam</th><th>Luu y trinh bay bao cao</th></tr></thead>
+      <tbody>
+        <tr><td>Wi-Fi SSID</td><td>NVS</td><td>Trung binh</td><td>Co the hien thi mot phan</td></tr>
+        <tr><td>Wi-Fi password</td><td>NVS</td><td>Cao</td><td>An hoặc ma hoa khi tra ve App/Web</td></tr>
+        <tr><td>MQTT auth token</td><td>NVS</td><td>Cao</td><td>Khong dua toan van vao giao dien</td></tr>
+        <tr><td>Firmware URL</td><td>NVS</td><td>Trung binh</td><td>Kiem tra hop le truoc khi trigger FOTA</td></tr>
+        <tr><td>JSON preset module</td><td>Runtime / NVS tuy chinh sach</td><td>Trung binh</td><td>Can versioning de tranh mismatch</td></tr>
+      </tbody>
+    </table>
+    <div class="card small">
+      <strong>Nguyen tac bao mat o muc thiet ke:</strong>
+      <ul>
+        <li>Thong tin nhay cam khong duoc phan hoi thuan van qua App Config hay Web Config.</li>
+        <li>Config pipeline phai xac thuc tinh hop le truoc khi luu NVS.</li>
+        <li>FOTA chi nen bat dau khi firmware URL va file verify dat dieu kien.</li>
+        <li>Cloud credential va local config can co ranh gioi ro rang trong trinh bay va implementation.</li>
+      </ul>
+    </div>
+    <div class="page-number">35</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">Phu luc R</div>
+    <h2 class="section-title">Kich ban trien khai thuc te va mapping cau hinh</h2>
+    <table>
+      <thead><tr><th>Kich ban</th><th>LAN stack</th><th>WAN stack</th><th>Kenh cau hinh uu tien</th><th>Ghi chu</th></tr></thead>
+      <tbody>
+        <tr><td>Gateway cong nghiep co day</td><td>RS-485 + Zigbee</td><td>Ethernet</td><td>Web Config Portal</td><td>On dinh, uu tien W5500</td></tr>
+        <tr><td>Gateway giam sat khong day</td><td>LoRa + BLE</td><td>Wi-Fi</td><td>App Config luc dau, web ve sau</td><td>Phu hop noi bo / campus</td></tr>
+        <tr><td>Gateway du phong ngoai hien truong</td><td>LoRa + RS-485</td><td>LTE</td><td>USB/UART App Config</td><td>Can APN va modem config ro rang</td></tr>
+        <tr><td>Gateway linh hoat module test lab</td><td>Thay doi theo slot</td><td>Wi-Fi/Ethernet</td><td>App Config + JSON preset</td><td>Can Module Monitor hoat dong tot</td></tr>
+      </tbody>
+    </table>
+    <div class="mermaid-wrap">
+      <div class="mermaid">
+flowchart LR
+    A[Scenario selection] --> B[Choose WAN stack]
+    A --> C[Choose LAN modules]
+    B --> D[Apply NVS config]
+    C --> E[Apply JSON preset]
+    D --> F[Gateway ready]
+    E --> F
+      </div>
+    </div>
+    <div class="page-number">36</div>
+  </section>
+
+  <section class="page">
+    <div class="part-label">Phu luc S</div>
+    <h2 class="section-title">Checklist review thiet ke truoc khi dua vao LaTeX</h2>
+    <table>
+      <thead><tr><th>Hang muc review</th><th>Da co trong file</th><th>Muc co the dua vao ban nop</th></tr></thead>
+      <tbody>
+        <tr><td>Mo ta giai phap phan mem va ly do chon Dual-MCU</td><td>Co</td><td>Cao</td></tr>
+        <tr><td>Kien truc phan lop va phan vai WAN/LAN</td><td>Co</td><td>Cao</td></tr>
+        <tr><td>Bang task va muc uu tien</td><td>Co</td><td>Cao</td></tr>
+        <tr><td>Uplink / Downlink / Config flow</td><td>Co</td><td>Cao</td></tr>
+        <tr><td>Chi tiet WAN-MCU firmware</td><td>Co</td><td>Cao</td></tr>
+        <tr><td>Chi tiet LAN-MCU firmware</td><td>Co</td><td>Cao</td></tr>
+        <tr><td>JSON Module Base Setting</td><td>Co</td><td>Cao</td></tr>
+        <tr><td>Web Config, App Config, FOTA</td><td>Co</td><td>Cao</td></tr>
+        <tr><td>Danh gia giai phap</td><td>Co</td><td>Cao</td></tr>
+        <tr><td>State machine, traceability, fault recovery</td><td>Co</td><td>Tuy chon theo gioi han so trang</td></tr>
+      </tbody>
+    </table>
+    <div class="page-number">37</div>
+  </section>
+
+</body>
+</html>
