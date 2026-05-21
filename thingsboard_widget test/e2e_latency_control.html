@@ -1,0 +1,77 @@
+<!-- =====================================================================
+     DA2 E2E Latency — Node Connection Control Widget
+     =====================================================================
+     Paste into ThingsBoard widget editor:
+       HTML tab → this file
+       CSS  tab → e2e_latency_control.css
+       JS   tab → e2e_latency_control.js
+
+     Widget type : Control widget  (entity = WAN gateway device)
+     Datasource  : WAN gateway device, key "data" (telemetry from gateway)
+
+     Flow per protocol (1 button per network):
+       BLE    — Scan → Connect (auto: CONNECT → DISC → enable NOTIFY)
+                After NOTIFY enabled, node pushes NTP-synced ts_ms;
+                gateway forwards to ThingsBoard for server-side delay calc.
+       Zigbee — Open Network (auto: START_NETWORK → PERMIT_JOIN 180 s)
+                Node joins, reports temp/hum carrying ts_sec.
+       LoRa   — Open Network (auto: ENTER_P2P_MODE → SET_P2P_CONFIG → ENTER_P2P_RX)
+                Node TX 8-byte ts_ms packets.
+     ===================================================================== -->
+
+<div id="ec-root" class="ec-root">
+
+  <div class="ec-header">
+    <div>
+      <div class="ec-title">E2E Latency — Node Setup</div>
+      <div class="ec-sub">Open BLE · Zigbee · LoRa networks — gateway forwards node timestamps to server</div>
+    </div>
+    <div id="ec-pill" class="ec-pill idle">Idle</div>
+  </div>
+
+  <div class="ec-grid">
+
+    <!-- ── BLE ────────────────────────────────────────────────────── -->
+    <section class="ec-card">
+      <h3>BLE Node <span class="ec-uuid">(DA2_BLE_E2E)</span></h3>
+      <div class="ec-row">
+        <button id="ec-ble-scan"    class="ec-btn">Scan</button>
+        <button id="ec-ble-connect" class="ec-btn accent">Connect</button>
+      </div>
+      <label>Device</label>
+      <select id="ec-ble-device"><option value="">Scan first</option></select>
+      <div id="ec-ble-status" class="ec-status">Disconnected</div>
+    </section>
+
+    <!-- ── Zigbee ──────────────────────────────────────────────────── -->
+    <section class="ec-card">
+      <h3>Zigbee Node</h3>
+      <label>Slot</label>
+      <input id="ec-zb-slot" type="number" min="0" max="1" value="0">
+      <div class="ec-row">
+        <button id="ec-zb-open" class="ec-btn accent">Open Network</button>
+      </div>
+      <div id="ec-zb-status" class="ec-status">Waiting for node to join</div>
+    </section>
+
+    <!-- ── LoRa ──────────────────────────────────────────────────── -->
+    <section class="ec-card">
+      <h3>LoRa Node</h3>
+      <label>Slot</label>
+      <input id="ec-lora-slot" type="number" min="0" max="1" value="1">
+      <label>RF config</label>
+      <input id="ec-lora-rf" type="text" value="868,SF7,125,8,8,14,ON,OFF,OFF">
+      <div class="ec-row">
+        <button id="ec-lora-open" class="ec-btn accent">Open Network</button>
+      </div>
+      <div id="ec-lora-status" class="ec-status">Not prepared</div>
+    </section>
+
+  </div>
+
+  <section class="ec-card">
+    <h3>Console</h3>
+    <div id="ec-log" class="ec-log"></div>
+  </section>
+
+</div>

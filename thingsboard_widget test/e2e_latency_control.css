@@ -1,0 +1,159 @@
+/* =============================================================
+   DA2 E2E Latency Control Widget — CSS
+   ThingsBoard widget CSS tab
+   ============================================================= */
+
+:root {
+  --ec-bg:     linear-gradient(135deg, #f6f1e8 0%, #e8f0ef 100%);
+  --ec-card:   rgba(255, 252, 248, 0.94);
+  --ec-border: #d7c8ae;
+  --ec-ink:    #1f2a2a;
+  --ec-muted:  #647171;
+  --ec-accent: #0e7490;
+  --ec-good:   #15803d;
+  --ec-bad:    #b91c1c;
+  --ec-warn:   #b45309;
+}
+
+.ec-root {
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 16px;
+  color: var(--ec-ink);
+  background: var(--ec-bg);
+  font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+}
+
+/* ── Header ─────────────────────────────────────────────────── */
+.ec-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  gap: 10px;
+}
+
+.ec-title {
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.ec-sub {
+  color: var(--ec-muted);
+  font-size: 13px;
+}
+
+.ec-uuid {
+  color: var(--ec-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+/* ── Status pill ────────────────────────────────────────────── */
+.ec-pill {
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-weight: 700;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.ec-pill.idle   { background: #e5e7eb; color: #374151; }
+.ec-pill.active { background: #dbeafe; color: #1d4ed8; }
+.ec-pill.run    { background: #fef3c7; color: #92400e; }
+.ec-pill.error  { background: #fee2e2; color: #991b1b; }
+
+/* ── Grid ───────────────────────────────────────────────────── */
+.ec-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+/* ── Cards ──────────────────────────────────────────────────── */
+.ec-card {
+  background: var(--ec-card);
+  border: 1px solid var(--ec-border);
+  border-radius: 18px;
+  padding: 14px;
+  box-shadow: 0 10px 30px rgba(31, 42, 42, 0.08);
+  backdrop-filter: blur(8px);
+}
+
+.ec-card h3 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+
+.ec-card label {
+  display: block;
+  margin: 8px 0 4px;
+  font-size: 12px;
+  color: var(--ec-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ec-card input,
+.ec-card select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid #cbd5d1;
+  background: #fff;
+  font-size: 14px;
+}
+
+/* ── Buttons ────────────────────────────────────────────────── */
+.ec-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.ec-btn {
+  border: 0;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 120ms ease, opacity 120ms ease;
+  background: #e2e8f0;
+  color: #0f172a;
+  white-space: nowrap;
+}
+.ec-btn:hover       { transform: translateY(-1px); }
+.ec-btn.secondary   { background: #cbd5e1; }
+.ec-btn.accent      { background: var(--ec-good); color: #fff; }
+.ec-btn.danger      { background: var(--ec-bad);  color: #fff; }
+
+/* ── Inline status ──────────────────────────────────────────── */
+.ec-status {
+  margin-top: 10px;
+  min-height: 20px;
+  font-size: 13px;
+  color: var(--ec-warn);
+  word-break: break-all;
+}
+
+/* ── Console ────────────────────────────────────────────────── */
+.ec-log {
+  max-height: 240px;
+  overflow: auto;
+  border-radius: 14px;
+  background: #142321;
+  color: #ddf8f0;
+  padding: 10px;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 800px) {
+  .ec-root  { padding: 10px; }
+  .ec-title { font-size: 20px; }
+  .ec-header { align-items: flex-start; flex-direction: column; }
+}

@@ -11,21 +11,23 @@ files = {
 data = {}
 publish_events = {'Plot A': []}
 
-# Biểu thức chính quy (Regex) lấy Timestamp và giá trị Isys
-pattern = re.compile(r'I \((\d+)\) PWR_MON:.*Isys=(\d+) mA')
+# Biểu thức chính quy (Regex) lấy Timestamp, VSYS và Isys
+pattern = re.compile(r'I \((\d+)\) PWR_MON:.*VSYS=(\d+) mV.*Isys=(\d+) mA')
 # Regex lấy thời điểm publish
 pattern_pub = re.compile(r'I \((\d+)\) mqtt_handler: ✓ Published')
 
 for label, filepath in files.items():
     times = []
-    isys = []
+    power_w = []
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
             for line in f:
                 match = pattern.search(line)
                 if match:
                     times.append(int(match.group(1)))
-                    isys.append(int(match.group(2)))
+                    vsys_mv = int(match.group(2))
+                    isys_ma = int(match.group(3))
+                    power_w.append(vsys_mv * isys_ma / 1_000_000)
                 
                 # Bắt thời điểm publish (chỉ có ở Plot A)
                 if label == 'Plot A':
@@ -39,7 +41,7 @@ for label, filepath in files.items():
         first_time = times[0]
         # Thời gian tính bằng mili-giây, chuẩn hóa mốc 0
         rel_times = [t - first_time for t in times]
-        data[label] = (rel_times, isys)
+        data[label] = (rel_times, power_w)
         
         # Chuẩn hóa thời gian cho các sự kiện publish
         if label == 'Plot A' and publish_events['Plot A']:
@@ -61,11 +63,11 @@ for idx, label in enumerate(keys):
         # Thêm 1 vline ẩn vào legend để có chú thích
         axes1[idx].axvline(x=-1000, color='red', linestyle='--', label='MQTT Publish')
         
-    axes1[idx].set_ylabel('Isys (mA)')
+    axes1[idx].set_ylabel('Công suất (W)')
     axes1[idx].legend(loc="upper right")
     axes1[idx].grid(True)
 axes1[-1].set_xlabel('Thời gian (ms)')
-fig1.suptitle("Dòng điện Isys riêng lẻ (Sample 10ms)")
+fig1.suptitle("Công suất tiêu thụ riêng lẻ (Sample 10ms)")
 fig1.tight_layout()
 
 # --- Cửa sổ 2: Đồ thị so sánh (Tất cả dữ liệu) ---
@@ -80,8 +82,8 @@ if publish_events.get('Plot A'):
         plt.axvline(x=pt, color='red', linestyle='--', alpha=0.6, linewidth=1)
     plt.axvline(x=-1000, color='red', linestyle='--', label='Plot A MQTT Publish')
 plt.xlabel('Thời gian (ms)')
-plt.ylabel('Isys (mA)')
-plt.title('Dòng điện Isys - Plot A vs Plot B (Sample 10ms)')
+plt.ylabel('Công suất (W)')
+plt.title('Công suất tiêu thụ - Plot A vs Plot B (Sample 10ms)')
 plt.legend(loc="upper right")
 plt.grid(True)
 fig2.tight_layout()
