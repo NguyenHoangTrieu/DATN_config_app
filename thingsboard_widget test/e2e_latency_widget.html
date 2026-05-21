@@ -1,0 +1,145 @@
+﻿<!-- =====================================================================
+     DA2 E2E Latency Monitor Widget — ThingsBoard Latest Values Widget
+     =====================================================================
+     Paste into ThingsBoard widget editor:
+       HTML tab → this file
+       CSS  tab → e2e_latency_widget.css
+       JS   tab → e2e_latency_widget.js
+
+     Datasource setup (Latest Values, 4 datakeys):
+       Index 0 — LoRa  device, key "data"  (hex 8B LE = uint64 ts_ms)
+       Index 1 — BLE   device, key "data"  (hex 8B LE = uint64 ts_ms)
+       Index 2 — Zigbee device, key "temp" (float: (int16)(ts_sec & 0xFFFF) / 100)
+       Index 3 — Zigbee device, key "hum"  (float: (uint16)(ts_sec >> 16) / 100)
+
+     Node sketches:
+       lora_e2e_delay.ino    — ESP32-C3 + Wio-E5
+       ble_e2e_delay.ino     — ESP32-S3
+       zigbee_e2e_delay.ino  — ESP32-C6
+     ===================================================================== -->
+
+<div class="e2e-root" id="e2e-root">
+
+  <!-- Header -->
+  <div class="e2e-header">
+    <div>
+      <div class="e2e-title">⏱ E2E Latency Monitor</div>
+      <div class="e2e-sub">BLE · LoRa · Zigbee — end-to-end delay</div>
+    </div>
+    <div class="e2e-ts" id="e2e-last-update">Waiting for data…</div>
+  </div>
+
+  <!-- Protocol cards -->
+  <div class="e2e-cards">
+
+    <!-- LoRa card -->
+    <div class="e2e-card" data-proto="lora" id="card-lora">
+      <div class="e2e-card-head">
+        <span class="e2e-card-icon">📡</span>
+        <span class="e2e-card-name">LoRa</span>
+      </div>
+      <div class="e2e-delay" id="lora-delay">—</div>
+      <span class="e2e-delay-unit">ms</span>
+      <div class="e2e-stats">
+        <div class="e2e-stat-item">
+          <div class="e2e-stat-lbl">Min</div>
+          <div class="e2e-stat-val" id="lora-min">—</div>
+        </div>
+        <div class="e2e-stat-item">
+          <div class="e2e-stat-lbl">Avg</div>
+          <div class="e2e-stat-val" id="lora-avg">—</div>
+        </div>
+        <div class="e2e-stat-item">
+          <div class="e2e-stat-lbl">Max</div>
+          <div class="e2e-stat-val" id="lora-max">—</div>
+        </div>
+      </div>
+      <span class="e2e-pill idle" id="lora-pill"><span class="e2e-pill-dot"></span>Waiting</span>
+    </div>
+
+    <!-- BLE card -->
+    <div class="e2e-card" data-proto="ble" id="card-ble">
+      <div class="e2e-card-head">
+        <span class="e2e-card-icon">🔵</span>
+        <span class="e2e-card-name">BLE</span>
+      </div>
+      <div class="e2e-delay" id="ble-delay">—</div>
+      <span class="e2e-delay-unit">ms</span>
+      <div class="e2e-stats">
+        <div class="e2e-stat-item">
+          <div class="e2e-stat-lbl">Min</div>
+          <div class="e2e-stat-val" id="ble-min">—</div>
+        </div>
+        <div class="e2e-stat-item">
+          <div class="e2e-stat-lbl">Avg</div>
+          <div class="e2e-stat-val" id="ble-avg">—</div>
+        </div>
+        <div class="e2e-stat-item">
+          <div class="e2e-stat-lbl">Max</div>
+          <div class="e2e-stat-val" id="ble-max">—</div>
+        </div>
+      </div>
+      <span class="e2e-pill idle" id="ble-pill"><span class="e2e-pill-dot"></span>Waiting</span>
+    </div>
+
+    <!-- Zigbee card -->
+    <div class="e2e-card" data-proto="zigbee" id="card-zigbee">
+      <div class="e2e-card-head">
+        <span class="e2e-card-icon">🔶</span>
+        <span class="e2e-card-name">Zigbee</span>
+      </div>
+      <div class="e2e-delay" id="zb-delay">—</div>
+      <span class="e2e-delay-unit">ms</span>
+      <div class="e2e-stats">
+        <div class="e2e-stat-item">
+          <div class="e2e-stat-lbl">Min</div>
+          <div class="e2e-stat-val" id="zb-min">—</div>
+        </div>
+        <div class="e2e-stat-item">
+          <div class="e2e-stat-lbl">Avg</div>
+          <div class="e2e-stat-val" id="zb-avg">—</div>
+        </div>
+        <div class="e2e-stat-item">
+          <div class="e2e-stat-lbl">Max</div>
+          <div class="e2e-stat-val" id="zb-max">—</div>
+        </div>
+      </div>
+      <span class="e2e-pill idle" id="zb-pill"><span class="e2e-pill-dot"></span>Waiting</span>
+    </div>
+
+  </div><!-- /e2e-cards -->
+
+  <!-- Latency Chart -->
+  <div class="e2e-chart-wrap">
+    <div class="e2e-chart-hdr">
+      <span class="e2e-chart-title">Latency History</span>
+      <div class="e2e-legend">
+        <span class="e2e-legend-item"><span class="e2e-legend-dot" style="background:var(--lora-color)"></span>LoRa</span>
+        <span class="e2e-legend-item"><span class="e2e-legend-dot" style="background:var(--ble-color)"></span>BLE</span>
+        <span class="e2e-legend-item"><span class="e2e-legend-dot" style="background:var(--zb-color)"></span>Zigbee</span>
+      </div>
+    </div>
+    <canvas id="e2e-chart" height="120"></canvas>
+  </div>
+
+  <!-- History table -->
+  <div class="e2e-hist-wrap">
+    <div class="e2e-hist-hdr">
+      <span class="e2e-hist-title">Event Log</span>
+      <button class="e2e-btn-clear" onclick="e2eClearHistory()">Clear</button>
+    </div>
+    <table class="e2e-table">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Protocol</th>
+          <th>Delay (ms)</th>
+          <th>Node TS</th>
+          <th>Server TS</th>
+        </tr>
+      </thead>
+      <tbody id="e2e-hist-body"></tbody>
+    </table>
+  </div>
+
+</div><!-- /e2e-root -->

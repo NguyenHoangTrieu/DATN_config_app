@@ -1,0 +1,227 @@
+/* ==========================================================================
+   DA2 E2E Latency Monitor Widget — CSS
+   Paste into ThingsBoard widget editor → CSS tab
+   ========================================================================== */
+
+:root {
+  --lora-color:  #2ecc71;
+  --ble-color:   #3498db;
+  --zb-color:    #9b59b6;
+  --bg:          linear-gradient(140deg, #0d1117 0%, #0f1a2e 60%, #0d1f1a 100%);
+  --card-bg:     rgba(255, 255, 255, 0.06);
+  --card-border: rgba(255, 255, 255, 0.10);
+  --text:        #e0e4ef;
+  --sub:         #7e8599;
+  --radius:      14px;
+  --shadow:      0 4px 18px rgba(0, 0, 0, 0.4);
+}
+
+.e2e-root {
+  font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  min-height: 100%;
+  box-sizing: border-box;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ── Header ── */
+.e2e-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--card-border);
+}
+.e2e-title { font-size: 22px; font-weight: 800; }
+.e2e-sub   { font-size: 13px; color: var(--sub); margin-top: 2px; }
+.e2e-ts    { font-size: 11px; color: var(--sub); text-align: right; padding-top: 4px; }
+
+/* ── Protocol cards ── */
+.e2e-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.e2e-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(8px);
+  position: relative;
+  overflow: hidden;
+}
+.e2e-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.e2e-card[data-proto="lora"]::before   { background: var(--lora-color); }
+.e2e-card[data-proto="ble"]::before    { background: var(--ble-color);  }
+.e2e-card[data-proto="zigbee"]::before { background: var(--zb-color);   }
+
+.e2e-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.e2e-card-icon { font-size: 20px; }
+.e2e-card-name { font-size: 14px; font-weight: 700; }
+
+.e2e-delay {
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.e2e-delay-unit { font-size: 13px; font-weight: 400; color: var(--sub); }
+
+.e2e-card[data-proto="lora"]   .e2e-delay { color: var(--lora-color); }
+.e2e-card[data-proto="ble"]    .e2e-delay { color: var(--ble-color);  }
+.e2e-card[data-proto="zigbee"] .e2e-delay { color: var(--zb-color);   }
+
+.e2e-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 4px;
+  margin-top: 10px;
+  border-top: 1px solid var(--card-border);
+  padding-top: 8px;
+}
+.e2e-stat-item { text-align: center; }
+.e2e-stat-lbl {
+  font-size: 9px;
+  color: var(--sub);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+.e2e-stat-val {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Status pill ── */
+.e2e-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+  margin-top: 8px;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+.e2e-pill.ok   { background: rgba(46, 204, 113, 0.15); color: #2ecc71; }
+.e2e-pill.warn { background: rgba(241, 196, 15, 0.15);  color: #f1c40f; }
+.e2e-pill.bad  { background: rgba(231, 76, 60, 0.15);   color: #e74c3c; }
+.e2e-pill.idle { background: rgba(127, 140, 141, 0.15); color: #95a5a6; }
+.e2e-pill-dot  { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+/* ── Chart ── */
+.e2e-chart-wrap {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  padding: 12px 14px 10px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(8px);
+}
+.e2e-chart-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.e2e-chart-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--sub);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+.e2e-legend {
+  display: flex;
+  gap: 12px;
+  font-size: 10px;
+  color: var(--sub);
+}
+.e2e-legend-item { display: flex; align-items: center; gap: 4px; }
+.e2e-legend-dot  { width: 8px; height: 8px; border-radius: 50%; }
+
+canvas#e2e-chart { display: block; width: 100%; }
+
+/* ── History table ── */
+.e2e-hist-wrap {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(8px);
+  max-height: 160px;
+  overflow-y: auto;
+}
+.e2e-hist-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.e2e-hist-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--sub);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+.e2e-btn-clear {
+  font-size: 10px;
+  padding: 2px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--sub);
+  border: 1px solid var(--card-border);
+  cursor: pointer;
+}
+.e2e-btn-clear:hover { background: rgba(255, 255, 255, 0.13); }
+
+table.e2e-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.e2e-table th {
+  text-align: left;
+  padding: 2px 6px;
+  color: var(--sub);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 9px;
+  letter-spacing: .4px;
+  border-bottom: 1px solid var(--card-border);
+}
+.e2e-table td {
+  padding: 3px 6px;
+  color: var(--text);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+.e2e-table tr:hover td { background: rgba(255, 255, 255, 0.03); }
+
+.lora-txt { color: var(--lora-color); }
+.ble-txt  { color: var(--ble-color);  }
+.zb-txt   { color: var(--zb-color);   }
+
+@media (max-width: 700px) {
+  .e2e-cards { grid-template-columns: 1fr; }
+  .e2e-root  { padding: 10px; }
+  .e2e-title { font-size: 18px; }
+}
