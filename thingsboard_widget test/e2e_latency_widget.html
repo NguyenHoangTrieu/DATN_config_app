@@ -6,11 +6,10 @@
        CSS  tab → e2e_latency_widget.css
        JS   tab → e2e_latency_widget.js
 
-     Datasource setup (Latest Values, 4 datakeys):
+     Datasource setup (Latest Values, 3 datakeys):
        Index 0 — LoRa  device, key "data"  (hex 8B LE = uint64 ts_ms)
        Index 1 — BLE   device, key "data"  (hex 8B LE = uint64 ts_ms)
-       Index 2 — Zigbee device, key "temp" (float: (int16)(ts_sec & 0xFFFF) / 100)
-       Index 3 — Zigbee device, key "hum"  (float: (uint16)(ts_sec >> 16) / 100)
+      Index 2 — Zigbee device, key "hum"  (float: (uint16)(ts_ms & 0xFFFF) / 100)
 
      Node sketches:
        lora_e2e_delay.ino    — ESP32-C3 + Wio-E5
@@ -140,6 +139,14 @@
       </thead>
       <tbody id="e2e-hist-body"></tbody>
     </table>
+  </div>
+
+  <!-- Diagnostic raw-telemetry log -->
+  <div class="e2e-hist-wrap">
+    <div class="e2e-hist-hdr">
+      <span class="e2e-hist-title">Raw telemetry (debug)</span>
+    </div>
+    <pre id="e2e-debug-log" style="margin:0;padding:6px 0;color:var(--sub);font-family:Consolas,monospace;font-size:10px;white-space:pre-wrap;max-height:140px;overflow:auto;">Waiting for telemetry…</pre>
   </div>
 
 </div><!-- /e2e-root -->
