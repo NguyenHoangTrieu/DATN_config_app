@@ -4,26 +4,47 @@
 
    Datasource index mapping (configure in widget editor, Latest Values):
      ctx.data[0]  LoRa  gateway device, telemetry key "data"
-                        value: hex string, 8 bytes little-endian = uint64 ts_ms
+                        value: hex string, 10 bytes LE = uint64 ts_ms + uint16 seq
+                        (8-byte legacy payload still accepted, seq treated as null)
      ctx.data[1]  BLE   gateway device, telemetry key "data"
-                        value: hex string, 8 bytes little-endian = uint64 ts_ms
+                        value: hex string, 10 bytes LE = uint64 ts_ms + uint16 seq
      ctx.data[2]  Zigbee gateway device, telemetry key "temp"
                         value: float = (int16_t)(epoch_sec & 0xFFFF) / 100.0
      ctx.data[3]  Zigbee gateway device, telemetry key "hum"
                         value: float = (uint16_t)(epoch_sec >> 16) / 100.0
+                        Zigbee has no seq — loss tracking disabled for ZB.
 
    e2e_delay_ms = ThingsBoard message ts − node_ts_ms
+   Min/avg/max are computed AFTER warm-up skip + IQR outlier filter.
    ========================================================================== */
 
 var E2E_MAX_HISTORY   = 100;
 var E2E_MAX_CHART_PTS = 40;
 var E2E_WARN_THRESH   = 1000;   /* ms — yellow pill  */
 var E2E_BAD_THRESH    = 5000;   /* ms — red pill      */
+var E2E_WARMUP_SKIP   = 3;      /* first N samples per protocol are ignored */
+var E2E_IQR_K         = 1.5;    /* Tukey fence multiplier for outlier filter */
+var E2E_STATS_WINDOW  = 50;     /* sliding window used for min/avg/max + IQR */
+
+/* Per-protocol state:
+ *   cur         — last raw delay (always displayed, even during warm-up)
+ *   pts         — last E2E_MAX_CHART_PTS raw delays for the chart line
+ *   window      — last E2E_STATS_WINDOW raw delays used for stats + IQR
+ *   warm        — samples seen so far (when < E2E_WARMUP_SKIP, ignored in stats)
+ *   lastSeq     — last 16-bit seq seen (null = none yet)
+ *   recvCount   — samples that contributed to stats (post-warmup)
+ *   lossCount   — packets inferred lost from seq gaps (post-warmup)
+ */
+function _makeProtoState() {
+  return { cur: null, pts: [], window: [],
+           warm: 0, lastSeq: null,
+           recvCount: 0, lossCount: 0 };
+}
 
 var e2eState = {
-  lora:   { cur: null, min: null, max: null, sum: 0, cnt: 0, pts: [] },
-  ble:    { cur: null, min: null, max: null, sum: 0, cnt: 0, pts: [] },
-  zigbee: { cur: null, min: null, max: null, sum: 0, cnt: 0, pts: [] },
+  lora:   _makeProtoState(),
+  ble:    _makeProtoState(),
+  zigbee: _makeProtoState(),
   histRows: []
 };
 
@@ -47,10 +68,10 @@ self.onDataUpdated = function () {
     if (data[0] && data[0].data && data[0].data.length > 0) {
       var pt0 = data[0].data[data[0].data.length - 1];
       var ts0 = pt0[0];
-      var nodeTs0 = e2eDecodeHexTs(String(pt0[1]).trim());
-      if (nodeTs0 !== null && ts0 > 0) {
-        var d0 = ts0 - nodeTs0;
-        if (d0 >= 0 && d0 < 300000) e2eUpdateProto('lora', d0, nodeTs0, ts0);
+      var dec0 = e2eDecodeHexTsSeq(String(pt0[1]).trim());
+      if (dec0 && ts0 > 0) {
+        var d0 = ts0 - dec0.ts;
+        if (d0 >= 0 && d0 < 300000) e2eUpdateProto('lora', d0, dec0.ts, ts0, dec0.seq);
       }
     }
 
@@ -58,14 +79,14 @@ self.onDataUpdated = function () {
     if (data[1] && data[1].data && data[1].data.length > 0) {
       var pt1 = data[1].data[data[1].data.length - 1];
       var ts1 = pt1[0];
-      var nodeTs1 = e2eDecodeHexTs(String(pt1[1]).trim());
-      if (nodeTs1 !== null && ts1 > 0) {
-        var d1 = ts1 - nodeTs1;
-        if (d1 >= 0 && d1 < 300000) e2eUpdateProto('ble', d1, nodeTs1, ts1);
+      var dec1 = e2eDecodeHexTsSeq(String(pt1[1]).trim());
+      if (dec1 && ts1 > 0) {
+        var d1 = ts1 - dec1.ts;
+        if (d1 >= 0 && d1 < 300000) e2eUpdateProto('ble', d1, dec1.ts, ts1, dec1.seq);
       }
     }
 
-    /* Indices 2+3: Zigbee temp + hum */
+    /* Indices 2+3: Zigbee temp + hum (no seq) */
     var zbTempC = null, zbHumRh = null, zbTs = null;
     if (data[2] && data[2].data && data[2].data.length > 0) {
       var pt2 = data[2].data[data[2].data.length - 1];
@@ -90,7 +111,7 @@ self.onDataUpdated = function () {
       var zbNodeTs = e2eDecodeZbTs(zbTempC, zbHumRh);
       if (zbNodeTs !== null) {
         var dZb = zbTs - zbNodeTs;
-        if (dZb >= 0 && dZb < 300000) e2eUpdateProto('zigbee', dZb, zbNodeTs, zbTs);
+        if (dZb >= 0 && dZb < 300000) e2eUpdateProto('zigbee', dZb, zbNodeTs, zbTs, null);
       }
     }
 
@@ -104,17 +125,30 @@ self.onResize = function () {
 
 /* ── Decode helpers ──────────────────────────────────────────────────────── */
 
-function e2eDecodeHexTs(hexStr) {
-  if (!hexStr || hexStr.length < 16) return null;
+/* Decode hex payload into {ts, seq}.
+ *   20 hex chars (10 bytes) = uint64 ts_ms LE + uint16 seq LE
+ *   16 hex chars  (8 bytes) = uint64 ts_ms LE only (legacy, seq = null)
+ * Returns null on malformed input. */
+function e2eDecodeHexTsSeq(hexStr) {
+  if (!hexStr) return null;
   var s = hexStr.replace(/\s/g, '').toUpperCase();
   if (s.length < 16) return null;
+
   var lo32 = 0, hi32 = 0;
   for (var i = 0; i < 4; i++) lo32 |= (parseInt(s.slice(i*2, i*2+2), 16) << (i*8));
-  for (var i = 0; i < 4; i++) hi32 |= (parseInt(s.slice(8+i*2, 10+i*2), 16) << (i*8));
+  for (var j = 0; j < 4; j++) hi32 |= (parseInt(s.slice(8+j*2, 10+j*2), 16) << (j*8));
   lo32 = lo32 >>> 0;
   hi32 = hi32 >>> 0;
   if (hi32 === 0 && lo32 === 0) return null;
-  return hi32 * 4294967296 + lo32;
+  var ts = hi32 * 4294967296 + lo32;
+
+  var seq = null;
+  if (s.length >= 20) {
+    var b8 = parseInt(s.slice(16, 18), 16);
+    var b9 = parseInt(s.slice(18, 20), 16);
+    if (!isNaN(b8) && !isNaN(b9)) seq = (b8 | (b9 << 8)) & 0xFFFF;
+  }
+  return { ts: ts, seq: seq };
 }
 
 function e2eDecodeZbTs(tempC, humRh) {
@@ -127,19 +161,74 @@ function e2eDecodeZbTs(tempC, humRh) {
 
 /* ── Core update ─────────────────────────────────────────────────────────── */
 
-function e2eUpdateProto(proto, delayMs, nodeTs, serverTs) {
+function e2eUpdateProto(proto, delayMs, nodeTs, serverTs, seq) {
   var s = e2eState[proto];
   s.cur = delayMs;
-  if (s.min === null || delayMs < s.min) s.min = delayMs;
-  if (s.max === null || delayMs > s.max) s.max = delayMs;
-  s.sum += delayMs;
-  s.cnt++;
+
+  /* always feed the chart line and history (warm-up + outliers visible there) */
   s.pts.push({ v: delayMs });
   if (s.pts.length > E2E_MAX_CHART_PTS) s.pts.shift();
+
+  /* seq-based loss tracking (post-warm-up). Zigbee passes seq = null → skip. */
+  if (seq !== null && seq !== undefined) {
+    if (s.lastSeq !== null) {
+      var gap = ((seq - s.lastSeq) & 0xFFFF) - 1; /* 16-bit wrap-safe */
+      if (gap > 0 && gap < 1000 && s.warm >= E2E_WARMUP_SKIP) {
+        s.lossCount += gap;
+      }
+    }
+    s.lastSeq = seq;
+  }
+
+  s.warm++;
+  if (s.warm > E2E_WARMUP_SKIP) {
+    /* contribute to stats window after warm-up */
+    s.window.push(delayMs);
+    if (s.window.length > E2E_STATS_WINDOW) s.window.shift();
+    s.recvCount++;
+  }
+
   e2eUpdateCard(proto, s);
   e2eAddHistRow(proto, delayMs, nodeTs, serverTs);
   var el = document.getElementById('e2e-last-update');
   if (el) el.textContent = 'Last: ' + new Date().toLocaleTimeString();
+}
+
+/* ── IQR outlier filter ──────────────────────────────────────────────────── */
+
+/* Given an array of numbers, return {min, max, avg, kept, dropped} where
+ * outliers outside [Q1 − k·IQR, Q3 + k·IQR] are excluded.
+ * Returns null if window too small (< 5 samples). */
+function e2eIqrStats(arr) {
+  if (!arr || arr.length === 0) return null;
+  if (arr.length < 5) {
+    /* not enough samples for IQR — fall back to raw */
+    var raw_sum = 0, raw_mn = arr[0], raw_mx = arr[0];
+    for (var i = 0; i < arr.length; i++) {
+      raw_sum += arr[i];
+      if (arr[i] < raw_mn) raw_mn = arr[i];
+      if (arr[i] > raw_mx) raw_mx = arr[i];
+    }
+    return { min: raw_mn, max: raw_mx, avg: raw_sum / arr.length,
+             kept: arr.length, dropped: 0 };
+  }
+  var sorted = arr.slice().sort(function (a, b) { return a - b; });
+  var q1 = sorted[Math.floor(sorted.length * 0.25)];
+  var q3 = sorted[Math.floor(sorted.length * 0.75)];
+  var iqr = q3 - q1;
+  var lo = q1 - E2E_IQR_K * iqr;
+  var hi = q3 + E2E_IQR_K * iqr;
+  var sum = 0, mn = null, mx = null, kept = 0, dropped = 0;
+  for (var k = 0; k < arr.length; k++) {
+    var v = arr[k];
+    if (v < lo || v > hi) { dropped++; continue; }
+    if (mn === null || v < mn) mn = v;
+    if (mx === null || v > mx) mx = v;
+    sum += v;
+    kept++;
+  }
+  if (kept === 0) return null;
+  return { min: mn, max: mx, avg: sum / kept, kept: kept, dropped: dropped };
 }
 
 /* ── Card render ─────────────────────────────────────────────────────────── */
@@ -147,13 +236,45 @@ function e2eUpdateProto(proto, delayMs, nodeTs, serverTs) {
 function e2eUpdateCard(proto, s) {
   var id = proto === 'zigbee' ? 'zb' : proto;
   e2eSetText(id + '-delay', s.cur === null ? '—' : Math.round(s.cur).toLocaleString());
-  e2eSetText(id + '-min',   s.min === null ? '—' : Math.round(s.min).toLocaleString());
-  e2eSetText(id + '-avg',   s.cnt > 0 ? Math.round(s.sum / s.cnt).toLocaleString() : '—');
-  e2eSetText(id + '-max',   s.max === null ? '—' : Math.round(s.max).toLocaleString());
+
+  var stats = e2eIqrStats(s.window);
+  if (stats) {
+    e2eSetText(id + '-min', Math.round(stats.min).toLocaleString());
+    e2eSetText(id + '-avg', Math.round(stats.avg).toLocaleString());
+    e2eSetText(id + '-max', Math.round(stats.max).toLocaleString());
+  } else {
+    e2eSetText(id + '-min', '—');
+    e2eSetText(id + '-avg', '—');
+    e2eSetText(id + '-max', '—');
+  }
+
+  /* loss rate (only for protocols with seq) */
+  var lossEl = document.getElementById(id + '-loss');
+  if (lossEl) {
+    if (proto === 'zigbee' || s.lastSeq === null) {
+      lossEl.textContent = 'n/a';
+    } else {
+      var total = s.recvCount + s.lossCount;
+      var pct = total > 0 ? (s.lossCount * 100.0 / total) : 0;
+      lossEl.textContent = s.lossCount + '/' + total + ' (' + pct.toFixed(1) + '%)';
+    }
+  }
+
   var pillEl = document.getElementById(id + '-pill');
   if (!pillEl) return;
-  var cls  = s.cur === null ? 'idle' : (s.cur > E2E_BAD_THRESH ? 'bad' : s.cur > E2E_WARN_THRESH ? 'warn' : 'ok');
-  var text = s.cur === null ? 'Waiting' : (s.cur > E2E_BAD_THRESH ? 'Poor' : s.cur > E2E_WARN_THRESH ? 'Fair' : 'Good');
+
+  var cls, text;
+  if (s.cur === null) {
+    cls = 'idle'; text = 'Waiting';
+  } else if (s.warm <= E2E_WARMUP_SKIP) {
+    cls = 'warn'; text = 'Warm-up ' + s.warm + '/' + E2E_WARMUP_SKIP;
+  } else if (s.cur > E2E_BAD_THRESH) {
+    cls = 'bad';  text = 'Poor';
+  } else if (s.cur > E2E_WARN_THRESH) {
+    cls = 'warn'; text = 'Fair';
+  } else {
+    cls = 'ok';   text = 'Good';
+  }
   pillEl.className = 'e2e-pill ' + cls;
   pillEl.innerHTML = '<span class="e2e-pill-dot"></span>' + text;
 }

@@ -3,17 +3,19 @@
  *
  * Hardware : ESP32-S3 (same board as ble_sensor_node)
  *
- * Purpose  : Advertise a GATT server, then NOTIFY an 8-byte payload
- *            carrying an NTP-synced Unix timestamp (ms) every
- *            SEND_INTERVAL_MS when a central is connected.
+ * Purpose  : Advertise a GATT server, then NOTIFY a 10-byte payload
+ *            carrying an NTP-synced Unix timestamp (ms) + 16-bit sequence
+ *            number every SEND_INTERVAL_MS when a central is connected.
  *
- * Payload format (8 bytes, little-endian):
+ * Payload format (10 bytes, little-endian):
  *   Byte 0-7 : uint64_t node_ts_ms  (Unix epoch in milliseconds)
+ *   Byte 8-9 : uint16_t seq         (monotonic, wraps at 65536 — for loss tracking)
  *
  * ThingsBoard telemetry key sent by the gateway: "ble_data" (raw hex).
  * Widget decodes:
- *   lo32 = hex[0..7] decoded as uint32 LE
- *   hi32 = hex[8..15] decoded as uint32 LE
+ *   lo32 = hex[0..7]   decoded as uint32 LE
+ *   hi32 = hex[8..15]  decoded as uint32 LE
+ *   seq  = hex[16..19] decoded as uint16 LE
  *   node_ts_ms = hi32 * 2^32 + lo32
  *   e2e_delay_ms = thingsboard_msg_ts - node_ts_ms
  *
@@ -24,7 +26,7 @@
  *
  * GATT layout:
  *   Service UUID : 0000E2E0-0000-1000-8000-00805F9B34FB
- *   TS NOTIFY    : 0000E2E1-0000-1000-8000-00805F9B34FB  (8 bytes, NOTIFY)
+ *   TS NOTIFY    : 0000E2E1-0000-1000-8000-00805F9B34FB  (10 bytes, NOTIFY)
  *   INTERVAL W   : 0000E2E2-0000-1000-8000-00805F9B34FB  (uint16 LE, WRITE)
  */
 
@@ -240,19 +242,23 @@ void loop(void) {
     }
 
     uint64_t ts = currentMs();
+    uint16_t seq = (uint16_t)(g_packetsSent & 0xFFFF);
 
-    /* Pack little-endian into 8 bytes */
-    uint8_t buf[8];
+    /* Pack little-endian: 8B ts_ms + 2B seq */
+    uint8_t buf[10];
     for (int i = 0; i < 8; i++) {
       buf[i] = (uint8_t)((ts >> (i * 8)) & 0xFF);
     }
+    buf[8] = (uint8_t)(seq        & 0xFF);
+    buf[9] = (uint8_t)((seq >> 8) & 0xFF);
 
     g_tsChar->setValue(buf, sizeof(buf));
     g_tsChar->notify();
     g_packetsSent++;
 
-    Serial.printf("[BLE TX] #%lu  ts_ms=%llu\n",
+    Serial.printf("[BLE TX] #%lu  seq=%u  ts_ms=%llu\n",
                   (unsigned long)g_packetsSent,
+                  (unsigned)seq,
                   (unsigned long long)ts);
   }
 }

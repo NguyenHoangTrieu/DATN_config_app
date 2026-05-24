@@ -2,15 +2,17 @@
  * DA2 LoRa E2E Latency Test Node
  *
  * Hardware : ESP32-C3 + Wio-E5 LoRa module (UART1)
- * Purpose  : Transmit 8-byte LoRa P2P packets carrying an NTP-synced
- *            Unix timestamp (ms) every SEND_INTERVAL_MS.  The gateway
- *            receives the raw hex payload and forwards it to ThingsBoard
- *            as telemetry key "lora_data".  The e2e latency widget then
- *            decodes the bytes and computes:
+ * Purpose  : Transmit 10-byte LoRa P2P packets carrying an NTP-synced
+ *            Unix timestamp (ms) + 16-bit sequence number every
+ *            SEND_INTERVAL_MS. The gateway receives the raw hex payload
+ *            and forwards it to ThingsBoard as telemetry key "lora_data".
+ *            The e2e latency widget then decodes the bytes and computes:
  *              e2e_delay_ms = thingsboard_ts - node_ts_ms
+ *              loss_rate    = derived from gaps in seq
  *
- * Packet format (8 bytes, little-endian):
+ * Packet format (10 bytes, little-endian):
  *   Byte 0-7 : uint64_t node_ts_ms  (Unix epoch in milliseconds)
+ *   Byte 8-9 : uint16_t seq         (monotonic, wraps at 65536 — for loss tracking)
  *
  * WiFi / NTP :
  *   SSID     = "Devil"
@@ -46,8 +48,8 @@
 #define AT_TIMEOUT_MS     5000UL
 #define WIFI_TIMEOUT_MS  15000UL
 
-/* ---- Payload size (8 bytes = 16 hex chars) ------------------------- */
-#define PAYLOAD_BYTES 8
+/* ---- Payload size (10 bytes = 20 hex chars) ------------------------- */
+#define PAYLOAD_BYTES 10
 
 HardwareSerial LoRaSerial(1);
 
@@ -192,12 +194,15 @@ static bool initLora(void) {
 
 static bool sendTimestampPacket(void) {
   uint64_t ts = currentMs();
+  uint16_t seq = (uint16_t)(g_packetsSent & 0xFFFF);
 
-  /* Pack little-endian into 8 bytes */
+  /* Pack little-endian: 8B ts_ms + 2B seq = 10B total */
   uint8_t buf[PAYLOAD_BYTES];
   for (int i = 0; i < 8; i++) {
     buf[i] = (uint8_t)((ts >> (i * 8)) & 0xFF);
   }
+  buf[8] = (uint8_t)(seq        & 0xFF);
+  buf[9] = (uint8_t)((seq >> 8) & 0xFF);
 
   /* Build hex string */
   char hexStr[PAYLOAD_BYTES * 2 + 1];
@@ -210,8 +215,8 @@ static bool sendTimestampPacket(void) {
   cmd += hexStr;
   cmd += "\"\r\n";
 
-  Serial.printf("[LORA TX] ts_ms=%llu  hex=%s\n",
-                (unsigned long long)ts, hexStr);
+  Serial.printf("[LORA TX] seq=%u  ts_ms=%llu  hex=%s\n",
+                (unsigned)seq, (unsigned long long)ts, hexStr);
 
   return sendAT(cmd, "+TEST: TX DONE", AT_TIMEOUT_MS);
 }

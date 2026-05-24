@@ -92,7 +92,7 @@
 
 .e2e-stats {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: repeat(4, 1fr);
   gap: 4px;
   margin-top: 10px;
   border-top: 1px solid var(--card-border);
@@ -106,7 +106,7 @@
   letter-spacing: .5px;
 }
 .e2e-stat-val {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
