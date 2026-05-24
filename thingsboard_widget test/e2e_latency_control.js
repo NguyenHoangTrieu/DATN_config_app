@@ -11,9 +11,9 @@
               Node is responsible for NTP sync + periodic ts_ms NOTIFY.
               Gateway forwards each NOTIFY to ThingsBoard telemetry, so
               the server compares its receive ts vs node ts → e2e delay.
-     Zigbee — Open Network
-              Chains: MODULE_START_NETWORK → MODULE_SET_PERMIT_JOIN:180.
-              Node joins and reports temp/hum carrying ts_sec.
+    Zigbee — Open Network
+          Chains: MODULE_START_NETWORK → MODULE_SET_PERMIT_JOIN:180.
+          Node joins and reports humidity carrying low16(ts_ms).
      LoRa   — Open Network
               Chains: MODULE_ENTER_P2P_MODE → MODULE_SET_P2P_CONFIG → MODULE_ENTER_P2P_RX.
               Matches the throughput widget's gateway-side command set.
@@ -65,8 +65,11 @@ self.onDestroy = function () {
 };
 
 self.onDataUpdated = function () {
-  /* Fallback when telemetryWsService.subscribe is not available — ingest
-     from the standard widget datasource. */
+  /* Primary data path when telemetryWsService.subscribe is unavailable on this
+     TB version. Reads from the widget's configured datasource (gateway, key
+     "data"). The widget operator MUST add a datasource entry for the gateway
+     device with datakey "data" — otherwise CONNECTED / DISC_DONE telemetry
+     will never reach this widget.                                            */
   try {
     if (ecState.teleSub) return;
     var data = self.ctx && self.ctx.data;
@@ -75,6 +78,12 @@ self.onDataUpdated = function () {
       var kd = data[i];
       if (!kd || !kd.data) continue;
       for (var j = 0; j < kd.data.length; j++) {
+        var decoded = ecDecode(kd.data[j][1]);
+        if (decoded &&
+            !/CFBG:OK:NOTIFY:/i.test(decoded) &&
+            !/^RPT:[0-9A-Fa-f]/i.test(decoded)) {
+          ecLog('TELE: ' + ecShort(decoded));
+        }
         ecIngestEntry(kd.data[j][0], kd.data[j][1]);
       }
     }
@@ -154,14 +163,23 @@ function ecSubscribeTelemetry() {
           var arr = d && d.data;
           if (!arr) return;
           for (var i = 0; i < arr.length; i++) {
+            /* Diagnostic: log every telemetry entry like throughput widget does.
+               Filter out spammy keepalive lines but keep CONNECTED, DISC_DONE, etc. */
+            var decoded = ecDecode(arr[i][1]);
+            if (decoded &&
+                !/CFBG:OK:NOTIFY:/i.test(decoded) &&
+                !/^RPT:[0-9A-Fa-f]/i.test(decoded)) {
+              ecLog('TELE: ' + ecShort(decoded));
+            }
             ecIngestEntry(arr[i][0], arr[i][1]);
           }
         } catch (e) {}
       }
     });
-    ecLog('Telemetry subscribed');
+    ecLog('Telemetry subscribed (entity=' + entityId.id + ')');
   } catch (e) {
-    ecLog('Telemetry subscription unavailable — falling back to onDataUpdated');
+    ecLog('Telemetry subscription unavailable — falling back to onDataUpdated: ' +
+          (e && e.message ? e.message : e));
   }
 }
 
@@ -206,7 +224,17 @@ function ecHandleLine(line) {
     return;
   }
 
-  /* CONNECTED:<devIdx>:0x<connHandle>:<mac> */
+  /* CONNECTING:<devIdx>:<mac>  — ACK from gateway, contains devIdx immediately */
+  m = bl.match(/^CONNECTING:(\d+):([0-9A-Fa-f:]{17})/i);
+  if (m) {
+    ecState.ble.devIdx = parseInt(m[1], 10);
+    ecState.ble.mac    = m[2];
+    ecSetText('ec-ble-status', 'Connecting idx=' + m[1] + '…');
+    ecSetPill('run', 'Connecting');
+    return;
+  }
+
+  /* CONNECTED:<devIdx>:0x<connHandle>:<mac> — actual connection-complete event */
   m = bl.match(/^CONNECTED:(\d+):0x[0-9A-Fa-f]+:([0-9A-Fa-f:]{17})/i);
   if (m) {
     ecState.ble.connected = true;
@@ -295,8 +323,14 @@ function ecBleRpcMatchState(verb, line) {
       if (/^SCAN_DONE:/i.test(line))   return 'finish';
       return 'ignore';
     case 'CONNECT':
-      return /^CONNECTED:/i.test(line) ? 'finish'
-           : /^DISCONNECTED:/i.test(line) ? 'error' : 'ignore';
+      /* Gateway's RPC-response ACK is "CONNECTING:<idx>:<mac>" — already carries
+         devIdx, so accept that as a successful finish. The deferred CONNECTED:
+         event would arrive via telemetry but most setups never publish it back
+         to the widget — gateway log shows BLE connection completes in <150 ms,
+         so a small delay before DISC is enough.                              */
+      if (/^CONNECTED:/i.test(line) || /^CONNECTING:/i.test(line)) return 'finish';
+      if (/^DISCONNECTED:/i.test(line)) return 'error';
+      return 'ignore';
     case 'DISC':
       if (/^CHAR:/i.test(line) || /^SERVICE:/i.test(line)) return 'collect';
       if (/^DISC_DONE:/i.test(line)) return 'finish';
@@ -376,7 +410,13 @@ function ecBleConnectSelected() {
   ecRpc('CFML:CFBG:0:CONNECT:' + mac, 20000)
     .then(function () {
       if (ecState.ble.devIdx === null) throw new Error('CONNECT reply missing');
-      ecSetText('ec-ble-status', 'Connected — discovering services…');
+      ecSetText('ec-ble-status', 'BLE handshake in progress — waiting 400 ms…');
+      /* Gateway returns CONNECTING ACK immediately, but actual BLE connection
+         finishes ~100-150 ms later (per gateway log). Give it time before DISC. */
+      return new Promise(function (r) { setTimeout(r, 400); });
+    })
+    .then(function () {
+      ecSetText('ec-ble-status', 'Discovering services…');
       return ecRpc('CFML:CFBG:0:DISC:' + ecState.ble.devIdx, 20000);
     })
     .then(function () {
@@ -522,6 +562,10 @@ function ecRpc(cmd, timeoutMs) {
     self.ctx.controlApi.sendTwoWayCommand('sendCommand', ecTextToHex(cmd), timeoutMs || 15000)
       .subscribe(function (resp) {
         var decoded = ecDecode(resp);
+        /* Diagnostic: log every emission from sendTwoWayCommand.
+           ThingsBoard normally delivers ONE response per RPC, but some gateways
+           publish multiple frames to the same /rpc/response/<id> topic.        */
+        ecLog('RPC-RX ' + ecShort(decoded));
         var lines   = ecSplit(decoded);
         for (var i = 0; i < lines.length; i++) ecHandleLine(lines[i]);
 

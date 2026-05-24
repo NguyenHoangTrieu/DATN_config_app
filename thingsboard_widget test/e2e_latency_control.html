@@ -13,8 +13,8 @@
        BLE    — Scan → Connect (auto: CONNECT → DISC → enable NOTIFY)
                 After NOTIFY enabled, node pushes NTP-synced ts_ms;
                 gateway forwards to ThingsBoard for server-side delay calc.
-       Zigbee — Open Network (auto: START_NETWORK → PERMIT_JOIN 180 s)
-                Node joins, reports temp/hum carrying ts_sec.
+      Zigbee — Open Network (auto: START_NETWORK → PERMIT_JOIN 180 s)
+          Node joins, reports humidity carrying low16(ts_ms).
        LoRa   — Open Network (auto: ENTER_P2P_MODE → SET_P2P_CONFIG → ENTER_P2P_RX)
                 Node TX 8-byte ts_ms packets.
      ===================================================================== -->

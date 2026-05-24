@@ -342,7 +342,7 @@ static unsigned long  g_attrUpdateIntervalMs = ATTR_UPDATE_INTERVAL_DEFAULT_MS;
    Format: "DATN_AUTH_KEY:<name>"  — JS widget parses auth key + friendly name
    in one single ZCL read. Change this string to identify each device.
    Examples: "sensor_1", "sensor_2", "bulb_1", "switch_1", "plug_1" */
-#define DEVICE_NAME  "sensor_1"
+#define DEVICE_NAME  "sensor_2"
 
 /* ─── Reconnect watchdog ─────────────────────────────────────────────
    After being kicked (ZDO Remove Device) the device loses network

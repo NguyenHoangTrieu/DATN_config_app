@@ -37,18 +37,30 @@
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
-#include <BLE2902.h>
 #include <WiFi.h>
 #include "time.h"
 
-/* ---- WiFi / NTP ---------------------------------------------------- */
+/* ---- WiFi / NTP ----------------------------------------------------
+ *
+ *  IMPORTANT: For accurate e2e-delay measurement, the NODE and the
+ *  ThingsBoard SERVER must share the same time reference. The cleanest
+ *  setup is to run chrony on the RPi and point NTP_SERVER1 at the RPi's
+ *  LAN IP — both will then track UTC within ~1 ms.
+ *
+ *  See chrony setup commands in the widget repo's README. After enabling
+ *  chrony on the RPi, set NTP_SERVER1 to its LAN IP (e.g. 192.168.1.10)
+ *  and keep a public fallback in NTP_SERVER2.
+ * ------------------------------------------------------------------- */
 #define WIFI_SSID        "Devil"
 #define WIFI_PASS        "hamhap7604"
-#define NTP_SERVER1      "pool.ntp.org"
-#define NTP_SERVER2      "time.google.com"
+#define NTP_SERVER1      "192.168.1.100"     /* ← RPi ThingsBoard server LAN IP */
+#define NTP_SERVER2      "time.google.com"  /* ← fallback if RPi unreachable    */
 #define NTP_GMT_OFFSET   0
 #define NTP_DAYLIGHT     0
 #define WIFI_TIMEOUT_MS  15000UL
+#define NTP_SYNC_TIMEOUT_MS 20000UL
+#define NTP_POLL_MS      200UL
+#define NTP_PRIMARY_PROBE_MS 5000UL
 
 /* ---- BLE ----------------------------------------------------------- */
 #define DEVICE_NAME      "DA2_BLE_E2E"
@@ -74,12 +86,49 @@ static uint32_t          g_packetsSent  = 0;
 static uint64_t g_ntpBaseMs  = 0;
 static uint32_t g_ntpMillis  = 0;
 static bool     g_ntpSynced  = false;
+static const char *g_ntpSyncLabel = "unsynced";
+static const char *g_ntpSyncHost  = "";
 
 /* -------------------------------------------------------------------- */
 /*  NTP helpers                                                          */
 /* -------------------------------------------------------------------- */
 
+static void stopWiFi(void) {
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+}
+
+static bool syncNTPFromServer(const char *server, const char *label, uint32_t timeoutMs) {
+  struct tm info = {};
+  uint32_t syncStart = millis();
+
+  Serial.printf("[NTP] Trying %s (%s)", label, server);
+  configTime(NTP_GMT_OFFSET, NTP_DAYLIGHT, server);
+
+  while (!getLocalTime(&info, NTP_POLL_MS)) {
+    if (millis() - syncStart > timeoutMs) {
+      Serial.printf("\n[NTP] %s timeout after %lu ms\n",
+                    label,
+                    (unsigned long)(millis() - syncStart));
+      return false;
+    }
+    delay(NTP_POLL_MS);
+    Serial.print('.');
+  }
+
+  g_ntpSyncLabel = label;
+  g_ntpSyncHost  = server;
+  Serial.printf("\n[NTP] Sync source locked: %s (%s)\n", g_ntpSyncLabel, g_ntpSyncHost);
+  return true;
+}
+
 static void syncNTP(void) {
+  g_ntpSynced = false;
+  g_ntpSyncLabel = "unsynced";
+  g_ntpSyncHost  = "";
+
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
   Serial.println("[NTP] Connecting WiFi...");
   WiFi.begin(WIFI_SSID, WIFI_PASS);
 
@@ -87,26 +136,29 @@ static void syncNTP(void) {
   while (WiFi.status() != WL_CONNECTED) {
     if (millis() - t0 > WIFI_TIMEOUT_MS) {
       Serial.println("[NTP] WiFi timeout");
+      stopWiFi();
       return;
     }
     delay(300);
     Serial.print('.');
   }
-  Serial.printf("\n[NTP] WiFi OK: %s\n", WiFi.localIP().toString().c_str());
+  Serial.printf("\n[NTP] WiFi OK: %s  RSSI=%d dBm  GW=%s  DNS=%s\n",
+                WiFi.localIP().toString().c_str(),
+                WiFi.RSSI(),
+                WiFi.gatewayIP().toString().c_str(),
+                WiFi.dnsIP().toString().c_str());
 
-  configTime(NTP_GMT_OFFSET, NTP_DAYLIGHT, NTP_SERVER1, NTP_SERVER2);
-  Serial.print("[NTP] Waiting for sync");
-
-  struct tm info;
-  uint32_t deadline = millis() + 10000UL;
-  while (!getLocalTime(&info)) {
-    if (millis() > deadline) {
-      Serial.println("\n[NTP] Sync failed");
-      WiFi.disconnect(true);
+  if (!syncNTPFromServer(NTP_SERVER1, "RPi", NTP_PRIMARY_PROBE_MS)) {
+    Serial.printf("[NTP] Falling back to google.com (%s)\n", NTP_SERVER2);
+    if (!syncNTPFromServer(NTP_SERVER2, "google.com", NTP_SYNC_TIMEOUT_MS)) {
+      Serial.printf("[NTP] Sync failed after trying %s then %s (GW=%s DNS=%s)\n",
+                    NTP_SERVER1,
+                    NTP_SERVER2,
+                    WiFi.gatewayIP().toString().c_str(),
+                    WiFi.dnsIP().toString().c_str());
+      stopWiFi();
       return;
     }
-    delay(300);
-    Serial.print('.');
   }
 
   time_t now_sec;
@@ -114,11 +166,12 @@ static void syncNTP(void) {
   g_ntpBaseMs = (uint64_t)now_sec * 1000ULL;
   g_ntpMillis = millis();
   g_ntpSynced = true;
-  Serial.printf("\n[NTP] Synced — epoch_ms=%llu  millis=%lu\n",
+  Serial.printf("[NTP] Synced via %s (%s) — epoch_ms=%llu  millis=%lu\n",
+                g_ntpSyncLabel,
+                g_ntpSyncHost,
                 (unsigned long long)g_ntpBaseMs, (unsigned long)g_ntpMillis);
 
-  WiFi.disconnect(true);
-  WiFi.mode(WIFI_OFF);
+  stopWiFi();
   delay(200);
   Serial.println("[NTP] WiFi disconnected");
 }
@@ -134,9 +187,19 @@ static uint64_t currentMs(void) {
 
 class ServerCB : public BLEServerCallbacks {
   void onConnect(BLEServer *) override {
-    g_connected = false;   /* wait for CCCD write before sending */
+    /* NimBLE auto-creates the CCCD (0x2902) for NOTIFY-capable characteristics,
+     * and a manually-added BLE2902 will NEVER receive the subscribe callback
+     * on current Arduino-ESP32 BLE stack versions (the library log warns:
+     *   "NimBLE automatically creates the 0x2902 descriptor ...").
+     * So we cannot reliably gate on a CCCD-write callback.
+     *
+     * Instead, set both flags on connect — notify() is a safe no-op if the
+     * client has not yet written CCCD=0x0100. The gateway subscribes within
+     * ~1 s after CONNECT so at most one packet is dropped.                  */
+    g_connected = true;
+    g_notifyEn  = true;
     neopixelWrite(RGB_BUILTIN, 0, 24, 0);
-    Serial.println("[BLE] Central connected");
+    Serial.println("[BLE] Central connected — TX enabled");
   }
   void onDisconnect(BLEServer *) override {
     g_connected = false;
@@ -161,19 +224,6 @@ class IntvCB : public BLECharacteristicCallbacks {
   }
 };
 
-/* Track CCCD enables (client subscribes to NOTIFY) */
-class TsCccdCB : public BLEDescriptorCallbacks {
-  void onWrite(BLEDescriptor *d) override {
-    uint8_t *v = d->getValue();
-    if (v && d->getLength() >= 2) {
-      bool en = (v[0] & 0x01) != 0;
-      g_notifyEn  = en;
-      g_connected = en;
-      Serial.printf("[BLE] NOTIFY %s\n", en ? "ENABLED" : "DISABLED");
-    }
-  }
-};
-
 /* -------------------------------------------------------------------- */
 /*  Arduino entry points                                                 */
 /* -------------------------------------------------------------------- */
@@ -193,19 +243,20 @@ void setup(void) {
   /* Step 2: init BLE GATT server */
   BLEDevice::init(DEVICE_NAME);
   BLEDevice::setMTU(64);
+  BLEDevice::setPower(ESP_PWR_LVL_P9);
 
   g_server = BLEDevice::createServer();
   g_server->setCallbacks(new ServerCB());
 
   BLEService *svc = g_server->createService(SERVICE_UUID);
 
-  /* TS NOTIFY characteristic */
+  /* TS NOTIFY characteristic.
+   * Do NOT manually add a BLE2902 descriptor — NimBLE auto-creates one for
+   * NOTIFY-capable characteristics; adding our own results in a duplicate
+   * CCCD and the manual callback never fires.                              */
   g_tsChar = svc->createCharacteristic(
       CHAR_TS_UUID,
       BLECharacteristic::PROPERTY_NOTIFY);
-  BLE2902 *cccd = new BLE2902();
-  cccd->setCallbacks(new TsCccdCB());
-  g_tsChar->addDescriptor(cccd);
 
   /* INTERVAL WRITE characteristic */
   g_intvChar = svc->createCharacteristic(
@@ -216,12 +267,22 @@ void setup(void) {
   svc->start();
 
   BLEAdvertising *adv = BLEDevice::getAdvertising();
-  adv->addServiceUUID(SERVICE_UUID);
+  BLEAdvertisementData advData;
+  advData.setFlags(ESP_BLE_ADV_FLAG_GEN_DISC | ESP_BLE_ADV_FLAG_BREDR_NOT_SPT);
+  advData.setName(DEVICE_NAME);
+
+  BLEAdvertisementData scanRspData;
+  scanRspData.setCompleteServices(BLEUUID(SERVICE_UUID));
+
+  adv->setAdvertisementData(advData);
+  adv->setScanResponseData(scanRspData);
   adv->setScanResponse(true);
   adv->setMinPreferred(0x06);
+  adv->setMaxPreferred(0x12);
   BLEDevice::startAdvertising();
 
   Serial.println("[BLE] Advertising as \"" DEVICE_NAME "\"");
+  Serial.printf("[BLE] MAC %s\n", BLEDevice::getAddress().toString().c_str());
   g_lastSendMs = millis();
 }
 

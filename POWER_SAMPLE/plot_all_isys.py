@@ -63,6 +63,8 @@ for idx, label in enumerate(keys):
         # Thêm 1 vline ẩn vào legend để có chú thích
         axes1[idx].axvline(x=-1000, color='red', linestyle='--', label='MQTT Publish')
         
+    avg = sum(data[label][1]) / len(data[label][1])
+    axes1[idx].axhline(y=avg, color=f"C{idx}", linestyle=':', linewidth=1.5, label=f'TB: {avg:.3f} W')
     axes1[idx].set_ylabel('Công suất (W)')
     axes1[idx].legend(loc="upper right")
     axes1[idx].grid(True)
@@ -75,6 +77,8 @@ fig2 = plt.figure(figsize=(12, 6))
 fig2.canvas.manager.set_window_title("So sánh tất cả dữ liệu")
 for idx, label in enumerate(keys):
     plt.plot(data[label][0], data[label][1], label=label, linewidth=1, alpha=0.8, color=f"C{idx}")
+    avg = sum(data[label][1]) / len(data[label][1])
+    plt.axhline(y=avg, color=f"C{idx}", linestyle=':', linewidth=1.5, label=f'{label} TB: {avg:.3f} W')
 
 # Vẽ đánh dấu sự kiện publish trên đồ thị chung
 if publish_events.get('Plot A'):
