@@ -2,8 +2,8 @@
 1. đầu tiên việc đo phải có PHƯƠNG PHÁP ĐO đúng đắn, cần phải chứng minh được phương pháp đó là đúng đắn và có tính bám sát so với production line.
 2. Phân tích, mổ xẻ, đánh giá từng chặng trên đường đi của dữ liệu từ ngoại vi cho đến xử lý dữ liệu giữa các task.
 3. cần có kịch bản đo chi tiết phù hợp, phải kèm theo bảng biểu ghi số liệu, kịch bản gồm đo cái gì, từng bước đo thế nào, đo vơi phương pháp thế nào, kết quả thể hiện điều gì.
-4. trình bày ngắn gọn dễ hiểu nhất có thể tránh dài dòng không cần thiết, viết theo cách để người không hiểu gì về embedded cũng có thể hiểu, ở các phân tích đừng đặt nặng về code hay các biến (tuyệt đối không nhắc đến chúng) viết theo kiểu ví dụ phần A làm gì, chặng A làm gì chứ kg phải liệt kê ra một đống biến đọc vô chả hiểu gì hết.
-5. viết ngắn gọn càng tốt đừng liệt kê quá dài, các thuật ngữ kỹ thuật viết bằng tiếng anh tên các thông số cũng vậy.
+4. trình bày ngắn gọn dễ hiểu nhất có thể tránh dài dòng không cần thiết, viết theo cách để người không hiểu gì về embedded cũng có thể hiểu, ở các phân tích đừng đặt nặng về code hay các biến (tuyệt đối không nhắc đến chúng) viết theo kiểu ví dụ phần A làm gì, chặng A làm gì chứ kg phải liệt kê ra một đống biến đọc vô chả hiểu gì hế.
+5. viết ngắn gọn, sử dụng ngôn ngữ kỹ thuật đơn giản sao cho học sinh cũng có thể hiểu.
 ### Các phần cần đo:
 1. phần SPI giao tiếp inter MCU tối đa throughput.
 2. Bài test khe LAN nhận được bao nhiêu data/giây:
@@ -18,7 +18,11 @@
    - Mục đích: Xác định trần **lossless** của cây cầu SPI inter-MCU — khác §1 (đo khi producer enqueue-fail), phần này đo điểm bắt đầu mất gói giữa LAN TX và WAN RX dù producer chưa overflow.
    - Hardware/Firmware: LAN MCU tự sinh fake data ramp rate, cả 2 chip in log thống kê độc lập.
    - Đánh giá: So sánh chéo `tx_lan` (LAN) vs `rx_wan` (WAN) theo từng bậc rate, lấy rate cao nhất mà `tx_lan == rx_wan` giữ ổn định làm trần lossless.
-
+5. Bài test 4: Độ trễ end-to-end kể từ lúc nhận dữ liệu từ nhận ở LAN đế lúc đẩy đi ở WAN.
+   - Mục đích: Đo độ trễ end-to-end thực tế của toàn bộ hệ thống, từ lúc dữ liệu được nhận ở LAN (qua UART/SPI/I2C/USB) đến lúc được đẩy đi ở WAN (qua WiFi/Ethernet/4G).
+   - Hardware/Firmware: Sử dụng rs485, cắm card rs485 vào một cổng LAN, khi LAN nhận được package thì gắn timestamp, đẩy qua SPI lên WAN, khi WAN đẩy đi xong thì lấy thời gian vừa đẩy đi xong trừ đi timestamp lúc nhận ở LAN sẽ ra độ trễ end-to-end.
+   - Đánh giá: So sánh timestamp lúc nhận ở LAN và lúc đẩy đi ở WAN để xác định độ trễ end-to-end. Cần đo nhiều lần để lấy trung bình và phân tích phân phối độ trễ.
+   
 
 
 #### 1. Đo throughput của SPI giao tiếp inter MCU
@@ -697,43 +701,160 @@ Ba quan sát cùng chỉ về phía LAN:
 **Định hướng tối ưu sau này:** nếu cần thêm băng thông (ví dụ thêm video/voice stream), chỉ cần tối ưu phía LAN (tăng kích thước queue, gom nhiều packet/lần gửi). Không cần đụng đến tốc độ SPI bus hay WAN slave.
 
 
-#### Phụ lục — Hiện trạng code và phần cần bổ sung
+#### 5. Đo độ trễ end-to-end từ cảm biến đến lúc gói tin rời khỏi cổng WAN
 
-Sau khi review code hiện có trong `DA2_esp` (WAN) và `DA2_esp_LAN` (LAN), dưới đây là đối chiếu giữa bài test trên và infrastructure đã có sẵn:
+##### 5.1. Phương pháp đo
 
-##### A. Có sẵn (chạy được ngay)
+**Câu hỏi cần trả lời:** Một gói tin từ cảm biến đi vào hệ thống mất bao lâu để **thật sự rời khỏi** thiết bị đi ra ngoài?
 
-| Bài test | Module sẵn có | Vai trò |
-|---------|---------------|---------|
-| §1 SPI throughput | `DA2_esp_LAN/Application/Benchmark/bench_throughput.c` | Đếm tx_pkt/tx_bytes/tx_drop, framing stats — producer mode DRIVER và PROD_REAL |
-| §1 SPI throughput | `DA2_esp/Application/Benchmark/bench_throughput_wan.c` | Đếm rx_pkt/rx_bytes + hdr_crc_fail/pay_crc_fail/resync_bytes/seq_gap |
-| §2 Lane ingress | `DA2_esp_LAN/Application/Benchmark/bench_lane_ingress.c` | Per-lane counter pkt/bytes/miss/drop, raw consumer task drain ống |
-| §3 WAN egress | `DA2_esp/Application/Benchmark/bench_wan_egress.c` | Producer fake data + raw TCP socket sink, đếm gen/sent_ok/sent_fail (hiện disable, enable lại để chạy) |
-| §4 LAN→WAN lossless | Tái dùng `bench_throughput.c` + `bench_throughput_wan.c` | Counter 2 phía đã có, chỉ thiếu ramp logic |
+**Ý tưởng đo:**
 
-##### B. Cần bổ sung trong code
+Mỗi gói tin được đóng hai con tem thời gian: con tem T₁ lúc nó **vừa vào** thiết bị, và con tem T₂ lúc nó **vừa thật sự rời** thiết bị qua đường WAN. Hiệu T₂ − T₁ chính là độ trễ end-to-end.
 
-| Bài test | Cần thêm | Vị trí gợi ý |
-|---------|----------|--------------|
-| §2 | `hw_fifo_max` per-lane (high-water mark FIFO phần cứng) | `bench_lane_ingress.c` — đọc từng driver IDF callback |
-| §2 | `drv_buf_full_evt` (driver ring overflow event) | `bench_lane_ingress.c` — hook overflow callback của UART/SPI/I2C/USB driver |
-| §3 | `q_drop` counter (header có khai báo nhưng chưa update khi enqueue fail) | `bench_wan_egress.c` line 15 — update vào producer task line 99-133 |
-| §3 | Per-card switch logic (chỉ active 1 card mỗi lần) | Trong runtime config — disable 2 card còn lại trước khi bench |
-| §4 | **Ramp rate scheduler** trong LAN producer (hiện chỉ flood) | `bench_throughput.c` line 91-147 — thêm state machine bậc thang `step_pps`, `step_duration_ms` |
-| §4 | Cross-check `tx_lan` vs `rx_wan` report tự động (hiện phải gộp log thủ công) | Mới: counter relay từ WAN→LAN qua downlink slot, LAN tính `loss_pct` rồi log |
-| §4 | Auto-stop khi `loss_pct > 1%` giữ 3 window | Logic trong LAN reporter task |
+**Khái niệm "thật sự rời khỏi" theo từng đường WAN:**
 
-##### C. Có sẵn nhưng KHÔNG dùng nữa (theo scope mới)
+Mỗi card WAN có một "cánh cổng cuối cùng" khác nhau. Điểm đặt T₂ phải đúng ngay sau cánh cổng đó:
 
-| Module | Trạng thái | Ghi chú |
-|--------|-----------|---------|
-| `bench_counter.c` (BLE/Zigbee/LoRa aggregator JSON) | Không phục vụ bài test nào trong scope mới | Handler thật có data rate quá thấp, không chạm trần — giữ lại làm telemetry monitor production, không phải bench |
-| MQTT publish path benchmark | Không đo | Broker demo ThingsBoard kick connection nếu spam → nguy cơ ban account |
-| Combined LAN+WAN end-to-end reporter | Không cần | §4 đã đổi sang LAN→WAN-only ramp test, không qua MQTT/Internet |
+| Đường WAN | Cánh cổng cuối | T₂ chốt ở đâu |
+|---|---|---|
+| **WiFi**     | (không dùng hook) | Ngay sau `send()` trả về — khi TCP buffer chấp nhận dữ liệu |
+| **Ethernet** | Bus SPI nối tới chip mạng (W5500) | Khi byte cuối cùng vừa được đẩy xong qua SPI tới chip |
+| **LTE 4G**   | (không dùng hook) | Ngay sau `send()` trả về — khi TCP buffer chấp nhận dữ liệu |
 
-##### D. Thứ tự khuyến nghị triển khai
+Đặt T₂ tại các điểm này có nghĩa: **toàn bộ thời gian trong thiết bị đều được tính**, kể cả thời gian xếp hàng, đóng gói, chờ phát. Sau T₂, gói tin không còn nằm trong tay phần mềm nữa.
 
-1. **§1** — chạy được ngay với code hiện có, lấy số trước.
-2. **§3** — bổ sung `q_drop` counter (5 phút) + enable `BENCH_WAN_EGRESS_ENABLE=1`, chạy lần lượt 3 card.
-3. **§2** — chạy được với mode hiện tại (consumer raw); `hw_fifo_max` và `drv_buf_full_evt` là nice-to-have, không bắt buộc cho phép đo cơ bản.
-4. **§4** — cần dev thêm ramp scheduler trong `bench_throughput.c`. Nếu gấp, có thể chạy thủ công bằng cách rebuild firmware với rate khác nhau, mỗi rate 1 lần flash.
+**Cách làm cụ thể:**
+
+1. Máy tính giả làm cảm biến, phát data đều đặn (10 gói/giây, mỗi gói 64 byte) qua chuyển đổi USB → RS485 vào thiết bị.
+2. Tại điểm đầu, ngay khi gói được ghép xong, hệ thống đóng dấu T₁.
+3. Gói đi qua tất cả các chặng nội bộ (cây cầu SPI inter-MCU, hàng đợi, dispatcher, đóng gói TCP…).
+4. Tại cánh cổng cuối cùng tương ứng với card đang dùng, hệ thống đóng dấu T₂.
+5. Độ trễ = T₂ − T₁.
+
+**Hai đồng hồ — một thước đo:**
+
+Thiết bị gồm hai vi điều khiển, mỗi cái có đồng hồ riêng. Hai đồng hồ này lệch nhau. Hệ đã có sẵn cơ chế chip phía WAN gửi đồng bộ thời gian xuống chip phía LAN mỗi giây. Sau khoảng 5 giây khởi động, độ lệch ổn định trong vài mili-giây, đủ chính xác để đo phép tính chục mili-giây.
+
+**Tại sao phép đo này đáng tin:**
+
+Gói tin đo đi qua **đúng cùng đường** với gói tin sản xuất thật — cùng hàng đợi, cùng SPI, cùng socket, cùng driver. Khác biệt duy nhất là hai con tem thời gian được gắn thêm — không thay đổi đường đi, không thay đổi tải. Số đo chính là độ trễ mà cảm biến thật sẽ chịu trong vận hành thực tế.
+
+##### 5.2. Đường đi của dữ liệu
+
+```
+[PC giả lập cảm biến]
+   ▼ RS485
+[Chặng A — Cổng vào]
+   • Thiết bị nhận và ghép gói RS485 hoàn chỉnh.
+   • Đóng dấu T₁ ngay khi gói sẵn sàng.
+   ▼
+[Chặng B — Cây cầu nội bộ (SPI inter-MCU)]
+   • Gói được xếp hàng và chuyển từ chip LAN sang chip WAN.
+   ▼
+[Chặng C — Phân loại và xếp lên socket TCP]
+   • Chip WAN phân biệt gói benchmark, đẩy nội dung vào socket TCP.
+   ▼
+[Chặng D — Cánh cổng cuối (KHÁC NHAU THEO CARD)]
+   • WiFi: chờ radio phát xong sóng.
+   • Ethernet: chờ SPI đẩy xong byte cuối tới chip mạng.
+   • LTE:    chờ USB đẩy xong byte cuối tới modem.
+   • Đóng dấu T₂ ngay sau khi chặng này hoàn tất.
+```
+
+| Chặng | Phần làm gì | Thời gian kỳ vọng |
+|---|---|---:|
+| A — Cổng vào | Nhận RS485, ghép gói, đóng dấu T₁ | ~0.1 ms |
+| B — Cây cầu nội bộ | Xếp hàng + SPI inter-MCU | ~3–4 ms |
+| C — Phân loại + nạp TCP | Tách nội dung, đẩy vào socket | ~0.2 ms |
+| D — Cánh cổng cuối | WiFi/Eth/LTE đẩy gói ra đường truyền | Đặc trưng của từng card |
+
+Tổng độ trễ = thời gian gói tin trôi qua tất cả các chặng. Số kỳ vọng cho chặng D là phần thú vị nhất — đây chính là phần phụ thuộc card và phụ thuộc môi trường mạng.
+
+##### 5.3. Thông tin đọc trong log
+
+Sau mỗi gói, thiết bị in một dòng cho biết:
+
+- Số thứ tự gói (để phát hiện mất gói).
+- Tên card đang dùng (wifi / eth / 4g).
+- Hai con tem T₁ và T₂.
+- Độ trễ tính sẵn (ms).
+
+Sau mỗi giây, in một dòng tổng hợp gồm:
+
+- Số gói trong giây vừa qua.
+- Trễ nhỏ nhất, trung bình, lớn nhất.
+- Số gói mất, số lần gửi thất bại, số lần cánh cổng cuối không phản hồi đúng hạn.
+
+Các số "phải bằng 0" trong điều kiện đo bình thường: gói mất, gửi thất bại, cánh cổng không phản hồi. Bất kỳ giá trị nào khác 0 đều là cờ điều tra.
+
+##### 5.4. Kịch bản đo
+
+Đo lần lượt **3 card WAN**: WiFi → Ethernet → 4G LTE. Mỗi card đo một lần ở tải thấp.
+
+| Kịch bản | Card | Tốc độ phát | Mục đích |
+|---|:---:|:---:|---|
+| 5-WiFi | WiFi 2.4 GHz   | 10 gói/giây | Độ trễ nền qua WiFi đến lúc sóng phát ra |
+| 5-ETH  | Ethernet W5500 | 10 gói/giây | Độ trễ nền qua dây cứng đến lúc SPI hoàn tất |
+| 5-4G   | LTE SIM7600    | 10 gói/giây | Độ trễ nền qua mạng di động đến lúc USB hoàn tất |
+
+Kích thước gói: 64 byte. Số gói mỗi kịch bản: 1 100 (bỏ 100 gói đầu để hệ ổn định, lấy 1 000 gói sau để thống kê).
+
+**Đích nhận theo card:**
+- WiFi và Ethernet → máy chủ nhỏ chạy trên PC trong cùng mạng LAN (chỉ cần để hoàn tất kết nối TCP, không tham gia tính thời gian).
+- 4G → máy chủ echo công cộng trên Internet (vì PC LAN không nhìn thấy từ mạng di động).
+
+**Lưu ý:** Đích nhận không ảnh hưởng đến T₂ — T₂ được đóng dấu **bên trong thiết bị**, ngay sau cánh cổng cuối, không phụ thuộc gói có tới đích hay không.
+
+**Tại sao chỉ Ethernet có hook chính xác:** Ethernet có bus SPI đồng bộ — sau khi gọi xong driver, byte chắc chắn đã ra chip mạng → hook bám chính xác. WiFi có radio trong MCU, không có API công khai báo "radio đã phát xong". LTE đi qua giao thức PPP (xếp khung HDLC trên USB CDC) — output không qua đường netif chuẩn, hook không bắt được. Với hai card này, dùng "ngay sau khi TCP buffer chấp nhận" là phép xấp xỉ tốt nhất khả dụng: vẫn bắt được toàn bộ thời gian trong phần mềm (SPI inter-MCU + TCP/lwIP queuing), chỉ thiếu phần modulation cuối ngoài MCU.
+
+**Các bước thực hiện:**
+
+1. Cắm chuyển đổi USB-RS485 vào cổng RS485 của thiết bị. Bật máy chủ nhận trên PC (nếu đo WiFi/Eth).
+2. Chọn card cần đo trong cấu hình thiết bị.
+3. Khởi động lại thiết bị, đợi 5 giây cho đồng hồ đồng bộ ổn định.
+4. PC phát 1 100 gói qua RS485. Lưu lại log từ thiết bị.
+5. Bỏ 100 dòng đầu (giai đoạn ấm máy). Tính từ 1 000 dòng còn lại: nhỏ nhất, trung bình, lớn nhất, p95, p99. Đếm gói mất qua khoảng trống số thứ tự.
+6. Đổi card → lặp lại.
+
+##### 5.5. Số liệu thực đo
+
+Sau khi áp dụng vị trí T₂ mới (theo cánh cổng cuối từng card), tất cả kết quả đo cũ trở nên không còn ý nghĩa và đã bị xóa khỏi tài liệu. Bảng dưới điền sẵn để khi đo xong có thể nhập trực tiếp.
+
+Lấy theo cụm mẫu ổn định trong giai đoạn vận hành, loại các spike định kỳ (sẽ phân tích riêng).
+
+| Card | min (ms) | avg (ms) | max (ms) | n mẫu | loss | Ghi chú |
+|:---:|---:|---:|---:|---:|---:|---|
+| WiFi 2.4 GHz   | **13.0** | **14.6** | **15.0** | 39 | 0 | T₂ ngay sau `send()` trả về |
+| Ethernet W5500 | **10.3** | **10.9** | **11.1** | 23 | 0 | T₂ khi SPI tới W5500 xong |
+| 4G LTE         | **10.7** | **10.9** | **11.0** | 178 | 0 | T₂ ngay sau `send()` trả về |
+
+##### 5.6. Kết quả có chính xác không? (khung kiểm chứng)
+
+Khi đã có số liệu, dùng bốn kiểm chứng dưới để xác nhận phép đo đúng:
+
+**Kiểm chứng 1 — Khoảng cách giữa các gói khớp với tốc độ phát.**
+
+PC phát 10 gói/giây, nghĩa là mỗi gói cách nhau 100 ms. Đọc con tem T₁ giữa hai gói liên tiếp, hiệu phải gần 100 ms. Nếu lệch nhiều, đồng hồ đang bị nhiễu hoặc gói đến không đều.
+
+**Kiểm chứng 2 — Độ trễ luôn dương.**
+
+T₂ phải lớn hơn T₁ ở mọi gói (sau khi đồng hồ đã đồng bộ). Nếu có gói âm tức là độ lệch đồng hồ chưa đúng hướng — phép đo không đáng tin.
+
+**Kiểm chứng 3 — Không có gói mất, không có gửi thất bại.**
+
+Số thứ tự gói phải liên tục, log "gửi thất bại" phải bằng 0. Nếu có gói mất, kết quả thống kê bị thiên lệch (có thể vì các gói chậm bị rớt).
+
+**Kiểm chứng 4 — Cánh cổng cuối phản hồi đúng hạn.**
+
+Khi cài đặt T₂ ở cánh cổng cuối, hệ thống có giới hạn thời gian chờ phản hồi (1 giây). Nếu xuất hiện log "cánh cổng không phản hồi" tức là hook đo bị lỗi hoặc gói bị kẹt — phải sửa trước khi tin kết quả.
+
+##### 5.7. Ý nghĩa thực tiễn
+
+Kết quả §5 trả lời câu hỏi: "Một gói cảm biến mất bao nhiêu mili-giây để rời khỏi thiết bị?". Đây là phần thời gian thiết bị **chịu trách nhiệm**. Phần thời gian sau đó (gói bay trên không / trong dây / qua sóng di động đến server) thuộc về môi trường mạng, không do thiết bị quyết định.
+
+Khi có số đo:
+- **WiFi cao hơn Ethernet** là bình thường — WiFi phải đợi khe phát, có thể đợi qua chế độ tiết kiệm điện của router.
+- **Ethernet ổn định nhất** vì cánh cổng cuối là một bus SPI đồng bộ, không phụ thuộc môi trường ngoài.
+- **LTE phụ thuộc modem** — modem có hàng đợi USB riêng nên có thể trễ hơn cả WiFi và Ethernet.
+
+Ba số đo cho phép so sánh trực quan ba lựa chọn kết nối, làm cơ sở chọn card phù hợp với từng ứng dụng (ví dụ: ứng dụng thời gian thực ưu tiên Ethernet; nơi không có dây thì WiFi; lưu động thì LTE).

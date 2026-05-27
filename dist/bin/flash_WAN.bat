@@ -58,15 +58,15 @@ if %FLASH_WAN%==1 (
     if errorlevel 1 goto error_wan
     
     echo [WAN 2/4] Bootloader...
-    esptool --chip esp32s3 --port %PORT% --baud 115200 write_flash 0x0 bootloader.bin
+    esptool --chip esp32s3 --port %PORT% --baud 912600 write_flash 0x0 bootloader.bin
     if errorlevel 1 goto error_wan
     
     echo [WAN 3/4] Partition table...
-    esptool --chip esp32s3 --port %PORT% --baud 115200 write_flash 0x8000 partition-table.bin
+    esptool --chip esp32s3 --port %PORT% --baud 912600 write_flash 0x8000 partition-table.bin
     if errorlevel 1 goto error_wan
     
     echo [WAN 4/4] Application...
-    esptool --chip esp32s3 --port %PORT% --baud 115200 write_flash 0x20000 DA2_esp.bin
+    esptool --chip esp32s3 --port %PORT% --baud 912600 write_flash 0x20000 DA2_esp.bin
     if errorlevel 1 goto error_wan
     
     echo.
