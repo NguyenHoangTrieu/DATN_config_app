@@ -11,7 +11,7 @@
  */
 
 // ─── CHANGE THIS for each device ─────────────────────────────────────
-#define DEVICE_INDEX    2
+#define DEVICE_INDEX    3
 
 // ─── Pin / Timing ─────────────────────────────────────────────────────
 #define I2C_SDA_PIN 3
