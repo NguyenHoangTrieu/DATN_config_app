@@ -36,6 +36,28 @@
 #define RIG_MODE_USB
 
 /* ------------------------------------------------------------------ */
+/*  §5 END-TO-END LATENCY PROFILE (USB CDC source for the e2e bench)   */
+/* ------------------------------------------------------------------ */
+/* Set RIG_LATENCY_E2E to 1 to turn the USB rig into the §5 latency
+ * source instead of the §2 throughput-ramp source. It then emits a
+ * single FIXED rate (RIG_LAT_PPS) of small fixed-size packets, with no
+ * ramp, so each packet maps cleanly to one LAN-side T1/T2 measurement.
+ *
+ * HOW TO SWEEP LOAD: edit RIG_LAT_PPS and re-flash for each operating
+ * point (e.g. 10 pps = idle floor; raise toward the SPI-bridge ceiling
+ * ~1200–1350 pps from §4 to expose queueing latency). The LAN firmware
+ * frames on RIG_LAT_PKT — keep it equal to BENCH_LATENCY_USB_PKT (64).
+ *
+ * Requires RIG_MODE_USB. */
+#define RIG_LATENCY_E2E 1
+#define RIG_LAT_PPS     1000   /* <-- edit & reflash per operating point */
+#define RIG_LAT_PKT     64   /* MUST equal BENCH_LATENCY_USB_PKT on LAN */
+
+#if defined(RIG_LATENCY_E2E) && (RIG_LATENCY_E2E == 1) && !defined(RIG_MODE_USB)
+  #error "RIG_LATENCY_E2E requires RIG_MODE_USB (the §5 source is the USB lane)."
+#endif
+
+/* ------------------------------------------------------------------ */
 /*  Debug serial port — must never collide with the data port.         */
 /*  USB CDC mode hijacks `Serial`, so we route debug to UART0 (Serial0)*/
 /*  whenever USB is the data port. Wire UART0 TX (GPIO43) to your USB– */
@@ -65,7 +87,9 @@ Please enable it in Arduino IDE before flashing, otherwise Serial != USB CDC."
  *  - Push lanes (UART/USB): the LAN sees a continuous byte stream — packet size is
  *    irrelevant to it. Use 256 (matches the original ~717 kbps UART baseline);
  *    512 here is the prime suspect for the UART throughput regression. */
-#if defined(RIG_MODE_I2C) || defined(RIG_MODE_SPI)
+#if (RIG_LATENCY_E2E == 1)
+static const size_t  PKT_SIZE          = RIG_LAT_PKT; /* §5: small fixed packet */
+#elif defined(RIG_MODE_I2C) || defined(RIG_MODE_SPI)
 static const size_t  PKT_SIZE          = 512;
 #else
 static const size_t  PKT_SIZE          = 256;
@@ -91,7 +115,11 @@ static const uint32_t STEP_DURATION_MS = 5000; /* hold each rate 5 s           *
  *        by how fast the LAN MCU calls i2c read.
  * SPI  : master-clocked; ramp values are informational.
  */
-#if defined(RIG_MODE_UART)
+#if (RIG_LATENCY_E2E == 1)
+  /* §5 latency: ONE fixed rate, no ramp — one packet = one T1/T2 sample.
+   * Edit RIG_LAT_PPS above and re-flash to move to another operating point. */
+  static const uint32_t RATE_STEPS[] = { RIG_LAT_PPS };
+#elif defined(RIG_MODE_UART)
   static const uint32_t RATE_STEPS[] = { 100, 200, 300, 400, 500, 600 };
 #elif defined(RIG_MODE_USB)
   /* Fine-grained ramp through the 1500–3000 pps saturation zone.
@@ -115,6 +143,20 @@ static volatile uint64_t s_total_b   = 0;
 static uint32_t s_step      = 0;
 static uint32_t s_step_start_ms = 0;
 
+#if (RIG_LATENCY_E2E == 1)
+/* §5 latency layout: SOF magic so the LAN ingress can lock/relock framing on a
+ * delimiter-less USB byte stream. MUST match BENCH_LATENCY_USB_* on the LAN:
+ *   [0..1] 0x55 0xAA | [2..5] seq LE | [6..] pattern (i & 0xFF). */
+static void fill_pkt(uint32_t seq) {
+    s_pkt_buf[0] = 0x55;
+    s_pkt_buf[1] = 0xAA;
+    s_pkt_buf[2] = (seq      ) & 0xFF;
+    s_pkt_buf[3] = (seq >>  8) & 0xFF;
+    s_pkt_buf[4] = (seq >> 16) & 0xFF;
+    s_pkt_buf[5] = (seq >> 24) & 0xFF;
+    for (size_t i = 6; i < PKT_SIZE; i++) s_pkt_buf[i] = (uint8_t)(i & 0xFF);
+}
+#else
 static void fill_pkt(uint32_t seq) {
     /* 4-byte sequence header + recognizable payload pattern */
     s_pkt_buf[0] = (seq      ) & 0xFF;
@@ -123,6 +165,7 @@ static void fill_pkt(uint32_t seq) {
     s_pkt_buf[3] = (seq >> 24) & 0xFF;
     for (size_t i = 4; i < PKT_SIZE; i++) s_pkt_buf[i] = (uint8_t)(i & 0xFF);
 }
+#endif
 
 static void print_step_log(void) {
     DBG_SERIAL.printf("[RIG] step=%lu req_rate=%lu pps total_pkt=%lu total_b=%llu\n",
